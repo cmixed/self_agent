@@ -61,19 +61,19 @@ export default function MemoryPage() {
 
   return (
     <Space
-      direction="vertical"
+      orientation="vertical"
       size="middle"
       style={{ width: '100%', maxWidth: 900, margin: '0 auto' }}
     >
       <Alert
         type="info"
         showIcon
-        message="长期记忆会跨会话生效：任务运行时会自动并入 Agent 的「用户偏好」"
+        title="长期记忆会跨会话生效：任务运行时会自动并入 Agent 的「用户偏好」"
         description="显式设置的值优先；任务完成后系统也会用 LLM 提取新偏好，但不会覆盖这里已有的键。"
       />
 
-      {notice && <Alert type="success" showIcon message={notice} />}
-      {error && <Alert type="error" showIcon message={error} />}
+      {notice && <Alert type="success" showIcon title={notice} />}
+      {error && <Alert type="error" showIcon title={error} />}
 
       <Card title={`偏好（${preferences.length}）`} loading={loading}>
         <Table

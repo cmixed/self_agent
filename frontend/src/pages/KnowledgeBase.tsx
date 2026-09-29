@@ -70,7 +70,7 @@ export default function KnowledgeBasePage() {
 
   return (
     <Space
-      direction="vertical"
+      orientation="vertical"
       size="middle"
       style={{ width: '100%', maxWidth: 900, margin: '0 auto' }}
     >
@@ -87,8 +87,8 @@ export default function KnowledgeBasePage() {
         </Dragger>
       </Card>
 
-      {notice && <Alert type="success" showIcon message={notice} />}
-      {error && <Alert type="error" showIcon message={error} />}
+      {notice && <Alert type="success" showIcon title={notice} />}
+      {error && <Alert type="error" showIcon title={error} />}
 
       <Card
         title={`知识库文档（${documents.length}）`}

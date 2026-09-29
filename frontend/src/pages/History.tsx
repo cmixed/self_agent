@@ -64,11 +64,11 @@ export default function HistoryPage() {
 
   return (
     <Space
-      direction="vertical"
+      orientation="vertical"
       size="middle"
       style={{ width: '100%', maxWidth: 1000, margin: '0 auto' }}
     >
-      {error && <Alert type="error" showIcon message={error} />}
+      {error && <Alert type="error" showIcon title={error} />}
 
       <Card
         title={`任务历史（${tasks.length}）`}
@@ -131,14 +131,14 @@ export default function HistoryPage() {
 
       <Drawer
         title={detail ? `任务详情 · ${detail.task_id.slice(0, 8)}` : '任务详情'}
-        width={760}
+        size={760}
         open={detail !== null}
         loading={detailLoading}
         onClose={() => setDetail(null)}
         destroyOnHidden
       >
         {detail && (
-          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="任务">{detail.query}</Descriptions.Item>
               <Descriptions.Item label="状态">

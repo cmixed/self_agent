@@ -220,7 +220,7 @@ export default function TaskPage() {
   const stepItems = STAGE_ORDER.map((key) => ({
     title:
       key === 'researcher' && retrievalSkipped ? '未检索（计划不需要知识库）' : STAGE_TITLES[key],
-    description: key === 'writer' ? chapterHint || undefined : undefined,
+    content: key === 'writer' ? chapterHint || undefined : undefined,
     status:
       stages[key] === 'finish'
         ? ('finish' as const)
@@ -233,7 +233,7 @@ export default function TaskPage() {
 
   return (
     <Space
-      direction="vertical"
+      orientation="vertical"
       size="middle"
       style={{ width: '100%', maxWidth: 900, margin: '0 auto' }}
     >
@@ -250,7 +250,7 @@ export default function TaskPage() {
       </Space>
 
       <Card title="提交任务">
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
           <TextArea
             rows={3}
             value={query}
@@ -275,7 +275,7 @@ export default function TaskPage() {
       </Card>
 
       <Card title="执行进度">
-        <Steps direction="vertical" size="small" current={finishedCount} items={stepItems} />
+        <Steps orientation="vertical" size="small" current={finishedCount} items={stepItems} />
         <Space style={{ marginTop: 12 }}>
           {retrievedCount !== null && (
             <span>
@@ -287,7 +287,7 @@ export default function TaskPage() {
         </Space>
       </Card>
 
-      {error && <Alert type="error" showIcon message={error} />}
+      {error && <Alert type="error" showIcon title={error} />}
 
       {plan && (
         <Card title="研究计划">
