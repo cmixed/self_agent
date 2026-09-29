@@ -112,7 +112,7 @@ npm run build
 - [x] **Phase 3A**：RAG 索引 —— 文档上传 → 解析/切分 → 向量化入库 → 检索
 - [x] **Phase 3B**：RAG Tool + Researcher 接入 Graph，正文标注来源 [n] 并返回来源列表
 - [x] **Phase 4A**：长文分章节生成 —— Outline 节点 + Writer 逐章循环 + Summarizer 汇总
-- [ ] Phase 4B：Validator + 有限重试 / Re-plan
+- [x] **Phase 4B**：Validator（章节级 + 整篇）+ 有限重试 / Re-plan + 安全结束
 - [ ] Phase 5：Memory（Checkpoint + SQLite 长期记忆）
 - [ ] Phase 6：前端任务进度面板
 - [ ] Phase 7：评估（RAG / Agent / 长文本指标）
@@ -122,10 +122,15 @@ npm run build
 ```text
 START → Planner ──(计划需要检索)──→ Researcher(RAG Tool) ──┐
               │                                          ↓
-              ├──(计划不需要检索)────────────────────→ Outline → Writer ⇄ (逐章循环)
-              │                                                     │
-              └──(未能生成计划)──→ END(status=failed)               ↓
-                                              Summarizer → END
+              ├──(计划不需要检索)────────────────────→ Outline → Writer → Validator
+              │                                                    ↑          │
+              ├──(未能生成计划)──→ END                             │          │
+              │                                    (还有章节/重写) └──────────┤
+              │                                                               │
+              │                              (replan，未超上限) → Planner ─────┤
+              │                                                               │
+              │                        (通过且写完 / 重试达上限) ↓            │
+              └──────────────────────────────────────────────  Summarizer → END
 ```
 
 - 节点只返回增量状态，由 LangGraph reducer 合并（`app/models/state.py`）
@@ -133,6 +138,9 @@ START → Planner ──(计划需要检索)──→ Researcher(RAG Tool) ─�
 - 检索结果保留来源元数据，正文用 `[n]` 标注，结果中返回 `sources` 列表
 - 长文先由 Outline 生成章节，再由 Writer **每次写一章**循环完成，最后 Summarizer 汇总
   并统一追加「参考来源」（章节数上限 `MAX_SECTIONS`，杜绝无限循环）
+- Validator 先做**章节级**校验、全部写完后再做**整篇**校验；未通过时按
+  `suggested_action` 选择重写该章（`retry_writer`）或重新规划（`replan`），
+  累计失败次数受 `MAX_RETRIES` 限制，超限后进入 Summarizer 安全结束
 
 ## 接口
 
@@ -155,8 +163,25 @@ START → Planner ──(计划需要检索)──→ Researcher(RAG Tool) ─�
 }
 ```
 
+`POST /api/tasks` 返回结构（节选）：
+
+```json
+{
+  "task_id": "...",
+  "status": "completed",
+  "plan": { "goal": "...", "needs_retrieval": true, "steps": [] },
+  "outline": ["引言", "文本切分粒度的影响"],
+  "step_results": [{ "step_id": "chapter_1", "status": "ok", "summary": "已撰写：引言" }],
+  "sources": [{ "index": 1, "filename": "rag.md", "page": null, "score": 0.69 }],
+  "validation": { "passed": true, "issues": [], "suggested_action": "continue", "target": "document" },
+  "retry_count": 0,
+  "final_answer": "# ..."
+}
+```
+
 `POST /api/tasks/stream` 按 AGENTS.md §19 推送事件（`planner_started` /
-`planner_completed` / `writer_started` / … / `task_completed` / `task_failed`）：
+`researcher_started` / `outline_started` / `writer_started` / `validator_started` /
+`retrying` / `task_completed` / `task_failed` 等）：
 
 ```text
 data: {"task_id":"...","event":"planner_started","step":null,"status":"running","message":"正在分析任务并生成计划"}

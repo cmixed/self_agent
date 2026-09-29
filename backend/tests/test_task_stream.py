@@ -10,6 +10,7 @@ from fakes import (
     PLAN_PAYLOAD,
     ScriptedProvider,
     seed_knowledge_base,
+    validation_fail_json,
 )
 from fastapi.testclient import TestClient
 
@@ -17,13 +18,33 @@ from app.api.deps import get_task_service
 from app.main import create_app
 from app.services.task_service import TaskService
 
+# planner -> outline -> (writer -> validator) x2 -> summarizer
+_HAPPY_EVENTS = [
+    "task_started",
+    "planner_started",
+    "planner_completed",
+    "outline_started",
+    "outline_completed",
+    "writer_started",
+    "writer_completed",
+    "validator_started",
+    "validator_completed",
+    "writer_started",
+    "writer_completed",
+    "validator_started",
+    "validator_completed",
+    "summarizer_started",
+    "summarizer_completed",
+    "task_completed",
+]
+
 
 async def collect(service: TaskService, query: str) -> list[dict[str, Any]]:
     return [event async for event in service.stream(query)]
 
 
 def _provider() -> ScriptedProvider:
-    return ScriptedProvider([PLAN_JSON, OUTLINE_JSON, DRAFT_TEXT])
+    return ScriptedProvider([PLAN_JSON, OUTLINE_JSON])
 
 
 async def test_stream_emits_events_in_execution_order() -> None:
@@ -32,20 +53,7 @@ async def test_stream_emits_events_in_execution_order() -> None:
     events = await collect(service, "写一篇 RAG 综述")
     names = [event["event"] for event in events]
 
-    assert names == [
-        "task_started",
-        "planner_started",
-        "planner_completed",
-        "outline_started",
-        "outline_completed",
-        "writer_started",
-        "writer_completed",
-        "writer_started",
-        "writer_completed",
-        "summarizer_started",
-        "summarizer_completed",
-        "task_completed",
-    ]
+    assert names == _HAPPY_EVENTS
     assert all(event["task_id"] for event in events)
 
     planned = next(event for event in events if event["event"] == "planner_completed")
@@ -55,16 +63,53 @@ async def test_stream_emits_events_in_execution_order() -> None:
     assert outlined["outline"] == ["引言", "chunk 大小的影响"]
 
     # 写作进度按章节推进
-    writer_events = [e for e in events if e["event"].startswith("writer_")]
-    assert [e["step"] for e in writer_events if e["event"] == "writer_completed"] == [
-        "chapter_1",
-        "chapter_2",
-    ]
-    assert writer_events[0]["message"] == "正在撰写第 1 章"
+    writer_done = [event for event in events if event["event"] == "writer_completed"]
+    assert [event["step"] for event in writer_done] == ["chapter_1", "chapter_2"]
+    started = [event for event in events if event["event"] == "writer_started"]
+    assert started[0]["message"] == "正在撰写第 1 章"
+
+    # 校验事件带结果信息
+    validations = [event for event in events if event["event"] == "validator_completed"]
+    assert [event["target"] for event in validations] == ["chapter_1", "document"]
+    assert all(event["passed"] is True for event in validations)
 
     completed = events[-1]
     assert completed["result"]["status"] == "completed"
     assert DRAFT_TEXT in completed["result"]["final_answer"]
+
+
+async def test_stream_emits_retrying_event_on_failure() -> None:
+    provider = ScriptedProvider(
+        [PLAN_JSON, OUTLINE_JSON, "初稿", validation_fail_json("retry_writer")]
+    )
+    service = TaskService(provider, max_retries=2)
+
+    events = await collect(service, "写一篇 RAG 综述")
+    names = [event["event"] for event in events]
+
+    assert "retrying" in names
+    retrying = next(event for event in events if event["event"] == "retrying")
+    assert retrying["step"] == "chapter_1"
+    assert retrying["retry_count"] == 1
+    assert "重写" in retrying["message"]
+
+    # 重试后仍能完成，且记录了 retry_count
+    assert names[-1] == "task_completed"
+    assert events[-1]["result"]["retry_count"] == 1
+    assert events[-1]["result"]["validation"]["passed"] is True
+
+
+async def test_stream_reports_retry_cap_message() -> None:
+    provider = ScriptedProvider(
+        [PLAN_JSON, OUTLINE_JSON, "初稿", validation_fail_json("retry_writer")]
+    )
+    service = TaskService(provider, max_retries=1)
+
+    events = await collect(service, "写一篇 RAG 综述")
+    retrying = next(event for event in events if event["event"] == "retrying")
+
+    assert "上限" in retrying["message"]
+    assert events[-1]["result"]["validation"]["passed"] is False
 
 
 async def test_stream_converts_error_to_task_failed() -> None:
@@ -104,23 +149,17 @@ async def test_stream_includes_researcher_events(tmp_path) -> None:
     service = TaskService(_provider(), rag_tool_provider=lambda: tool, max_retries=0)
 
     events = await collect(service, "写一篇 RAG 综述")
+    names = [event["event"] for event in events]
 
-    assert [event["event"] for event in events] == [
+    assert names[:4] == [
         "task_started",
         "planner_started",
         "planner_completed",
         "researcher_started",
-        "researcher_completed",
-        "outline_started",
-        "outline_completed",
-        "writer_started",
-        "writer_completed",
-        "writer_started",
-        "writer_completed",
-        "summarizer_started",
-        "summarizer_completed",
-        "task_completed",
     ]
+    assert names[4:6] == ["researcher_completed", "outline_started"]
+    assert names[-1] == "task_completed"
+
     researcher_done = next(event for event in events if event["event"] == "researcher_completed")
     assert researcher_done["retrieved_count"] >= 1
     assert events[-1]["result"]["sources"]

@@ -83,6 +83,9 @@ def make_outline_node(
         )
         return {
             "outline": outline,
+            # replan 时重置生成结果，确保从干净状态重新写作
+            "sections": [],
+            "validation_result": None,
             "current_step": "outline",
             "task_status": "writing",
             "messages": [

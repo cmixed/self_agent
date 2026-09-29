@@ -51,6 +51,13 @@ export interface Source {
   score?: number | null
 }
 
+export interface Validation {
+  passed: boolean
+  issues: string[]
+  suggested_action: string
+  target: string
+}
+
 export interface TaskResult {
   task_id: string
   status: string
@@ -58,6 +65,8 @@ export interface TaskResult {
   outline: string[]
   step_results: StepResult[]
   sources: Source[]
+  validation: Validation | null
+  retry_count: number
   final_answer: string
 }
 
@@ -71,6 +80,11 @@ export interface TaskEvent {
   plan?: Plan | null
   outline?: string[]
   retrieved_count?: number
+  passed?: boolean
+  target?: string
+  issues?: string[]
+  suggested_action?: string
+  retry_count?: number
   error_type?: string
   result?: TaskResult
 }

@@ -11,6 +11,7 @@ from fakes import (
     PLAN_PAYLOAD,
     ScriptedProvider,
     seed_knowledge_base,
+    validation_fail_json,
 )
 from fastapi.testclient import TestClient
 
@@ -23,17 +24,19 @@ from app.services.task_service import TaskService
 def make_client(
     provider: ScriptedProvider,
     rag_tool_provider: Callable[[], RagTool] | None = None,
+    *,
+    max_retries: int = 0,
 ) -> TestClient:
     """用假的 LLM 与（可选的）临时知识库构建客户端，不触碰真实模型。"""
     app = create_app()
     app.dependency_overrides[get_task_service] = lambda: TaskService(
-        provider, rag_tool_provider=rag_tool_provider, max_retries=0
+        provider, rag_tool_provider=rag_tool_provider, max_retries=max_retries
     )
     return TestClient(app)
 
 
 def _provider() -> ScriptedProvider:
-    return ScriptedProvider([PLAN_JSON, OUTLINE_JSON, DRAFT_TEXT])
+    return ScriptedProvider([PLAN_JSON, OUTLINE_JSON])
 
 
 def test_create_task_returns_plan_outline_and_answer() -> None:
@@ -48,16 +51,21 @@ def test_create_task_returns_plan_outline_and_answer() -> None:
     assert body["plan"]["goal"] == PLAN_PAYLOAD["goal"]
     assert [step["id"] for step in body["plan"]["steps"]] == ["research", "write"]
     assert body["outline"] == ["引言", "chunk 大小的影响"]
-    # 未提供 RAG Tool 时不执行检索，逐章写作后汇总
+    # 未提供 RAG Tool 时不执行检索；逐章写作并逐章校验后汇总
     assert [result["step_id"] for result in body["step_results"]] == [
         "plan",
         "outline",
         "chapter_1",
+        "validate_chapter_1",
         "chapter_2",
+        "validate_document",
         "summarize",
     ]
     assert DRAFT_TEXT in body["final_answer"]
     assert body["sources"] == []
+    assert body["validation"]["passed"] is True
+    assert body["validation"]["target"] == "document"
+    assert body["retry_count"] == 0
 
 
 def test_create_task_with_retrieval_returns_sources(tmp_path: Path) -> None:
@@ -76,13 +84,28 @@ def test_create_task_with_retrieval_returns_sources(tmp_path: Path) -> None:
         "research",
         "outline",
         "chapter_1",
+        "validate_chapter_1",
         "chapter_2",
+        "validate_document",
         "summarize",
     ]
     assert body["sources"]
     assert body["sources"][0]["filename"] == "rag.md"
     assert body["sources"][0]["index"] == 1
     assert "[1] rag.md" in body["final_answer"]
+
+
+def test_create_task_reports_validation_failure_and_retry(tmp_path: Path) -> None:
+    provider = ScriptedProvider(
+        [PLAN_JSON, OUTLINE_JSON, "初稿", validation_fail_json("retry_writer")]
+    )
+    with make_client(provider, max_retries=2) as client:
+        response = client.post("/api/tasks", json={"query": "写一篇 RAG 综述"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["retry_count"] == 1
+    assert body["validation"]["passed"] is True
 
 
 def test_create_task_rejects_empty_query() -> None:

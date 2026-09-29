@@ -63,11 +63,13 @@ class Section(TypedDict):
 
 
 class ValidationResult(TypedDict):
-    """Validator 输出（Phase 4 使用）。"""
+    """Validator 输出（§16）。"""
 
     passed: bool
     issues: list[str]
     suggested_action: SuggestedAction
+    # 校验对象：``"document"`` 或 ``"chapter_N"``（重试时据此定位要重写哪一章）
+    target: str
 
 
 class AgentState(TypedDict, total=False):
@@ -87,9 +89,10 @@ class AgentState(TypedDict, total=False):
     retrieved_documents: Annotated[list[RetrievedDocument], add]
     # --- 生成 ---
     outline: list[Section]
-    sections: Annotated[list[Section], add]
+    # 覆盖语义（writer 每次返回完整列表）：支持重写某一章与 replan 后重置
+    sections: list[Section]
     draft: str
-    # --- 验证与重试（Phase 4）---
+    # --- 验证与重试（Phase 4B）---
     validation_result: ValidationResult | None
     retry_count: int
     # --- 输出 ---

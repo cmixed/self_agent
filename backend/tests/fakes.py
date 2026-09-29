@@ -26,10 +26,31 @@ OUTLINE_PAYLOAD: dict = {
 }
 OUTLINE_JSON = json.dumps(OUTLINE_PAYLOAD, ensure_ascii=False)
 DRAFT_TEXT = "# RAG 技术综述\n\n这是草稿正文。"
+VALIDATION_PASS_PAYLOAD: dict = {
+    "passed": True,
+    "issues": [],
+    "suggested_action": "continue",
+}
+VALIDATION_PASS_JSON = json.dumps(VALIDATION_PASS_PAYLOAD, ensure_ascii=False)
+
+
+def validation_fail_json(action: str = "retry_writer", issues: list[str] | None = None) -> str:
+    return json.dumps(
+        {
+            "passed": False,
+            "issues": issues or ["内容过于空泛"],
+            "suggested_action": action,
+        },
+        ensure_ascii=False,
+    )
 
 
 class ScriptedProvider(LLMProvider):
-    """按顺序返回预设内容的假 Provider。"""
+    """按顺序返回预设内容的假 Provider。
+
+    预设响应按调用顺序消费；用完后按调用模式回退到 ``default_json``
+    （结构化调用）或 ``default_text``（普通生成）。
+    """
 
     name = "scripted"
 
@@ -37,10 +58,14 @@ class ScriptedProvider(LLMProvider):
         self,
         responses: list[str] | None = None,
         *,
-        default: str = DRAFT_TEXT,
+        default: str | None = None,
+        default_text: str = DRAFT_TEXT,
+        default_json: str = VALIDATION_PASS_JSON,
     ) -> None:
         self._responses = list(responses or [])
         self._default = default
+        self._default_text = default_text
+        self._default_json = default_json
         self.calls: list[list[ChatMessage]] = []
         self.json_modes: list[bool] = []
 
@@ -54,7 +79,12 @@ class ScriptedProvider(LLMProvider):
     ) -> LLMResponse:
         self.calls.append(list(messages))
         self.json_modes.append(json_mode)
-        content = self._responses.pop(0) if self._responses else self._default
+        if self._responses:
+            content = self._responses.pop(0)
+        elif self._default is not None:
+            content = self._default
+        else:
+            content = self._default_json if json_mode else self._default_text
         return LLMResponse(content=content, model="scripted", usage={"total_tokens": 1})
 
     async def aclose(self) -> None:

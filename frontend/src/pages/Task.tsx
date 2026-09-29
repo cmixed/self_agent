@@ -2,12 +2,19 @@ import { Alert, Button, Card, Input, Space, Steps, Tag, Typography } from 'antd'
 import { useEffect, useState } from 'react'
 
 import { ApiError, getHealth, streamTask } from '../services/api'
-import type { HealthResponse, Plan, Source, TaskEvent } from '../types/api'
+import type { HealthResponse, Plan, Source, TaskEvent, Validation } from '../types/api'
 
 const { Text, Paragraph } = Typography
 const { TextArea } = Input
 
-const STAGE_ORDER = ['planner', 'researcher', 'outline', 'writer', 'summarizer'] as const
+const STAGE_ORDER = [
+  'planner',
+  'researcher',
+  'outline',
+  'writer',
+  'validator',
+  'summarizer',
+] as const
 type StageKey = (typeof STAGE_ORDER)[number]
 type StageStatus = 'wait' | 'process' | 'finish' | 'error'
 
@@ -16,6 +23,7 @@ const STAGE_TITLES: Record<StageKey, string> = {
   researcher: '检索个人知识库',
   outline: '生成文章大纲',
   writer: '逐章撰写内容',
+  validator: '校验内容质量',
   summarizer: '整合最终结果',
 }
 
@@ -24,6 +32,7 @@ const INITIAL_STAGES: Record<StageKey, StageStatus> = {
   researcher: 'wait',
   outline: 'wait',
   writer: 'wait',
+  validator: 'wait',
   summarizer: 'wait',
 }
 
@@ -35,6 +44,9 @@ function markRunningAsError(stages: Record<StageKey, StageStatus>): Record<Stage
   return next
 }
 
+const TARGET_LABEL = (target: string) =>
+  target === 'document' ? '整篇文档' : `章节 ${target.replace('chapter_', '')}`
+
 export default function TaskPage() {
   const [query, setQuery] = useState('')
   const [running, setRunning] = useState(false)
@@ -44,6 +56,8 @@ export default function TaskPage() {
   const [plan, setPlan] = useState<Plan | null>(null)
   const [outline, setOutline] = useState<string[]>([])
   const [chaptersDone, setChaptersDone] = useState(0)
+  const [validation, setValidation] = useState<Validation | null>(null)
+  const [retries, setRetries] = useState(0)
   const [sources, setSources] = useState<Source[]>([])
   const [finalAnswer, setFinalAnswer] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -67,17 +81,27 @@ export default function TaskPage() {
         researcher: 'finish',
         outline: 'finish',
         writer: 'finish',
+        validator: 'finish',
         summarizer: 'finish',
       })
       setFinalAnswer(event.result?.final_answer ?? '')
       setSources(event.result?.sources ?? [])
       if (event.result?.outline?.length) setOutline(event.result.outline)
+      if (event.result?.validation) setValidation(event.result.validation)
+      setRetries(event.result?.retry_count ?? 0)
+      return
+    }
+    if (event.event === 'retrying') {
+      // 校验未通过，稍后会重新执行 writer / planner
+      setStages((prev) => ({ ...prev, validator: 'wait' }))
+      setRetries(event.retry_count ?? 0)
       return
     }
 
-    const match = /^(planner|researcher|outline|writer|summarizer)_(started|completed)$/.exec(
-      event.event,
-    )
+    const match =
+      /^(planner|researcher|outline|writer|validator|summarizer)_(started|completed)$/.exec(
+        event.event,
+      )
     if (!match) return
     const stage = match[1] as StageKey
     const phase = match[2]
@@ -86,7 +110,6 @@ export default function TaskPage() {
 
     if (event.event === 'planner_completed') {
       setPlan(event.plan ?? null)
-      // 计划不需要检索时，researcher 阶段直接标记为跳过
       if (event.plan && !event.plan.needs_retrieval) {
         setRetrievalSkipped(true)
         setStages((prev) => ({ ...prev, researcher: 'finish' }))
@@ -97,9 +120,18 @@ export default function TaskPage() {
     }
     if (event.event === 'outline_completed') {
       setOutline(event.outline ?? [])
+      setChaptersDone(0)
     }
     if (event.event === 'writer_completed') {
       setChaptersDone((prev) => prev + 1)
+    }
+    if (event.event === 'validator_completed') {
+      setValidation({
+        passed: event.passed ?? false,
+        issues: event.issues ?? [],
+        suggested_action: event.suggested_action ?? '',
+        target: event.target ?? 'document',
+      })
     }
   }
 
@@ -107,6 +139,8 @@ export default function TaskPage() {
     setPlan(null)
     setOutline([])
     setChaptersDone(0)
+    setValidation(null)
+    setRetries(0)
     setSources([])
     setFinalAnswer(null)
     setError(null)
@@ -197,12 +231,15 @@ export default function TaskPage() {
 
       <Card title="执行进度">
         <Steps direction="vertical" size="small" current={finishedCount} items={stepItems} />
-        {retrievedCount !== null && (
-          <Paragraph style={{ margin: '12px 0 0' }}>
-            <Text type="secondary">知识库命中：</Text>
-            <Tag color={retrievedCount > 0 ? 'blue' : 'orange'}>{retrievedCount} 条片段</Tag>
-          </Paragraph>
-        )}
+        <Space style={{ marginTop: 12 }}>
+          {retrievedCount !== null && (
+            <span>
+              <Text type="secondary">知识库命中：</Text>
+              <Tag color={retrievedCount > 0 ? 'blue' : 'orange'}>{retrievedCount} 条片段</Tag>
+            </span>
+          )}
+          {retries > 0 && <Tag color="volcano">已重试 {retries} 次</Tag>}
+        </Space>
       </Card>
 
       {error && <Alert type="error" showIcon message={error} />}
@@ -242,6 +279,27 @@ export default function TaskPage() {
               </li>
             ))}
           </ol>
+        </Card>
+      )}
+
+      {validation && (
+        <Card title="内容校验">
+          <Paragraph style={{ marginBottom: 8 }}>
+            <Text strong>校验对象：</Text>
+            {TARGET_LABEL(validation.target)}
+            <Tag style={{ marginLeft: 8 }} color={validation.passed ? 'green' : 'red'}>
+              {validation.passed ? '通过' : '未通过'}
+            </Tag>
+          </Paragraph>
+          {validation.issues.length > 0 && (
+            <ul style={{ paddingLeft: 20, margin: 0 }}>
+              {validation.issues.map((issue, index) => (
+                <li key={index} style={{ marginBottom: 4 }}>
+                  <Text type="warning">{issue}</Text>
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
       )}
 

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 from uuid import uuid4
@@ -24,6 +25,7 @@ _NODE_EVENTS: dict[str, tuple[str, str]] = {
     "researcher": ("正在检索个人知识库", "知识库检索完成"),
     "outline": ("正在生成文章大纲", "大纲已生成"),
     "writer": ("正在撰写内容", "章节已完成"),
+    "validator": ("正在校验内容质量", "内容校验完成"),
     "summarizer": ("正在整合最终结果", "已整合最终结果"),
 }
 
@@ -59,14 +61,26 @@ def task_result(state: AgentState) -> dict[str, Any]:
         "outline": [section.get("title", "") for section in (state.get("outline") or [])],
         "step_results": state.get("step_results", []),
         "sources": _sources(state.get("retrieved_documents") or []),
+        "validation": state.get("validation_result"),
+        "retry_count": state.get("retry_count", 0),
         "final_answer": state.get("final_answer", ""),
     }
 
 
 def _chapter_index(node_input: Any) -> int | None:
-    """从节点输入推断当前要撰写第几章（已写章节数 + 1）。"""
+    """从节点输入推断本次要写第几章。
+
+    重写时（validator 判定 retry_writer）以校验对象为准，否则为「已写章节数 + 1」。
+    """
     if not isinstance(node_input, dict):
         return None
+
+    validation = node_input.get("validation_result")
+    if isinstance(validation, dict) and not validation.get("passed"):
+        match = re.match(r"^chapter_(\d+)$", str(validation.get("target", "")))
+        if match:
+            return int(match.group(1))
+
     sections = node_input.get("sections")
     written = len(sections) if isinstance(sections, list) else 0
     return written + 1
@@ -83,6 +97,7 @@ class TaskService:
         max_retries: int = 2,
     ) -> None:
         self._graph = build_graph(llm, rag_tool_provider=rag_tool_provider, max_retries=max_retries)
+        self._max_retries = max_retries
 
     async def run(
         self,
@@ -174,7 +189,20 @@ class TaskService:
                             ]
                         if name == "writer":
                             payload["step"] = output.get("current_step") or name
+                        if name == "validator":
+                            validation = output.get("validation_result") or {}
+                            payload["passed"] = bool(validation.get("passed"))
+                            payload["target"] = validation.get("target")
+                            payload["issues"] = validation.get("issues") or []
+                            payload["suggested_action"] = validation.get("suggested_action")
                     yield _event(run_id, f"{name}_completed", **payload)
+
+                    if name == "validator" and not payload.get("passed"):
+                        yield _retrying_event(
+                            run_id,
+                            validation=output if isinstance(output, dict) else {},
+                            max_retries=self._max_retries,
+                        )
         except LLMError as exc:
             _, detail = resolve_error(exc)
             logger.warning(
@@ -231,3 +259,32 @@ def _event(
     }
     payload.update(extra)
     return payload
+
+
+def _retrying_event(
+    task_id: str, *, validation: dict[str, Any], max_retries: int
+) -> dict[str, Any]:
+    """校验失败后推送 ``retrying`` 事件（§19）。"""
+    result = validation.get("validation_result") or {}
+    action = result.get("suggested_action")
+    target = result.get("target") or "document"
+    retry_count = validation.get("retry_count", 0)
+    issues = result.get("issues") or []
+
+    if retry_count >= max_retries:
+        message = f"重试已达上限（{max_retries} 次），转为安全结束并输出当前结果"
+    elif action == "replan":
+        message = f"校验未通过，重新规划任务（第 {retry_count} 次重试）"
+    else:
+        message = f"校验未通过，重写 {target}（第 {retry_count} 次重试）"
+
+    return _event(
+        task_id,
+        "retrying",
+        status="running",
+        message=message,
+        step=target,
+        suggested_action=action,
+        issues=issues,
+        retry_count=retry_count,
+    )

@@ -1,7 +1,7 @@
 """Summarizer 节点（最终整合）。
 
 把逐章生成的 ``sections`` 汇总为整篇文档，并附上「参考来源」。
-Phase 4B 会在汇总前插入 Validator，因此本节点只做整合，不再调用 LLM。
+Validator 在汇总之前完成校验（Phase 4B），因此本节点只做整合，不调用 LLM。
 """
 
 from __future__ import annotations
@@ -14,7 +14,8 @@ from app.rag.tools import render_references
 logger = get_logger(__name__)
 
 
-def _assemble(state: AgentState) -> str:
+def assemble_document(state: AgentState) -> str:
+    """把章节汇总为整篇文档（含标题与「参考来源」）。"""
     plan = state.get("plan")
     goal = (plan or {}).get("goal") or state.get("user_query", "")
     sections = state.get("sections") or []
@@ -36,7 +37,7 @@ def _assemble(state: AgentState) -> str:
 
 
 async def summarizer_node(state: AgentState) -> dict:
-    draft = _assemble(state)
+    draft = assemble_document(state)
 
     logger.info(
         "summarizer 完成",

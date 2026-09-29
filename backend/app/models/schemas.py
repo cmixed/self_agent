@@ -75,6 +75,13 @@ class SourceOut(BaseModel):
     score: float | None = None
 
 
+class ValidationOut(BaseModel):
+    passed: bool
+    issues: list[str] = Field(default_factory=list)
+    suggested_action: str
+    target: str
+
+
 class TaskResponse(BaseModel):
     task_id: str
     status: str
@@ -82,6 +89,8 @@ class TaskResponse(BaseModel):
     outline: list[str] = Field(default_factory=list)
     step_results: list[StepResultOut] = Field(default_factory=list)
     sources: list[SourceOut] = Field(default_factory=list)
+    validation: ValidationOut | None = None
+    retry_count: int = 0
     final_answer: str = ""
 
 

@@ -1,7 +1,10 @@
 """Writer 节点：逐章撰写正文。
 
-Phase 4A：每次调用只写一章，由 Graph 循环驱动直到大纲全部写完（见 AGENTS.md §15）。
-这样每次 LLM 调用上下文更小、失败影响面更小，也便于展示「正在撰写第 N 章」。
+Phase 4B：
+
+- 每次调用只写一章，由 Graph 循环驱动（§15）；
+- ``sections`` 使用覆盖语义，节点返回**完整章节列表**，因此既能追加新章，
+  也能在 Validator 判定 ``retry_writer`` 时**重写**指定章节。
 """
 
 from __future__ import annotations
@@ -9,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from app.agents.outline import MAX_SECTIONS
+from app.agents.validator import chapter_index_from_target
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, Section, StepResult
@@ -28,12 +32,26 @@ _WRITER_SYSTEM_PROMPT = """你是一个中文写作助手。请撰写指定章�
 """
 
 
-def _render_section_input(state: AgentState, *, title: str, index: int, total: int) -> str:
+def _render_section_input(
+    state: AgentState,
+    *,
+    title: str,
+    index: int,
+    total: int,
+    rewrite: bool,
+) -> str:
     plan = state.get("plan")
     lines = [f"用户任务：{state.get('user_query', '')}"]
     if plan:
         lines.append(f"任务目标：{plan.get('goal', '')}")
     lines.append(f"当前章节（第 {index}/{total} 章）：{title}")
+
+    if rewrite:
+        validation = state.get("validation_result") or {}
+        issues = validation.get("issues") or []
+        if issues:
+            rendered = "\n".join(f"- {issue}" for issue in issues)
+            lines.append(f"上一轮校验发现的问题（请针对性修正）：\n{rendered}")
 
     documents = state.get("retrieved_documents") or []
     if documents:
@@ -51,20 +69,44 @@ def _render_section_input(state: AgentState, *, title: str, index: int, total: i
     return "\n".join(lines)
 
 
+def resolve_target_index(state: AgentState) -> tuple[int | None, bool]:
+    """决定本次要写哪一章。
+
+    返回 ``(章节下标, 是否重写)``；``None`` 表示没有需要撰写的内容。
+    """
+    outline = state.get("outline") or []
+    written = state.get("sections") or []
+    validation = state.get("validation_result")
+
+    if (
+        isinstance(validation, dict)
+        and not validation.get("passed")
+        and validation.get("suggested_action") == "retry_writer"
+    ):
+        index = chapter_index_from_target(str(validation.get("target", "")))
+        # 仅在目标章节确实已存在时才重写（replan 重置后应改为追加）
+        if index is not None and index < len(written) and index < len(outline):
+            return index, True
+
+    index = len(written)
+    if index < len(outline) and index < MAX_SECTIONS:
+        return index, False
+    return None, False
+
+
 def make_writer_node(llm: LLMProvider) -> Callable[[AgentState], Awaitable[dict]]:
-    """构造 writer 节点（每次撰写一章）。"""
+    """构造 writer 节点（每次撰写或重写一章）。"""
 
     async def writer_node(state: AgentState) -> dict:
         outline = state.get("outline") or []
-        written = state.get("sections") or []
-        index = len(written)
+        written = list(state.get("sections") or [])
 
-        if index >= len(outline):
-            # 大纲已写完（正常情况下路由不会再调用本节点）
+        index, rewrite = resolve_target_index(state)
+        if index is None:
+            # 没有需要撰写的内容（正常情况下路由不会再调用本节点）
             return {}
 
-        section = outline[index]
-        title = section["title"]
+        title = outline[index].get("title", "")
         chapter = index + 1
         total = len(outline)
 
@@ -72,11 +114,20 @@ def make_writer_node(llm: LLMProvider) -> Callable[[AgentState], Awaitable[dict]
             ChatMessage(role="system", content=_WRITER_SYSTEM_PROMPT),
             ChatMessage(
                 role="user",
-                content=_render_section_input(state, title=title, index=chapter, total=total),
+                content=_render_section_input(
+                    state, title=title, index=chapter, total=total, rewrite=rewrite
+                ),
             ),
         ]
         response = await llm.chat(messages, temperature=0.7)
 
+        section = Section(title=title, content=response.content.strip())
+        if rewrite:
+            written[index] = section
+        else:
+            written.append(section)
+
+        verb = "重写" if rewrite else "撰写"
         logger.info(
             "writer 完成章节",
             extra={
@@ -87,33 +138,22 @@ def make_writer_node(llm: LLMProvider) -> Callable[[AgentState], Awaitable[dict]
             },
         )
         return {
-            "sections": [
-                Section(title=title, content=response.content.strip()),
-            ],
+            "sections": written,
             "current_step": f"chapter_{chapter}",
             "task_status": "writing",
             "messages": [
-                ChatMessage(role="assistant", content=f"[writer] 已完成第 {chapter} 章：{title}")
+                ChatMessage(
+                    role="assistant",
+                    content=f"[writer] 已{verb}第 {chapter} 章：{title}",
+                )
             ],
             "step_results": [
                 StepResult(
                     step_id=f"chapter_{chapter}",
                     status="ok",
-                    summary=f"已撰写：{title}",
+                    summary=f"已{verb}：{title}",
                 )
             ],
         }
 
     return writer_node
-
-
-def route_after_writer(state: AgentState) -> str:
-    """还有章节未写则继续写，否则进入汇总。
-
-    同时受 ``MAX_SECTIONS`` 硬上限保护，杜绝无限循环（§27）。
-    """
-    outline = state.get("outline") or []
-    written = state.get("sections") or []
-    if len(written) < len(outline) and len(written) < MAX_SECTIONS:
-        return "writer"
-    return "summarize"
