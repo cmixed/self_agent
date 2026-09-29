@@ -9,12 +9,14 @@ Embedding 模型加载。
 
 from __future__ import annotations
 
-from fastapi import Depends
+from fastapi import Depends, Header
 
 from app.core.config import get_settings
 from app.embedding.factory import get_embedding_provider
 from app.llm.base import LLMProvider
 from app.llm.factory import get_llm
+from app.memory.repository import TaskRepository
+from app.memory.sqlite import SqliteDatabase
 from app.rag.retriever import Retriever
 from app.rag.store import ChromaStore
 from app.rag.tools import RagTool
@@ -22,6 +24,8 @@ from app.services.document_service import DocumentService
 from app.services.task_service import TaskService
 
 _store: ChromaStore | None = None
+_task_repository: TaskRepository | None = None
+_database: SqliteDatabase | None = None
 
 
 def build_chroma_store() -> ChromaStore:
@@ -77,16 +81,45 @@ def get_document_service() -> DocumentService:
     return build_document_service()
 
 
+def build_database() -> SqliteDatabase:
+    """进程级缓存的 SQLite 数据库句柄。"""
+    global _database
+    if _database is None:
+        _database = SqliteDatabase(get_settings().sqlite_path)
+    return _database
+
+
+def build_task_repository() -> TaskRepository:
+    global _task_repository
+    if _task_repository is None:
+        _task_repository = TaskRepository(build_database())
+    return _task_repository
+
+
+def get_user_id(x_user_id: str | None = Header(default=None, alias="X-User-Id")) -> str:
+    """无复杂用户系统（§31）：默认单用户，可通过请求头覆盖。"""
+    settings = get_settings()
+    candidate = (x_user_id or "").strip()
+    return candidate or settings.default_user_id
+
+
 def get_task_service(provider: LLMProvider = Depends(get_llm_provider)) -> TaskService:
     settings = get_settings()
     return TaskService(
         provider,
         rag_tool_provider=build_rag_tool,
+        repository=build_task_repository(),
         max_retries=settings.max_retries,
     )
 
 
-def reset_rag_state() -> None:
-    """仅用于测试：清空进程级缓存的向量集合。"""
-    global _store
+def get_task_repository() -> TaskRepository:
+    return build_task_repository()
+
+
+def reset_caches() -> None:
+    """仅用于测试：清空进程级缓存的向量集合与持久化句柄。"""
+    global _store, _task_repository, _database
     _store = None
+    _task_repository = None
+    _database = None

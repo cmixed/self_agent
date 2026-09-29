@@ -26,9 +26,15 @@ async def app_error_handler(request: Request, exc: Exception) -> JSONResponse:
             "status": "error",
             "error_type": error_type,
             "node": request.url.path,
+            "task_id": getattr(request.state, "task_id", None),
         },
     )
-    body = ErrorResponse(error=error_type, error_type=error_type, detail=detail)
+    body = ErrorResponse(
+        error=error_type,
+        error_type=error_type,
+        detail=detail,
+        task_id=getattr(request.state, "task_id", None),
+    )
     return JSONResponse(status_code=http_status, content=body.model_dump())
 
 

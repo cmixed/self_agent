@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     # 逗号分隔的前端来源，用于 CORS
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    # 无复杂用户系统（§31）：默认用户，可通过 X-User-Id 头覆盖
+    default_user_id: str = "local-user"
+
+    # --- 持久化 ---
+    sqlite_path: Path = _REPO_ROOT / "data" / "sqlite" / "app.db"
 
     # --- LLM Provider ---
     llm_provider: str = "deepseek"

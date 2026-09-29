@@ -16,6 +16,7 @@ from app.core.agent_graph import build_graph, recursion_limit
 from app.core.errors import resolve_error
 from app.core.logging import get_logger
 from app.llm.base import LLMError, LLMProvider
+from app.memory.repository import TaskRepository
 from app.models.state import AgentState, RetrievedDocument, initial_state
 from app.rag.tools import RagTool
 
@@ -95,17 +96,19 @@ def _chapter_index(node_input: Any) -> int | None:
 
 
 class TaskService:
-    """运行一次 Agent 任务。"""
+    """运行一次 Agent 任务（可选持久化到 SQLite）。"""
 
     def __init__(
         self,
         llm: LLMProvider,
         *,
         rag_tool_provider: Callable[[], RagTool] | None = None,
+        repository: TaskRepository | None = None,
         max_retries: int = 2,
     ) -> None:
         self._graph = build_graph(llm, rag_tool_provider=rag_tool_provider, max_retries=max_retries)
         self._max_retries = max_retries
+        self._repository = repository
 
     @property
     def _config(self) -> dict[str, Any]:
@@ -122,6 +125,7 @@ class TaskService:
         *,
         user_preferences: dict[str, str] | None = None,
         task_id: str | None = None,
+        user_id: str | None = None,
     ) -> AgentState:
         run_id = task_id or str(uuid4())
         state = initial_state(query, task_id=run_id, user_preferences=user_preferences)
@@ -130,7 +134,13 @@ class TaskService:
             "任务开始",
             extra={"task_id": run_id, "event": "task_started", "status": "running"},
         )
-        final_state = await self._graph.ainvoke(state, config=self._config)
+        await self._start_run(run_id, query, user_id)
+        try:
+            final_state = await self._graph.ainvoke(state, config=self._config)
+        except Exception as exc:
+            await self._fail_run(run_id, exc)
+            raise
+
         logger.info(
             "任务结束",
             extra={
@@ -139,7 +149,30 @@ class TaskService:
                 "status": final_state.get("task_status", "unknown"),
             },
         )
+        await self._finish_run(run_id, final_state)
         return final_state
+
+    # --- 持久化辅助（未配置仓储时全部为 no-op）---
+
+    async def _start_run(self, run_id: str, query: str, user_id: str | None) -> None:
+        if self._repository is None:
+            return
+        await self._repository.start_run(
+            task_id=run_id, user_id=user_id or "local-user", query=query
+        )
+
+    async def _finish_run(self, run_id: str, state: AgentState) -> None:
+        if self._repository is None:
+            return
+        await self._repository.finish_run(
+            task_id=run_id, result=task_result(state, max_retries=self._max_retries)
+        )
+
+    async def _fail_run(self, run_id: str, exc: BaseException) -> None:
+        if self._repository is None:
+            return
+        error_type = getattr(exc, "error_type", None) or type(exc).__name__
+        await self._repository.fail_run(task_id=run_id, error_type=str(error_type))
 
     async def stream(
         self,
@@ -147,6 +180,7 @@ class TaskService:
         *,
         user_preferences: dict[str, str] | None = None,
         task_id: str | None = None,
+        user_id: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """按 §19 协议逐条产出进度事件。
 
@@ -156,6 +190,7 @@ class TaskService:
         run_id = task_id or str(uuid4())
         state = initial_state(query, task_id=run_id, user_preferences=user_preferences)
 
+        await self._start_run(run_id, query, user_id)
         yield _event(run_id, "task_started", status="running", message="任务已创建")
         final_state: AgentState = state
 
@@ -222,6 +257,7 @@ class TaskService:
                         )
         except LLMError as exc:
             _, detail = resolve_error(exc)
+            await self._fail_run(run_id, exc)
             logger.warning(
                 "任务失败",
                 extra={
@@ -239,8 +275,9 @@ class TaskService:
                 error_type=exc.error_type,
             )
             return
-        except GraphRecursionError:
+        except GraphRecursionError as exc:
             # 兜底：即使超出安全上界，也要以可读事件结束，而不是中断 SSE（§20）
+            await self._fail_run(run_id, exc)
             logger.error(
                 "图执行超出超步上限",
                 extra={
@@ -258,8 +295,9 @@ class TaskService:
                 error_type="graph_recursion_limit",
             )
             return
-        except Exception:
+        except Exception as exc:
             # 未知异常：记录堆栈供排查，但不把细节返回给前端
+            await self._fail_run(run_id, exc)
             logger.exception(
                 "任务执行出现未预期错误",
                 extra={
@@ -280,6 +318,8 @@ class TaskService:
 
         status = final_state.get("task_status", "failed")
         if status != "completed":
+            final_state["final_answer"] = final_state.get("final_answer", "")
+            await self._finish_run(run_id, final_state)
             yield _event(run_id, "task_failed", status="error", message="任务未能正常完成")
             return
 
@@ -287,6 +327,7 @@ class TaskService:
             "任务结束",
             extra={"task_id": run_id, "event": "task_completed", "status": "completed"},
         )
+        await self._finish_run(run_id, final_state)
         yield _event(
             run_id,
             "task_completed",

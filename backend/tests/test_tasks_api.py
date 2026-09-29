@@ -15,7 +15,7 @@ from fakes import (
 )
 from fastapi.testclient import TestClient
 
-from app.api.deps import get_task_service
+from app.api.deps import build_task_repository, get_task_service
 from app.main import create_app
 from app.rag.tools import RagTool
 from app.services.task_service import TaskService
@@ -30,7 +30,10 @@ def make_client(
     """用假的 LLM 与（可选的）临时知识库构建客户端，不触碰真实模型。"""
     app = create_app()
     app.dependency_overrides[get_task_service] = lambda: TaskService(
-        provider, rag_tool_provider=rag_tool_provider, max_retries=max_retries
+        provider,
+        rag_tool_provider=rag_tool_provider,
+        repository=build_task_repository(),
+        max_retries=max_retries,
     )
     return TestClient(app)
 
@@ -151,3 +154,60 @@ def test_create_task_maps_planner_format_error_to_502() -> None:
 
     assert response.status_code == 502
     assert response.json()["error_type"] == "llm_response_format_error"
+
+
+def test_create_task_is_persisted_and_queryable() -> None:
+    """POST 后可通过 GET /api/tasks/{id} 查询到持久化记录（§18）。"""
+    provider = _provider()
+    with make_client(provider) as client:
+        created = client.post("/api/tasks", json={"query": "写一篇 RAG 综述"})
+        assert created.status_code == 200
+        task_id = created.json()["task_id"]
+
+        fetched = client.get(f"/api/tasks/{task_id}")
+
+    assert fetched.status_code == 200
+    body = fetched.json()
+    assert body["task_id"] == task_id
+    assert body["status"] == "completed"
+    assert body["query"] == "写一篇 RAG 综述"
+    assert body["user_id"] == "local-user"
+    assert body["created_at"]
+    assert body["finished_at"]
+    assert body["final_answer"] == created.json()["final_answer"]
+
+
+def test_get_unknown_task_returns_404() -> None:
+    with make_client(_provider()) as client:
+        response = client.get("/api/tasks/does-not-exist")
+    assert response.status_code == 404
+
+
+def test_create_task_honours_user_header() -> None:
+    with make_client(_provider()) as client:
+        created = client.post(
+            "/api/tasks",
+            json={"query": "写一篇 RAG 综述"},
+            headers={"X-User-Id": "alice"},
+        )
+        task_id = created.json()["task_id"]
+        fetched = client.get(f"/api/tasks/{task_id}")
+
+    assert fetched.json()["user_id"] == "alice"
+
+
+def test_failed_task_is_persisted_as_failed() -> None:
+    provider = ScriptedProvider(["这不是 JSON"], default="这也不是 JSON")
+    with make_client(provider) as client:
+        created = client.post("/api/tasks", json={"query": "写点东西"})
+        assert created.status_code == 502
+
+    # 失败也要落库，便于排查
+    import asyncio
+
+    from app.api.deps import build_task_repository
+
+    record = asyncio.run(build_task_repository().get_task(created.json()["task_id"]))
+    assert record is not None
+    assert record.status == "failed"
+    assert record.error_type == "llm_response_format_error"

@@ -20,7 +20,7 @@
 | 编排 | LangGraph（Planner → Writer → Summarizer） |
 | 后端 | Python 3.14 · uv · FastAPI · Pydantic |
 | 检索 | ChromaDB + 本地 Embedding（`BAAI/bge-small-zh-v1.5`，CPU） |
-| 持久化 | SQLite（Phase 5 起） |
+| 持久化 | SQLite（应用数据 + 长期记忆） |
 | 前端 | React 19 · TypeScript · Vite · Ant Design |
 
 ## 目录结构
@@ -38,6 +38,7 @@
 │   │   ├── core/          # 配置、日志、错误映射、LangGraph 编排
 │   │   ├── embedding/     # Embedding 抽象（base / local / factory），独立于 LLM
 │   │   ├── llm/           # LLM Provider 抽象（base / deepseek / factory）
+│   │   ├── memory/        # SQLite 访问层与仓储（任务记录 / 长期记忆）
 │   │   ├── models/        # AgentState 与 API Schema
 │   │   ├── rag/           # 文档加载 / 切分 / 向量存储 / 检索
 │   │   └── services/      # 任务服务、文档服务
@@ -61,6 +62,11 @@ cp .env.example .env
 ```
 
 > `.env` 已被 `.gitignore` 忽略，禁止提交。API Key 只从环境变量读取。
+
+运行数据默认写入 `data/`（已在 `.gitignore` 中忽略）：
+- `data/sqlite/app.db`：用户、偏好、任务记录与长期记忆
+- `data/documents/`、`data/chroma/`：上传的文档与向量库
+- 无复杂用户系统（§31）：默认用户 `DEFAULT_USER_ID=local-user`，可用 `X-User-Id` 请求头覆盖
 
 首次上传文档时会自动下载本地 Embedding 模型 `BAAI/bge-small-zh-v1.5`
 （约 100 MB，缓存在 HuggingFace 缓存目录，仅需一次）。网络受限时可设置
@@ -113,7 +119,9 @@ npm run build
 - [x] **Phase 3B**：RAG Tool + Researcher 接入 Graph，正文标注来源 [n] 并返回来源列表
 - [x] **Phase 4A**：长文分章节生成 —— Outline 节点 + Writer 逐章循环 + Summarizer 汇总
 - [x] **Phase 4B**：Validator（章节级 + 整篇）+ 有限重试 / Re-plan + 安全结束
-- [ ] Phase 5：Memory（Checkpoint + SQLite 长期记忆）
+- [x] **Phase 4C**：重试预算改为每章独立 + 修复 LangGraph 超步上限导致的中断
+- [x] **Phase 5A**：SQLite 基础设施 + 任务运行持久化 + `GET /api/tasks/{id}`
+- [ ] Phase 5B：长期记忆（偏好 / memories）+ LLM 自动提取 + LangGraph Checkpoint
 - [ ] Phase 6：前端任务进度面板
 - [ ] Phase 7：评估（RAG / Agent / 长文本指标）
 

@@ -1,26 +1,30 @@
 """pytest 全局配置。
 
-单元测试不依赖真实 DeepSeek API；真实调用集中在 ``test_smoke_deepseek.py``，
-默认被 ``-m 'not smoke'`` 排除。
+单元测试不依赖真实 DeepSeek API，也不读写仓库内的运行数据：
+- 禁用本机 ``.env``；
+- ``SQLITE_PATH`` 指向临时目录；
+- 每个测试清空进程级缓存（向量集合 / 持久化句柄）。
+
+``smoke`` 标记的测试例外：它们就是要验证真实 API，必须使用本机 ``.env``。
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
+from app.api.deps import reset_caches
 from app.core.config import Settings, get_settings
 
 
 @pytest.fixture(autouse=True)
 def _isolate_settings(
-    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> Iterator[None]:
-    """让测试不读取本机 ``.env``，避免本地配置影响结果。
-
-    ``smoke`` 标记的测试例外：它们就是要验证真实 API，必须使用本机 ``.env``。
-    """
     if request.node.get_closest_marker("smoke"):
         yield
         return
@@ -32,6 +36,10 @@ def _isolate_settings(
     )
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "app.db"))
+
     get_settings.cache_clear()
+    reset_caches()
     yield
     get_settings.cache_clear()
+    reset_caches()

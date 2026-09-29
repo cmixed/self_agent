@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -13,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api import chat, documents, health, tasks
+from app.api.deps import build_database
 from app.api.errors import register_exception_handlers
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
@@ -25,6 +27,7 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
     settings = get_settings()
+    await asyncio.to_thread(build_database().initialize)
     logger.info(
         "应用启动 "
         f"env={settings.app_env} provider={settings.llm_provider} "

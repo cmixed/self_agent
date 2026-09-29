@@ -108,6 +108,16 @@ class DocumentListResponse(BaseModel):
     documents: list[DocumentInfo] = Field(default_factory=list)
 
 
+class TaskDetailResponse(TaskResponse):
+    """单个任务记录（含持久化元信息，AGENTS.md §18 的 GET /api/tasks/{id}）。"""
+
+    user_id: str
+    query: str
+    created_at: str
+    finished_at: str | None = None
+    error_type: str | None = None
+
+
 class DeleteDocumentResponse(BaseModel):
     document_id: str
     status: str
@@ -119,3 +129,5 @@ class ErrorResponse(BaseModel):
     error: str
     error_type: str
     detail: str | None = None
+    # 便于失败后仍可查询任务记录（GET /api/tasks/{id}）
+    task_id: str | None = None
