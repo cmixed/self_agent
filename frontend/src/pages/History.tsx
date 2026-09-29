@@ -1,5 +1,6 @@
-import { ReloadOutlined } from '@ant-design/icons'
+import { CopyOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 import {
+  App,
   Button,
   Card,
   Col,
@@ -23,6 +24,7 @@ import MarkdownView from '../components/MarkdownView'
 import PageContainer from '../components/PageContainer'
 import { ApiError, getTask, getTaskState, listTasks } from '../services/api'
 import type { TaskDetail, TaskState, TaskSummary } from '../types/api'
+import { downloadMarkdown } from '../utils/download'
 import { formatDateTime, formatDuration, taskDurationSeconds } from '../utils/format'
 
 const { Text } = Typography
@@ -42,6 +44,7 @@ const statusMeta = (status: string) =>
   STATUS_META[status] ?? { color: 'default', label: status }
 
 export default function HistoryPage() {
+  const { message } = App.useApp()
   const [tasks, setTasks] = useState<TaskSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -93,6 +96,15 @@ export default function HistoryPage() {
             : '该任务没有可读取的 Checkpoint 记录'
           : '读取 Checkpoint 失败',
       )
+    }
+  }
+
+  const copyAnswer = async (content: string) => {
+    try {
+      await navigator.clipboard.writeText(content)
+      message.success('已复制到剪贴板')
+    } catch {
+      setError('复制失败（浏览器未授权剪贴板），请手动选择文本复制')
     }
   }
 
@@ -298,7 +310,27 @@ export default function HistoryPage() {
                     key: 'content',
                     label: '正文',
                     children: detail.final_answer ? (
-                      <MarkdownView content={detail.final_answer} />
+                      <Space orientation="vertical" size="small" style={{ width: '100%' }}>
+                        <Space>
+                          <Button
+                            size="small"
+                            icon={<CopyOutlined />}
+                            onClick={() => void copyAnswer(detail.final_answer as string)}
+                          >
+                            复制
+                          </Button>
+                          <Button
+                            size="small"
+                            icon={<DownloadOutlined />}
+                            onClick={() =>
+                              downloadMarkdown(detail.final_answer as string, detail.query)
+                            }
+                          >
+                            下载 .md
+                          </Button>
+                        </Space>
+                        <MarkdownView content={detail.final_answer} />
+                      </Space>
                     ) : (
                       <EmptyState compact title="该任务没有产出正文" hint="可能被取消或失败" />
                     ),

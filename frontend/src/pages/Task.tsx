@@ -1,3 +1,4 @@
+import { DownloadOutlined } from '@ant-design/icons'
 import {
   Alert,
   Button,
@@ -250,9 +251,11 @@ export default function TaskPage() {
                     {copied ? '已复制' : '复制'}
                   </Button>
                 </Tooltip>
-                <Button size="small" onClick={download}>
-                  下载 .md
-                </Button>
+                <Tooltip title="下载 Markdown 文件到本地">
+                  <Button size="small" icon={<DownloadOutlined />} onClick={download}>
+                    下载 .md
+                  </Button>
+                </Tooltip>
               </Space>
             }
           >

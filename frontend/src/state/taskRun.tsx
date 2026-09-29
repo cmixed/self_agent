@@ -9,6 +9,7 @@ import type {
 } from '../components/AgentProgress'
 import { ApiError, cancelTask, streamTask } from '../services/api'
 import type { Plan, Source, TaskEvent, Validation } from '../types/api'
+import { downloadMarkdown } from '../utils/download'
 
 /** 图中真实存在的 6 个节点（用于状态跟踪） */
 const NODE_KEYS = ['planner', 'researcher', 'outline', 'writer', 'validator', 'summarizer'] as const
@@ -421,14 +422,9 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
 
   const download = useCallback(() => {
     if (finalAnswer === null) return
-    const blob = new Blob([finalAnswer], { type: 'text/markdown;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `agent-result-${Date.now()}.md`
-    link.click()
-    URL.revokeObjectURL(url)
-  }, [finalAnswer])
+    // 文件名优先用任务目标，其次用用户输入，便于本地归档
+    downloadMarkdown(finalAnswer, plan?.goal || query || 'agent-result')
+  }, [finalAnswer, plan, query])
 
   const chapterList: ChapterView[] = outline.map((title, index) => {
     const state = chapters[index + 1]
