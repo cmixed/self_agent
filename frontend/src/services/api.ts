@@ -2,8 +2,14 @@ import type {
   ApiErrorBody,
   ChatMessage,
   ChatResponse,
+  DocumentInfo,
   HealthResponse,
+  MemoryProfile,
+  MemoryRecord,
+  TaskDetail,
   TaskEvent,
+  TaskListResponse,
+  TaskState,
 } from '../types/api'
 
 const API_BASE = '/api'
@@ -11,12 +17,14 @@ const API_BASE = '/api'
 export class ApiError extends Error {
   readonly status: number
   readonly errorType: string
+  readonly taskId: string | null
 
   constructor(status: number, body: ApiErrorBody) {
     super(body.detail || body.error || `请求失败（HTTP ${status}）`)
     this.name = 'ApiError'
     this.status = status
     this.errorType = body.error_type ?? 'unknown'
+    this.taskId = body.task_id ?? null
   }
 }
 
@@ -51,6 +59,20 @@ export function sendChat(messages: ChatMessage[], signal?: AbortSignal): Promise
     body: JSON.stringify({ messages }),
     signal,
   })
+}
+
+// --- 任务 ---
+
+export function listTasks(limit = 20): Promise<TaskListResponse> {
+  return request<TaskListResponse>(`/tasks?limit=${limit}`)
+}
+
+export function getTask(taskId: string): Promise<TaskDetail> {
+  return request<TaskDetail>(`/tasks/${taskId}`)
+}
+
+export function getTaskState(taskId: string): Promise<TaskState> {
+  return request<TaskState>(`/tasks/${taskId}/state`)
 }
 
 /**
@@ -97,5 +119,59 @@ export async function streamTask(
       }
       separator = buffer.indexOf('\n\n')
     }
+  }
+}
+
+// --- 知识库文档 ---
+
+export function listDocuments(): Promise<{ documents: DocumentInfo[] }> {
+  return request<{ documents: DocumentInfo[] }>('/documents')
+}
+
+export function deleteDocument(documentId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/documents/${documentId}`, { method: 'DELETE' })
+}
+
+/** 上传并索引文档（multipart：不要手动设置 Content-Type，交给浏览器带 boundary）。 */
+export async function uploadDocument(file: File): Promise<DocumentInfo> {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await fetch(`${API_BASE}/documents/upload`, { method: 'POST', body: form })
+  if (!response.ok) {
+    throw await toApiError(response)
+  }
+  return (await response.json()) as DocumentInfo
+}
+
+// --- 长期记忆 ---
+
+export function getMemory(): Promise<MemoryProfile> {
+  return request<MemoryProfile>('/memory')
+}
+
+export function setPreference(key: string, value: string): Promise<MemoryProfile> {
+  return request<MemoryProfile>(`/memory/preferences/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  })
+}
+
+export function deletePreference(key: string): Promise<MemoryProfile> {
+  return request<MemoryProfile>(`/memory/preferences/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function addMemory(kind: string, content: string): Promise<MemoryRecord> {
+  return request<MemoryRecord>('/memory/memories', {
+    method: 'POST',
+    body: JSON.stringify({ kind, content }),
+  })
+}
+
+export async function deleteMemory(memoryId: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/memory/memories/${memoryId}`, { method: 'DELETE' })
+  if (!response.ok) {
+    throw await toApiError(response)
   }
 }

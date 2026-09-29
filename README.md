@@ -44,8 +44,9 @@
 │   │   └── services/      # 任务服务、文档服务
 │   └── tests/             # 单元 / 集成 / smoke 测试
 ├── frontend/
+│   ├── src/components/    # 通用组件（Markdown 渲染）
 │   ├── src/services/      # 后端 API 客户端
-│   ├── src/pages/         # 页面
+│   ├── src/pages/         # 页面：任务 / 知识库 / 任务历史 / 长期记忆
 │   └── src/types/         # 类型定义
 └── docs/
 ```
@@ -123,8 +124,19 @@ npm run build
 - [x] **Phase 5A**：SQLite 基础设施 + 任务运行持久化 + `GET /api/tasks/{id}`
 - [x] **Phase 5B**：长期记忆（偏好 / memories）+ 显式 API + LLM 自动提取
 - [x] **Phase 5C**：LangGraph Checkpoint（SQLite 短期记忆 + 状态查询）
-- [ ] Phase 6：前端任务进度面板（上传文档 / 任务历史 / 记忆管理）
+- [x] **Phase 6**：前端面板 —— 任务执行、知识库管理、任务历史、长期记忆（Markdown 渲染）
 - [ ] Phase 7：评估（RAG / Agent / 长文本指标）
+
+## 前端
+
+顶部菜单切换四个页面：
+
+| 页面 | 内容 |
+| --- | --- |
+| 任务 | 提交任务、SSE 实时进度（含章节级）、研究计划、文章大纲、内容校验、参考来源、**Markdown 渲染**的最终结果（可复制 / 下载 .md） |
+| 知识库 | 拖拽上传 PDF/TXT/MD、文档列表与删除 |
+| 任务历史 | 任务列表（状态 / 未通过章节 / 时间）、详情抽屉、读取 Agent Checkpoint 状态 |
+| 长期记忆 | 偏好与记忆的查看、新增、删除 |
 
 ## Memory
 

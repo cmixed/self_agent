@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import (
@@ -26,9 +27,11 @@ from app.core.logging import get_logger
 from app.memory.repository import TaskRepository
 from app.models.schemas import (
     TaskDetailResponse,
+    TaskListResponse,
     TaskRequest,
     TaskResponse,
     TaskStateResponse,
+    TaskSummaryOut,
 )
 from app.services.memory_service import MemoryService
 from app.services.task_service import TaskService, task_result
@@ -65,6 +68,31 @@ async def create_task(
         user_id, query=payload.query, result=result, task_id=task_id
     )
     return TaskResponse.model_validate(result)
+
+
+def _to_summary(record: Any) -> TaskSummaryOut:
+    result = record.result or {}
+    return TaskSummaryOut(
+        task_id=record.task_id,
+        query=record.query,
+        status=record.status,
+        created_at=record.created_at,
+        finished_at=record.finished_at,
+        error_type=record.error_type,
+        retry_count=int(result.get("retry_count") or 0),
+        failed_chapters=list(result.get("failed_chapters") or []),
+    )
+
+
+@router.get("/tasks", response_model=TaskListResponse)
+async def list_tasks(
+    limit: int = Query(default=20, ge=1, le=100),
+    repository: TaskRepository = Depends(get_task_repository),
+    user_id: str = Depends(get_user_id),
+) -> TaskListResponse:
+    """按用户列出任务记录（最新在前），供前端任务历史页使用。"""
+    records = await repository.list_tasks(user_id=user_id, limit=limit)
+    return TaskListResponse(tasks=[_to_summary(record) for record in records])
 
 
 @router.get("/tasks/{task_id}", response_model=TaskDetailResponse)

@@ -104,6 +104,23 @@ class DocumentInfo(BaseModel):
     chunks: int
 
 
+class TaskSummaryOut(BaseModel):
+    """任务列表项（不含正文，避免列表响应过大）。"""
+
+    task_id: str
+    query: str
+    status: str
+    created_at: str
+    finished_at: str | None = None
+    error_type: str | None = None
+    retry_count: int = 0
+    failed_chapters: list[str] = Field(default_factory=list)
+
+
+class TaskListResponse(BaseModel):
+    tasks: list[TaskSummaryOut] = Field(default_factory=list)
+
+
 class TaskStateResponse(BaseModel):
     """Agent checkpoint 中的结构化状态摘要（不包含消息原文与推理过程）。"""
 

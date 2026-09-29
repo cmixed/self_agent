@@ -22,6 +22,7 @@ export interface ApiErrorBody {
   error: string
   error_type: string
   detail?: string | null
+  task_id?: string | null
 }
 
 export interface PlanStep {
@@ -71,6 +72,64 @@ export interface TaskResult {
   /** 未通过校验的章节，如 ["chapter_3"] */
   failed_chapters: string[]
   final_answer: string
+}
+
+export interface TaskDetail extends TaskResult {
+  user_id: string
+  query: string
+  created_at: string
+  finished_at?: string | null
+  error_type?: string | null
+}
+
+/** 任务列表项（不含正文）。 */
+export interface TaskSummary {
+  task_id: string
+  query: string
+  status: string
+  created_at: string
+  finished_at?: string | null
+  error_type?: string | null
+  retry_count: number
+  failed_chapters: string[]
+}
+
+export interface TaskListResponse {
+  tasks: TaskSummary[]
+}
+
+/** Agent checkpoint 的结构化状态摘要。 */
+export interface TaskState {
+  task_id: string
+  checkpoint_id?: string | null
+  status?: string | null
+  current_step?: string | null
+  is_complete: boolean
+  retry_count: number
+  outline: string[]
+  chapters_written: number
+  sources_count: number
+}
+
+export interface DocumentInfo {
+  document_id: string
+  filename: string
+  title: string
+  chunks: number
+}
+
+export interface MemoryRecord {
+  memory_id: number
+  kind: string
+  content: string
+  source_task_id?: string | null
+  created_at: string
+}
+
+export interface MemoryProfile {
+  user_id: string
+  preferences: Record<string, string>
+  memories: MemoryRecord[]
 }
 
 /** 后端 SSE 推送的进度事件（见 AGENTS.md §19）。 */

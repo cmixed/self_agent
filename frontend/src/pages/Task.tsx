@@ -1,6 +1,7 @@
 import { Alert, Button, Card, Input, Space, Steps, Tag, Typography } from 'antd'
 import { useEffect, useState } from 'react'
 
+import MarkdownView from '../components/MarkdownView'
 import { ApiError, getHealth, streamTask } from '../services/api'
 import type { HealthResponse, Plan, Source, TaskEvent, Validation } from '../types/api'
 
@@ -67,6 +68,7 @@ export default function TaskPage() {
   const [finalAnswer, setFinalAnswer] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [health, setHealth] = useState<HealthResponse | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     getHealth()
@@ -155,6 +157,27 @@ export default function TaskPage() {
     }
   }
 
+  const handleCopy = async () => {
+    if (finalAnswer === null) return
+    try {
+      await navigator.clipboard.writeText(finalAnswer)
+      setCopied(true)
+    } catch {
+      setError('复制失败（浏览器未授权剪贴板），请手动选择文本复制')
+    }
+  }
+
+  const handleDownload = () => {
+    if (finalAnswer === null) return
+    const blob = new Blob([finalAnswer], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `agent-result-${Date.now()}.md`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   const reset = () => {
     setPlan(null)
     setOutline([])
@@ -163,6 +186,7 @@ export default function TaskPage() {
     setReplans(0)
     setSources([])
     setFinalAnswer(null)
+    setCopied(false)
     setError(null)
     setRetrievalSkipped(false)
     setRetrievedCount(null)
@@ -352,8 +376,20 @@ export default function TaskPage() {
       )}
 
       {finalAnswer !== null && (
-        <Card title="最终结果">
-          <Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>{finalAnswer}</Paragraph>
+        <Card
+          title="最终结果"
+          extra={
+            <Space>
+              <Button size="small" onClick={() => void handleCopy()}>
+                {copied ? '已复制' : '复制'}
+              </Button>
+              <Button size="small" onClick={handleDownload}>
+                下载 .md
+              </Button>
+            </Space>
+          }
+        >
+          <MarkdownView content={finalAnswer} />
         </Card>
       )}
     </Space>

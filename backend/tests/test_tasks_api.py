@@ -279,3 +279,34 @@ def test_memory_extraction_failure_does_not_break_task() -> None:
     assert response.json()["status"] == "completed"
     assert profile["preferences"] == {}
     assert profile["memories"] == []
+
+
+def test_list_tasks_returns_newest_first_and_is_user_scoped() -> None:
+    # 每次请求使用独立的假 Provider（响应是消耗式的）
+    with make_client(_provider()) as client:
+        first = client.post("/api/tasks", json={"query": "任务一"}).json()
+    with make_client(_provider()) as client:
+        second = client.post("/api/tasks", json={"query": "任务二"}).json()
+    with make_client(_provider()) as client:
+        client.post("/api/tasks", json={"query": "别人的任务"}, headers={"X-User-Id": "bob"})
+    with make_client(_provider()) as client:
+        listed = client.get("/api/tasks")
+
+    assert listed.status_code == 200
+    tasks = listed.json()["tasks"]
+    assert [t["task_id"] for t in tasks] == [second["task_id"], first["task_id"]]
+    assert tasks[0]["query"] == "任务二"
+    assert tasks[0]["status"] == "completed"
+    assert tasks[0]["created_at"]
+    assert tasks[0]["finished_at"]
+    assert "final_answer" not in tasks[0]  # 列表项不返回正文
+
+    with make_client(_provider()) as client:
+        bob = client.get("/api/tasks", headers={"X-User-Id": "bob"}).json()["tasks"]
+    assert [t["query"] for t in bob] == ["别人的任务"]
+
+
+def test_list_tasks_limit_is_validated() -> None:
+    with make_client(_provider()) as client:
+        assert client.get("/api/tasks?limit=0").status_code == 422
+        assert client.get("/api/tasks?limit=101").status_code == 422
