@@ -252,6 +252,8 @@ export default function TaskPage() {
       <Card title="提交任务">
         <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
           <TextArea
+            id="task-query"
+            name="query"
             rows={3}
             value={query}
             placeholder="例如：根据我的资料写一篇 RAG 技术综述"

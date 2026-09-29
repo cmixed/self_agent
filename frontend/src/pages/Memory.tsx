@@ -124,10 +124,10 @@ export default function MemoryPage() {
           }
         >
           <Form.Item name="key" rules={[{ required: true, message: '请输入键' }]}>
-            <Input placeholder="键，如 style" style={{ width: 160 }} />
+            <Input id="preference-key" name="key" placeholder="键，如 style" style={{ width: 160 }} />
           </Form.Item>
           <Form.Item name="value" rules={[{ required: true, message: '请输入值' }]}>
-            <Input placeholder="值，如 偏好学术严谨" style={{ width: 280 }} />
+            <Input id="preference-value" name="value" placeholder="值，如 偏好学术严谨" style={{ width: 280 }} />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit">
@@ -196,10 +196,10 @@ export default function MemoryPage() {
           }
         >
           <Form.Item name="kind" initialValue="fact" rules={[{ required: true }]}>
-            <Input placeholder="类型，如 fact" style={{ width: 130 }} />
+            <Input id="memory-kind" name="kind" placeholder="类型，如 fact" style={{ width: 130 }} />
           </Form.Item>
           <Form.Item name="content" rules={[{ required: true, message: '请输入内容' }]}>
-            <Input placeholder="记忆内容" style={{ width: 320 }} />
+            <Input id="memory-content" name="content" placeholder="记忆内容" style={{ width: 320 }} />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit">
