@@ -1,11 +1,11 @@
 import {
-  ApiOutlined,
   BulbOutlined,
   DatabaseOutlined,
   HistoryOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MoonOutlined,
+  ReloadOutlined,
   RocketOutlined,
   SunOutlined,
 } from '@ant-design/icons'
@@ -114,7 +114,7 @@ export default function App() {
                     type="text"
                     size="small"
                     aria-label="刷新后端状态"
-                    icon={<ApiOutlined />}
+                    icon={<ReloadOutlined />}
                     onClick={reload}
                   />
                 </Tooltip>

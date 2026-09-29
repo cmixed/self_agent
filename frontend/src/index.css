@@ -35,7 +35,7 @@ html[data-theme='dark'] body {
 
 :root[data-theme='dark'] {
   --mica-bg: rgba(22, 24, 29, var(--mica-alpha));
-  --mica-border: rgba(255, 255, 255, 0.08);
+  --mica-border: rgba(255, 255, 255, 0.1);
 }
 
 /* --- Mica 面板 ------------------------------------------------------------- */
