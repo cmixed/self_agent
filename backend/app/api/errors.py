@@ -34,8 +34,11 @@ _ERROR_STATUS: dict[type[LLMError], tuple[int, str]] = {
 _DEFAULT_STATUS = (status.HTTP_502_BAD_GATEWAY, "模型服务调用失败")
 
 
-def _resolve_status(exc: LLMError) -> tuple[int, str]:
-    """按 MRO 匹配，允许 LLMError 的自定义子类复用父类映射。"""
+def resolve_llm_error(exc: LLMError) -> tuple[int, str]:
+    """按 MRO 匹配，允许 LLMError 的自定义子类复用父类映射。
+
+    返回 (HTTP 状态码, 可安全展示的说明)。
+    """
     for exc_type in type(exc).__mro__:
         if exc_type in _ERROR_STATUS:
             return _ERROR_STATUS[exc_type]
@@ -44,7 +47,7 @@ def _resolve_status(exc: LLMError) -> tuple[int, str]:
 
 async def llm_error_handler(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, LLMError)
-    http_status, detail = _resolve_status(exc)
+    http_status, detail = resolve_llm_error(exc)
 
     logger.warning(
         "LLM 调用失败",

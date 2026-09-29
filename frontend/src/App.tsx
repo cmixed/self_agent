@@ -1,6 +1,6 @@
 import { Layout, Typography } from 'antd'
 
-import ChatPage from './pages/Chat'
+import TaskPage from './pages/Task'
 
 const { Header, Content } = Layout
 const { Title } = Typography
@@ -14,7 +14,7 @@ export default function App() {
         </Title>
       </Header>
       <Content style={{ padding: 24 }}>
-        <ChatPage />
+        <TaskPage />
       </Content>
     </Layout>
   )

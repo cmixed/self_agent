@@ -17,7 +17,7 @@
 | 层 | 技术 |
 | --- | --- |
 | LLM | DeepSeek V4.1 Flash（`deepseek-flash`，OpenAI 兼容） |
-| 编排 | LangGraph（Phase 2 起） |
+| 编排 | LangGraph（Planner → Writer → Summarizer） |
 | 后端 | Python 3.14 · uv · FastAPI · Pydantic |
 | 检索 | ChromaDB（Phase 3 起） |
 | 持久化 | SQLite（Phase 5 起） |
@@ -33,10 +33,12 @@
 │   ├── pyproject.toml
 │   ├── app/
 │   │   ├── main.py        # FastAPI 入口
-│   │   ├── api/           # 路由与统一错误处理
-│   │   ├── core/          # 配置、日志
+│   │   ├── api/           # 路由、依赖注入与统一错误处理
+│   │   ├── agents/        # Agent 节点（planner / writer / summarizer）
+│   │   ├── core/          # 配置、日志、LangGraph 编排（agent_graph.py）
 │   │   ├── llm/           # LLM Provider 抽象（base / deepseek / factory）
-│   │   └── models/        # API Schema
+│   │   ├── models/        # AgentState 与 API Schema
+│   │   └── services/      # 任务服务（组装状态、运行图）
 │   └── tests/             # 单元 / 集成 / smoke 测试
 ├── frontend/
 │   ├── src/services/      # 后端 API 客户端
@@ -100,27 +102,40 @@ npm run build
 ## 当前进度
 
 - [x] **Phase 1**：项目初始化 —— FastAPI、React、LLM Provider 抽象、DeepSeek 调用、测试
-- [ ] Phase 2：LangGraph 编排（Planner → Writer → Answer）
+- [x] **Phase 2**：LangGraph 编排（Planner → Writer → Summarizer）+ SSE 进度流
 - [ ] Phase 3：RAG（ChromaDB + RAG Tool + Researcher）
 - [ ] Phase 4：完整 Agent（Validator + 有限重试 / Re-plan + Summarizer）
 - [ ] Phase 5：Memory（Checkpoint + SQLite 长期记忆）
 - [ ] Phase 6：前端任务进度面板
 - [ ] Phase 7：评估（RAG / Agent / 长文本指标）
 
-## 接口（Phase 1）
+## 接口
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` | `/api/health` | 健康检查与 LLM 配置状态 |
-| `POST` | `/api/chat` | 非流式对话（SSE 流式留待 Phase 2） |
+| `POST` | `/api/chat` | 非流式对话（Phase 1 直连模型） |
+| `POST` | `/api/tasks` | 同步执行 Agent 任务，返回计划与最终结果 |
+| `POST` | `/api/tasks/stream` | 以 SSE 推送任务执行进度 |
 
-`POST /api/chat` 请求示例：
+`POST /api/tasks` 请求示例：
 
 ```json
 {
-  "messages": [{ "role": "user", "content": "用一句话解释什么是 RAG" }],
-  "temperature": 0.7
+  "query": "根据我的资料写一篇 RAG 技术综述",
+  "user_preferences": { "style": "学术" }
 }
+```
+
+`POST /api/tasks/stream` 按 AGENTS.md §19 推送事件（`planner_started` /
+`planner_completed` / `writer_started` / … / `task_completed` / `task_failed`）：
+
+```text
+data: {"task_id":"...","event":"planner_started","step":null,"status":"running","message":"正在分析任务并生成计划"}
+
+data: {"task_id":"...","event":"planner_completed","step":"planner","status":"ok","message":"已完成任务规划","plan":{...}}
+
+data: {"task_id":"...","event":"task_completed","status":"completed","message":"任务完成","result":{...}}
 ```
 
 错误响应统一为：
