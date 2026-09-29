@@ -1,0 +1,130 @@
+# 基于 RAG 的个人任务型智能体
+
+面向毕业设计的个人知识库**任务型 Agent**。目标不是做一个“万能 AI”，而是把传统的
+
+`用户提问 → RAG 检索 → LLM 回答`
+
+扩展为
+
+`用户提出复杂任务 → Agent 规划 → 调用 RAG / 工具 → 多步执行 → 验证 / 重试 → 输出最终结果`
+
+核心演示场景：上传若干论文 / 资料，然后让 Agent “根据我的资料写一篇 RAG 技术综述”。
+
+> 架构、设计原则与开发规范见 [`AGENTS.md`](./AGENTS.md)。
+
+## 技术栈
+
+| 层 | 技术 |
+| --- | --- |
+| LLM | DeepSeek V4.1 Flash（`deepseek-flash`，OpenAI 兼容） |
+| 编排 | LangGraph（Phase 2 起） |
+| 后端 | Python 3.14 · uv · FastAPI · Pydantic |
+| 检索 | ChromaDB（Phase 3 起） |
+| 持久化 | SQLite（Phase 5 起） |
+| 前端 | React 19 · TypeScript · Vite · Ant Design |
+
+## 目录结构
+
+```text
+.
+├── AGENTS.md              # 项目规范（架构 / 边界 / 开发顺序）
+├── .env.example           # 环境变量样例
+├── backend/
+│   ├── pyproject.toml
+│   ├── app/
+│   │   ├── main.py        # FastAPI 入口
+│   │   ├── api/           # 路由与统一错误处理
+│   │   ├── core/          # 配置、日志
+│   │   ├── llm/           # LLM Provider 抽象（base / deepseek / factory）
+│   │   └── models/        # API Schema
+│   └── tests/             # 单元 / 集成 / smoke 测试
+├── frontend/
+│   ├── src/services/      # 后端 API 客户端
+│   ├── src/pages/         # 页面
+│   └── src/types/         # 类型定义
+└── docs/
+```
+
+## 环境准备
+
+- Python 3.14（见 `.python-version`）
+- [uv](https://docs.astral.sh/uv/)
+- Node.js 22+ 与 npm
+
+```bash
+cp .env.example .env
+# 编辑 .env，填入真实的 DEEPSEEK_API_KEY
+```
+
+> `.env` 已被 `.gitignore` 忽略，禁止提交。API Key 只从环境变量读取。
+
+## 启动后端
+
+```bash
+cd backend
+uv sync
+uv run uvicorn app.main:app --reload
+```
+
+- 健康检查：`GET http://127.0.0.1:8000/api/health`
+- 接口文档：`http://127.0.0.1:8000/docs`
+
+## 启动前端
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+访问 `http://localhost:5173`。开发服务器会把 `/api` 代理到 `http://127.0.0.1:8000`，
+因此需要先启动后端。
+
+## 测试与检查
+
+```bash
+# 后端：格式化 / 静态检查 / 单元与集成测试（不依赖真实 API）
+cd backend
+uv run ruff format .
+uv run ruff check .
+uv run pytest
+
+# 真实 DeepSeek API 冒烟测试（需已配置 DEEPSEEK_API_KEY，默认不执行）
+uv run pytest -m smoke
+
+# 前端：类型检查 + 构建
+cd frontend
+npm run build
+```
+
+## 当前进度
+
+- [x] **Phase 1**：项目初始化 —— FastAPI、React、LLM Provider 抽象、DeepSeek 调用、测试
+- [ ] Phase 2：LangGraph 编排（Planner → Writer → Answer）
+- [ ] Phase 3：RAG（ChromaDB + RAG Tool + Researcher）
+- [ ] Phase 4：完整 Agent（Validator + 有限重试 / Re-plan + Summarizer）
+- [ ] Phase 5：Memory（Checkpoint + SQLite 长期记忆）
+- [ ] Phase 6：前端任务进度面板
+- [ ] Phase 7：评估（RAG / Agent / 长文本指标）
+
+## 接口（Phase 1）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/health` | 健康检查与 LLM 配置状态 |
+| `POST` | `/api/chat` | 非流式对话（SSE 流式留待 Phase 2） |
+
+`POST /api/chat` 请求示例：
+
+```json
+{
+  "messages": [{ "role": "user", "content": "用一句话解释什么是 RAG" }],
+  "temperature": 0.7
+}
+```
+
+错误响应统一为：
+
+```json
+{ "error": "llm_config_error", "error_type": "llm_config_error", "detail": "LLM 服务未正确配置" }
+```

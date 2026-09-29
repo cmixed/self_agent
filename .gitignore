@@ -1,0 +1,34 @@
+# --- Secrets / environment ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.uv/
+
+# --- Node / Frontend ---
+node_modules/
+.vite/
+*.local
+*.tsbuildinfo
+
+# --- Data / runtime artifacts ---
+data/documents/
+data/chroma/
+data/sqlite/
+logs/
+
+# --- Databases ---
+*.db
+*.sqlite
+*.sqlite3

@@ -1,0 +1,1368 @@
+# AGENTS.md
+
+## 项目名称
+
+基于 RAG 的个人任务型智能体设计与实现
+
+## 1. 项目目标
+
+本项目是一个面向毕业设计的个人知识库任务型 Agent。
+
+核心目标不是实现“万能 AI”，而是把传统的：
+
+`用户提问 -> RAG 检索 -> LLM 回答`
+
+扩展为：
+
+`用户提出复杂任务 -> Agent 规划 -> 调用 RAG/工具 -> 多步执行 -> 验证/重试 -> 输出最终结果`
+
+核心演示场景：
+
+> 用户上传若干论文/资料，然后提出“根据我的资料写一篇 RAG 技术综述”。
+
+Agent 应能够：
+
+1. 理解用户任务。
+2. 将任务拆解为多个步骤。
+3. 从个人知识库检索相关资料。
+4. 根据资料生成文章大纲。
+5. 按章节生成长文本。
+6. 对生成内容进行基本验证。
+7. 必要时重试或调整步骤。
+8. 输出带来源信息的最终 Markdown 文档。
+9. 保留当前会话上下文，并支持简单的长期用户偏好记忆。
+10. 将 Agent 当前执行阶段反馈给前端。
+
+---
+
+## 2. 技术栈
+
+### Backend
+
+- Python 3.14
+- uv
+- FastAPI
+- LangGraph
+- LangChain
+- ChromaDB
+- SQLite
+- DeepSeek V4.1 Flash API
+
+### LLM
+
+默认：
+
+- Provider: DeepSeek
+- Model: `deepseek-flash`
+- API Base URL: `https://api.deepseek.com`
+
+DeepSeek API 与 OpenAI API 格式兼容，因此项目可以通过统一的 LLM Provider 层隔离具体模型。
+
+### Frontend
+
+- React
+- TypeScript
+- Vite
+- Ant Design
+
+### 可选/后续
+
+- Ollama
+- Qwen 系列本地模型
+- Docker Compose
+
+> Ollama 不是 MVP 的必需组件。
+> 第一阶段必须以 DeepSeek API 为唯一默认模型来源，确保项目先完成核心 Agent 流程。
+> 后续如果加入 Ollama，应作为第二个 LLM Provider，而不是修改 Agent Graph。
+
+---
+
+## 3. 总体架构
+
+```text
+                         ┌──────────────────────┐
+                         │      React UI        │
+                         │   React + TS + AntD   │
+                         └──────────┬───────────┘
+                                    │ HTTP / SSE
+                                    ▼
+                         ┌──────────────────────┐
+                         │      FastAPI         │
+                         │   REST / Streaming   │
+                         └──────────┬───────────┘
+                                    │
+                                    ▼
+                     ┌────────────────────────────┐
+                     │       LangGraph Agent      │
+                     │                            │
+                     │ Planner                    │
+                     │    ↓                       │
+                     │ Executor                   │
+                     │    ↓                       │
+                     │ Researcher / RAG           │
+                     │    ↓                       │
+                     │ Writer                     │
+                     │    ↓                       │
+                     │ Validator ──→ Retry/Replan │
+                     │    ↓                       │
+                     │ Summarizer                 │
+                     └───────┬───────────┬────────┘
+                             │           │
+                ┌────────────┘           └─────────────┐
+                ▼                                      ▼
+       ┌──────────────────┐                  ┌──────────────────┐
+       │ DeepSeek API     │                  │ ChromaDB         │
+       │ deepseek-flash   │                  │ Personal KB      │
+       └──────────────────┘                  └──────────────────┘
+                             │
+                             ▼
+                    ┌──────────────────┐
+                    │ SQLite           │
+                    │ Memory / State   │
+                    └──────────────────┘
+```
+
+---
+
+## 4. 核心设计原则
+
+### 4.1 Agent 是核心，RAG 是工具
+
+不要把项目实现成简单的 RAG QA 系统。
+
+错误：
+
+```text
+User
+ ↓
+Retriever
+ ↓
+LLM
+ ↓
+Answer
+```
+
+目标：
+
+```text
+User Task
+ ↓
+Planner
+ ↓
+Executor
+ ├── Researcher / RAG
+ ├── Writer
+ ├── Validator
+ └── Summarizer
+ ↓
+Final Result
+```
+
+RAG 必须作为 Agent 可以调用的 Tool。
+
+Agent 不应直接操作 ChromaDB。
+
+---
+
+### 4.2 LangGraph 负责流程编排
+
+LangGraph 是 Agent 的工作流层。
+
+Graph 负责：
+
+- 节点之间的执行顺序
+- State 管理
+- 条件路由
+- 重试
+- Re-plan
+- Checkpoint
+- Streaming 状态
+
+业务逻辑应放在具体节点或 service 中，而不是全部写进 `agent_graph.py`。
+
+---
+
+### 4.3 LLM Provider 必须抽象
+
+Agent Graph 不允许直接绑定 DeepSeek SDK。
+
+推荐：
+
+```text
+agents/
+    planner.py
+    writer.py
+    validator.py
+
+llm/
+    base.py
+    deepseek.py
+    factory.py
+```
+
+未来：
+
+```text
+LLM Provider
+├── DeepSeek
+└── Ollama
+```
+
+Graph 只依赖统一接口。
+
+例如：
+
+```text
+get_llm()
+```
+
+而不是：
+
+```text
+DeepSeekClient(...)
+```
+
+这样后续加入 Ollama 时，不需要重写 Agent Graph。
+
+---
+
+## 5. 推荐目录结构
+
+```text
+project-root/
+├── AGENTS.md
+├── README.md
+├── .env.example
+├── .gitignore
+│
+├── backend/
+│   ├── pyproject.toml
+│   ├── uv.lock
+│   ├── tests/
+│   │
+│   └── app/
+│       ├── __init__.py
+│       │
+│       ├── main.py
+│       │
+│       ├── api/
+│       │   ├── __init__.py
+│       │   ├── chat.py
+│       │   ├── documents.py
+│       │   └── tasks.py
+│       │
+│       ├── agents/
+│       │   ├── __init__.py
+│       │   ├── planner.py
+│       │   ├── executor.py
+│       │   ├── researcher.py
+│       │   ├── writer.py
+│       │   ├── validator.py
+│       │   └── summarizer.py
+│       │
+│       ├── core/
+│       │   ├── __init__.py
+│       │   ├── agent_graph.py
+│       │   ├── config.py
+│       │   └── logging.py
+│       │
+│       ├── llm/
+│       │   ├── __init__.py
+│       │   ├── base.py
+│       │   ├── deepseek.py
+│       │   └── factory.py
+│       │
+│       ├── models/
+│       │   ├── __init__.py
+│       │   ├── schemas.py
+│       │   └── state.py
+│       │
+│       ├── rag/
+│       │   ├── __init__.py
+│       │   ├── loader.py
+│       │   ├── splitter.py
+│       │   ├── embedder.py
+│       │   ├── retriever.py
+│       │   └── tools.py
+│       │
+│       ├── memory/
+│       │   ├── __init__.py
+│       │   ├── sqlite.py
+│       │   └── repository.py
+│       │
+│       ├── services/
+│       │   ├── document_service.py
+│       │   └── task_service.py
+│       │
+│       └── evaluation/
+│           ├── retrieval.py
+│           ├── planning.py
+│           ├── generation.py
+│           └── task_completion.py
+│
+├── frontend/
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── src/
+│       ├── components/
+│       ├── pages/
+│       ├── services/
+│       ├── hooks/
+│       ├── types/
+│       └── main.tsx
+│
+├── data/
+│   ├── documents/
+│   ├── chroma/
+│   └── sqlite/
+│
+└── docs/
+    ├── architecture.md
+    └── evaluation.md
+```
+
+---
+
+## 6. Agent State
+
+统一定义 Agent State。
+
+推荐包含：
+
+```text
+messages
+user_query
+plan
+current_step
+step_results
+retrieved_documents
+draft
+validation_result
+retry_count
+is_complete
+task_status
+user_preferences
+final_answer
+```
+
+原则：
+
+- State 类型集中定义。
+- 节点返回 State 更新，而不是随意修改全局对象。
+- Graph 只负责编排。
+- 不要让每个节点自行创建一套互不兼容的 State。
+- 修改核心 State Schema 属于高影响修改，修改前先确认。
+
+---
+
+## 7. Agent Graph
+
+MVP 推荐：
+
+```text
+START
+  ↓
+Planner
+  ↓
+Researcher
+  ↓
+Writer
+  ↓
+Validator
+  ├── pass ───────→ Summarizer
+  │
+  └── fail ───────→ Writer / Planner
+                         │
+                         └── retry limit
+  ↓
+Summarizer
+  ↓
+END
+```
+
+后续可以增加 Executor：
+
+```text
+START
+ ↓
+Planner
+ ↓
+Executor
+ ├── RAG
+ ├── Writer
+ ├── Validator
+ └── other tools
+ ↓
+Summarizer
+ ↓
+END
+```
+
+不要一开始设计复杂的 Multi-Agent / Swarm。
+
+毕业设计 MVP 以“单 Agent + LangGraph 多节点工作流”为主。
+
+---
+
+## 8. Planner
+
+Planner 的职责：
+
+- 理解用户任务。
+- 判断任务是否需要知识库检索。
+- 将复杂任务拆分为可执行步骤。
+- 生成结构化计划。
+
+Planner 输出必须是结构化数据，而不是让后续节点解析自然语言。
+
+例如：
+
+```json
+{
+  "goal": "根据用户知识库撰写 RAG 技术综述",
+  "steps": [
+    {
+      "id": "research",
+      "type": "retrieval",
+      "description": "检索 RAG、向量数据库、检索增强生成相关资料"
+    },
+    {
+      "id": "outline",
+      "type": "outline",
+      "description": "生成综述文章大纲"
+    },
+    {
+      "id": "write",
+      "type": "writing",
+      "description": "按照大纲分章节撰写文章"
+    },
+    {
+      "id": "validate",
+      "type": "validation",
+      "description": "检查内容与来源是否一致"
+    }
+  ]
+}
+```
+
+优先使用 DeepSeek 的 JSON Output / Tool Calls 能力处理结构化 Agent 行为。
+
+---
+
+## 9. DeepSeek 配置
+
+`.env`：
+
+```env
+LLM_PROVIDER=deepseek
+
+DEEPSEEK_API_KEY=your_api_key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-flash
+```
+
+规则：
+
+- API Key 只能来自环境变量或安全配置。
+- 禁止把 API Key 写入源码。
+- 禁止提交 `.env`。
+- 必须提供 `.env.example`。
+- 日志中不得打印 API Key。
+- 不要把完整密钥返回给前端。
+
+当前默认模型固定为：
+
+```text
+deepseek-flash
+```
+
+即 DeepSeek V4.1 Flash API 模型。
+
+---
+
+## 10. DeepSeek 调用策略
+
+DeepSeek 只通过 `llm/` 层访问。
+
+不要在：
+
+```text
+planner.py
+writer.py
+validator.py
+```
+
+中直接散落 API Client 初始化代码。
+
+推荐：
+
+```text
+agent node
+    ↓
+LLM factory
+    ↓
+LLM abstraction
+    ↓
+DeepSeek provider
+    ↓
+DeepSeek API
+```
+
+需要结构化结果时：
+
+- 优先 JSON Output。
+- Planner 的输出必须有明确 Schema。
+- 对模型返回值进行 JSON / Schema 校验。
+- 解析失败时允许有限重试。
+- 不允许无限重试。
+
+需要调用工具时：
+
+- 使用 Tool Calls。
+- Tool 参数必须经过 Schema 校验。
+- 工具执行失败必须返回可处理的错误状态。
+- 不要把异常直接拼接进最终答案。
+
+---
+
+## 11. RAG
+
+RAG Pipeline：
+
+```text
+Document Upload
+ ↓
+Loader
+ ↓
+Clean / Normalize
+ ↓
+Splitter
+ ↓
+Embedding
+ ↓
+ChromaDB
+ ↓
+Retriever
+ ↓
+RAG Tool
+ ↓
+Agent
+```
+
+要求：
+
+- 文档处理与 Agent 解耦。
+- ChromaDB 访问集中在 `rag/`。
+- Retriever 不应散落在 Agent 节点中。
+- Agent 只能通过 RAG Tool 查询知识库。
+- 检索结果必须保留 source metadata。
+- 最终答案尽可能引用对应来源。
+- 修改 chunk size / overlap / retrieval top-k 后应重新进行检索评估。
+
+推荐 metadata：
+
+```text
+document_id
+filename
+page
+chunk_id
+source
+title
+```
+
+---
+
+## 12. Embedding
+
+Embedding Provider 应独立于 LLM Provider。
+
+不要因为使用 DeepSeek 就假设 Embedding 也必须使用 DeepSeek。
+
+推荐保留：
+
+```text
+embedding/
+    base.py
+    factory.py
+```
+
+后续可以选择本地 Embedding 模型。
+
+原则：
+
+- Embedding 模型可以与生成模型不同。
+- 更换 Embedding 模型后，需要重新建立向量索引。
+- ChromaDB collection 必须记录 embedding 配置。
+- 不要混用不同维度的 embedding。
+
+---
+
+## 13. SQLite
+
+SQLite 用于：
+
+1. 用户基本信息/偏好。
+2. 任务记录。
+3. Agent 运行记录。
+4. 必要的长期记忆。
+5. LangGraph 本地 Checkpoint（如果采用 SQLite checkpointer）。
+
+不要把所有东西都塞进一个表。
+
+推荐概念：
+
+```text
+users
+user_preferences
+tasks
+task_runs
+memories
+```
+
+如果 LangGraph 使用 SQLite Checkpointer，应明确区分：
+
+```text
+Agent checkpoint
+```
+
+和：
+
+```text
+Application long-term memory
+```
+
+二者用途不同。
+
+---
+
+## 14. Memory
+
+### 短期记忆
+
+用于当前任务/会话：
+
+```text
+messages
+current plan
+current step
+tool results
+draft
+validation result
+```
+
+由 LangGraph State + Checkpoint 管理。
+
+### 长期记忆
+
+用于跨会话信息：
+
+```text
+用户偏好的文章风格
+用户常用输出格式
+用户偏好的语言
+用户常见任务类型
+```
+
+不要保存没有长期价值的全部对话。
+
+长期记忆必须显式定义数据结构。
+
+---
+
+## 15. 长文本生成
+
+不要因为 DeepSeek 具有长上下文，就一次性生成整篇长文。
+
+推荐：
+
+```text
+用户任务
+ ↓
+检索
+ ↓
+Outline
+ ↓
+Chapter 1
+ ↓
+Chapter 2
+ ↓
+Chapter 3
+ ↓
+...
+ ↓
+Validator
+ ↓
+Final Integration
+```
+
+优点：
+
+- 降低单次生成失败风险。
+- 更容易控制上下文。
+- 更容易做章节级验证。
+- 更容易展示 Agent 的多步执行过程。
+- 更符合毕业设计中“任务分解”的设计目标。
+
+---
+
+## 16. Validator
+
+Validator 不是重新生成文章，而是检查：
+
+- 是否完成当前任务。
+- 是否覆盖计划要求。
+- 是否存在明显遗漏。
+- 引用是否与检索资料对应。
+- 是否存在明显重复。
+- 当前章节是否符合预定结构。
+
+输出建议：
+
+```json
+{
+  "passed": true,
+  "issues": [],
+  "suggested_action": "continue"
+}
+```
+
+失败时：
+
+```text
+Validator
+ ↓
+判断问题
+ ├── 局部问题 → Writer retry
+ └── 计划问题 → Planner re-plan
+```
+
+必须限制最大 retry 次数。
+
+例如：
+
+```text
+MAX_RETRIES=2
+```
+
+超过限制后进入安全结束流程，不允许无限循环。
+
+---
+
+## 17. 前端任务进度
+
+前端不能只显示一个聊天窗口。
+
+应提供 Agent 工作状态，例如：
+
+```text
+任务：根据我的论文生成 RAG 技术综述
+
+✓ 分析任务
+✓ 生成研究计划
+✓ 检索知识库
+✓ 生成文章大纲
+● 正在撰写第 2 章
+○ 内容验证
+○ 最终整合
+```
+
+前端只展示：
+
+- 当前节点。
+- 当前阶段。
+- 任务进度。
+- 已完成步骤。
+- 最终结果。
+- 错误信息。
+
+不要展示模型隐藏的 Chain-of-Thought。
+
+如果需要解释 Agent 行为，应展示结构化的“任务步骤/执行状态”，而不是模型内部推理过程。
+
+---
+
+## 18. FastAPI
+
+API 至少包含：
+
+```text
+POST /api/documents/upload
+GET  /api/documents
+DELETE /api/documents/{id}
+
+POST /api/tasks
+GET  /api/tasks/{id}
+
+POST /api/chat
+GET  /api/tasks/{id}/stream
+
+GET  /api/health
+```
+
+推荐：
+
+- 普通 CRUD 使用 REST。
+- Agent 长任务使用 Streaming/SSE。
+- 前端通过 task_id 观察任务状态。
+- 不要让 HTTP 请求永久阻塞等待非常长的 Agent 任务。
+
+---
+
+## 19. Streaming
+
+Agent 执行过程应能够向前端报告：
+
+```text
+planner_started
+planner_completed
+retrieval_started
+retrieval_completed
+writer_started
+writer_completed
+validator_started
+validator_completed
+retrying
+task_completed
+task_failed
+```
+
+事件结构建议：
+
+```json
+{
+  "task_id": "xxx",
+  "event": "writer_started",
+  "step": "chapter_2",
+  "status": "running",
+  "message": "正在撰写第 2 章"
+}
+```
+
+不要通过 Streaming 输出模型隐藏推理过程。
+
+---
+
+## 20. 错误处理
+
+所有外部依赖都必须考虑失败：
+
+- DeepSeek API 超时。
+- API Key 无效。
+- API 限流。
+- 模型返回格式错误。
+- ChromaDB 不可用。
+- 文档解析失败。
+- SQLite 错误。
+- Agent 节点异常。
+
+原则：
+
+```text
+错误
+ ↓
+记录日志
+ ↓
+转换为可理解的错误状态
+ ↓
+必要时有限重试
+ ↓
+仍失败 → 安全结束任务
+```
+
+不要：
+
+- 无限 retry。
+- 吞掉异常。
+- 返回 Python traceback 给用户。
+- 将内部 API Key / 配置泄露给前端。
+
+---
+
+## 21. 日志
+
+日志至少包含：
+
+```text
+task_id
+user_id
+node
+event
+duration
+status
+error_type
+```
+
+不要记录：
+
+- API Key
+- Authorization Header
+- 完整敏感用户数据
+- 不必要的完整 Prompt
+
+开发环境可以提高日志级别，生产/演示环境减少敏感内容。
+
+---
+
+## 22. 测试
+
+必须优先测试：
+
+### Unit Test
+
+- Planner JSON parsing
+- State schema
+- RAG retrieval
+- Validator
+- SQLite repository
+- LLM Provider
+
+### Integration Test
+
+至少包含：
+
+```text
+FastAPI
+ ↓
+LangGraph
+ ↓
+Mock LLM
+ ↓
+RAG
+ ↓
+Final result
+```
+
+测试 Agent Graph 时尽可能使用 Mock LLM，不要让单元测试依赖真实 DeepSeek API。
+
+真实 API 测试应单独作为 smoke test。
+
+---
+
+## 23. 评估指标
+
+毕业设计建议至少包含以下评价维度：
+
+### RAG
+
+- Retrieval Hit Rate
+- Top-K relevance
+- Citation/source correctness
+
+### Agent
+
+- Task completion rate
+- Planning success
+- Step execution success
+- Retry/re-plan success
+
+### Long-form Generation
+
+- 内容完整性
+- 结构合理性
+- 来源对应性
+- 重复率
+- 人工评价
+
+### System
+
+- 平均任务耗时
+- API 调用次数
+- 错误率
+
+可以设置对比实验：
+
+```text
+Baseline:
+DeepSeek + RAG QA
+
+Proposed:
+DeepSeek + LangGraph Agent + RAG
+```
+
+用于比较复杂任务完成能力。
+
+---
+
+## 24. MVP 开发顺序
+
+严格按照以下顺序开发。
+
+### Phase 1：项目初始化
+
+```text
+FastAPI
+React
+DeepSeek Provider
+.env
+```
+
+先完成：
+
+```text
+React
+ ↓
+FastAPI
+ ↓
+DeepSeek
+ ↓
+Answer
+```
+
+### Phase 2：LangGraph
+
+实现：
+
+```text
+User
+ ↓
+Planner
+ ↓
+Writer
+ ↓
+Answer
+```
+
+### Phase 3：RAG
+
+加入：
+
+```text
+Document
+ ↓
+ChromaDB
+ ↓
+RAG Tool
+ ↓
+Researcher
+```
+
+### Phase 4：完整 Agent
+
+实现：
+
+```text
+Planner
+ ↓
+Researcher
+ ↓
+Writer
+ ↓
+Validator
+ ↓
+Retry / Re-plan
+ ↓
+Summarizer
+```
+
+### Phase 5：Memory
+
+加入：
+
+```text
+LangGraph Checkpoint
++
+SQLite long-term memory
+```
+
+### Phase 6：前端任务面板
+
+实现：
+
+```text
+Task
+ ↓
+Progress
+ ↓
+Agent Steps
+ ↓
+Final Markdown
+```
+
+### Phase 7：评估
+
+加入：
+
+- 测试数据集
+- RAG 指标
+- Agent 指标
+- 长文本人工评价
+- 对比实验
+
+### Phase 8：Ollama（可选）
+
+只有核心系统稳定后再加入：
+
+```text
+DeepSeek Provider
+Ollama Provider
+```
+
+用于本地模型实验或模型对比。
+
+---
+
+## 25. Ollama 后续扩展原则
+
+不要修改：
+
+```text
+Agent Graph
+State
+Planner
+RAG Tool
+Validator
+```
+
+只增加：
+
+```text
+llm/ollama.py
+```
+
+并修改 Provider Factory。
+
+例如：
+
+```env
+LLM_PROVIDER=deepseek
+```
+
+或者：
+
+```env
+LLM_PROVIDER=ollama
+OLLAMA_MODEL=qwen
+```
+
+Agent 层不应感知当前使用哪个 Provider。
+
+---
+
+## 26. Git / Secret 规则
+
+禁止提交：
+
+```text
+.env
+*.db
+data/chroma/
+data/documents/
+API keys
+credentials
+runtime logs
+```
+
+`.gitignore` 至少包含：
+
+```gitignore
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+node_modules/
+dist/
+
+data/sqlite/
+data/chroma/
+data/documents/
+logs/
+
+*.db
+*.sqlite
+*.sqlite3
+```
+
+---
+
+## 27. 修改规则
+
+### Always
+
+修改代码后：
+
+1. 格式化。
+2. 静态检查。
+3. 运行相关测试。
+4. 确认 import 正常。
+5. 确认 API 启动正常（涉及 API 时）。
+6. 确认前端 build 正常（涉及 frontend 时）。
+
+### Ask First
+
+以下修改先询问：
+
+- 修改 AgentState。
+- 修改核心 LangGraph 拓扑。
+- 删除/重命名 Agent Node。
+- 更换默认 LLM。
+- 更换 Embedding 模型。
+- 更换 ChromaDB。
+- 修改 SQLite 数据结构。
+- 修改 API 协议。
+- 删除测试。
+- 增加大量核心依赖。
+- 将单 Agent 改成 Multi-Agent。
+
+### Never
+
+禁止：
+
+- 提交 API Key。
+- 无限 Agent Loop。
+- 无限 Retry。
+- 删除测试来“解决”失败。
+- 为局部问题重写整个 Agent Graph。
+- 让 Agent 直接操作 ChromaDB 内部实现。
+- 将 RAG 重新变成系统唯一核心。
+- 在前端展示模型隐藏 Chain-of-Thought。
+- 为了炫技加入没有实际任务价值的 Multi-Agent。
+
+---
+
+## 28. 代码风格
+
+优先：
+
+- 小函数。
+- 明确类型。
+- Pydantic Schema。
+- async I/O。
+- dependency injection。
+- 单一职责。
+- 可测试的 service。
+- 清晰的错误类型。
+
+避免：
+
+- 超大文件。
+- 全局变量。
+- 隐式状态。
+- Agent Node 中直接写数据库 SQL。
+- Agent Node 中直接初始化外部 Client。
+- 把所有逻辑塞进 `agent_graph.py`。
+
+---
+
+## 29. 毕业设计展示重点
+
+答辩演示优先展示：
+
+```text
+上传 5 篇论文
+        ↓
+输入：
+“根据我的资料写一篇 RAG 技术综述”
+        ↓
+Planner
+        ↓
+Researcher / RAG
+        ↓
+Outline
+        ↓
+Chapter Writing
+        ↓
+Validator
+        ↓
+Retry / Re-plan
+        ↓
+Final Article
+        ↓
+References
+```
+
+重点体现：
+
+1. Agent 的任务规划。
+2. RAG 作为 Tool。
+3. 多步骤执行。
+4. 长文本分章节生成。
+5. 验证与重试。
+6. 短期/长期记忆。
+7. 前端任务进度。
+8. 最终结果与来源对应。
+
+不要把项目包装成“创造了新的大模型”。
+
+项目定位应是：
+
+> 设计并实现一个基于 LangGraph 的个人知识库任务型智能体，将 RAG 从传统问答中的检索模块扩展为 Agent 可调用的知识工具，并通过任务规划、多步执行、记忆、验证和重试机制完成复杂长文本任务。
+
+---
+
+## 30. 最小成功标准
+
+以下功能全部完成后，才认为 MVP 成功：
+
+```text
+[ ] React 可以提交任务
+[ ] FastAPI 可以接收任务
+[ ] DeepSeek API 可以正常调用
+[ ] LangGraph 可以执行
+[ ] Planner 可以输出结构化计划
+[ ] ChromaDB 可以建立知识库
+[ ] Agent 可以调用 RAG Tool
+[ ] Writer 可以生成章节
+[ ] Validator 可以判断结果
+[ ] Retry 有次数限制
+[ ] SQLite 可以保存任务/记忆
+[ ] 前端可以显示任务进度
+[ ] 可以输出最终 Markdown
+[ ] 至少有一组端到端测试
+[ ] 至少有一组 Agent/RAG 评估数据
+```
+
+---
+
+## 31. 当前开发优先级
+
+始终遵循：
+
+```text
+正确性
+  >
+可运行 MVP
+  >
+Agent 核心流程
+  >
+RAG
+  >
+Memory
+  >
+Evaluation
+  >
+UI
+  >
+性能优化
+  >
+额外功能
+```
+
+不要在 MVP 阶段提前实现：
+
+- Web Search
+- Code Runner
+- Multi-Agent
+- Ollama
+- 复杂权限系统
+- 复杂用户系统
+- 分布式部署
+- 微服务拆分
+
+除非核心 Agent 流程已经稳定。
+
+---
+
+## 32. 一句话架构约束
+
+```text
+DeepSeek V4.1 Flash 负责语言理解与生成，
+LangGraph 负责 Agent 状态与工作流，
+ChromaDB 负责个人知识库检索，
+SQLite 负责应用数据与持久化，
+FastAPI 负责后端 API，
+React 负责任务交互与进度可视化。
+```
+
+这六个组件构成第一版系统的核心边界。
