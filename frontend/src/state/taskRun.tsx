@@ -37,6 +37,10 @@ const NODE_LABELS: Record<string, string> = {
 }
 
 const MAX_LOG_ENTRIES = 60
+// 提示条数兜底：后端预算（每章 ≤2 次重写 × ≤8 章 + ≤2 次 replan）已限制总量，
+// 这里再加一层 UI 上限，避免任何异常情况下无限增长。
+const MAX_PLANNER_NOTES = 4
+const MAX_CHAPTER_NOTES_PER_CHAPTER = 3
 
 export const SAMPLE_TASKS = [
   '根据我的资料写一篇 RAG 技术综述',
@@ -82,7 +86,8 @@ export interface TaskRunValue {
   round: number
   log: LogEntry[]
   nodes: Record<string, StageStatus>
-  stageNotes: Record<string, string[]>
+  plannerNotes: string[]
+  chapterNotes: Record<number, string[]>
   chapterList: ChapterView[]
   writtenChapters: number
   retrievalSkipped: boolean
@@ -118,7 +123,8 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   const [aborted, setAborted] = useState(false)
   const [taskId, setTaskId] = useState<string | null>(null)
   const [nodes, setNodes] = useState<Record<NodeKey, StageStatus>>(INITIAL_NODES)
-  const [stageNotes, setStageNotes] = useState<Record<string, string[]>>({})
+  const [plannerNotes, setPlannerNotes] = useState<string[]>([])
+  const [chapterNotes, setChapterNotes] = useState<Record<number, string[]>>({})
   const [round, setRound] = useState(1)
   const [log, setLog] = useState<LogEntry[]>([])
   const [retrievalSkipped, setRetrievalSkipped] = useState(false)
@@ -160,8 +166,15 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     [],
   )
 
-  const addNote = useCallback((stage: string, note: string) => {
-    setStageNotes((prev) => ({ ...prev, [stage]: [...(prev[stage] ?? []), note] }))
+  const addPlannerNote = useCallback((note: string) => {
+    setPlannerNotes((prev) => [...prev, note].slice(-MAX_PLANNER_NOTES))
+  }, [])
+
+  const addChapterNote = useCallback((chapter: number, note: string) => {
+    setChapterNotes((prev) => ({
+      ...prev,
+      [chapter]: [...(prev[chapter] ?? []), note].slice(-MAX_CHAPTER_NOTES_PER_CHAPTER),
+    }))
   }, [])
 
   const updateChapter = useCallback((index: number, patch: Partial<ChapterState>) => {
@@ -218,13 +231,15 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         setNodes((prev) => ({ ...prev, validator: 'wait' }))
 
         if (isReplan) {
-          // replan 是整轮回退：清空章节进度并进入下一轮
+          // replan 是整轮回退：清空章节进度与旧提示，进入下一轮
           roundRef.current += 1
           setRound(roundRef.current)
           setChapters({})
-          addNote('planner', `第 ${roundRef.current - 1} 轮：${event.message}`)
+          setChapterNotes({})
+          addPlannerNote(`第 ${roundRef.current - 1} 轮：${event.message}`)
         } else {
-          addNote('chapters', event.message)
+          const n = chapterNumber(event.target)
+          if (n !== null) addChapterNote(n, event.message)
         }
 
         if (event.exhausted) {
@@ -295,7 +310,18 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
       }
       if (event.event === 'validator_completed' && event.target?.startsWith('chapter_')) {
         const n = chapterNumber(event.target)
-        if (n !== null) updateChapter(n, { validation: event.passed ? 'passed' : 'failed' })
+        if (n !== null) {
+          updateChapter(n, { validation: event.passed ? 'passed' : 'failed' })
+          if (event.passed) {
+            // 已修正：清除该章的重写提示（完整历史仍可在「执行日志」查看）
+            setChapterNotes((prev) => {
+              if (prev[n] === undefined) return prev
+              const next = { ...prev }
+              delete next[n]
+              return next
+            })
+          }
+        }
       }
       if (event.event === 'validator_completed') {
         setValidation({
@@ -306,14 +332,15 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         })
       }
     },
-    [addNote, pushLog, updateChapter],
+    [addPlannerNote, addChapterNote, pushLog, updateChapter],
   )
 
   const clear = useCallback(() => {
     setHasStarted(false)
     setTaskId(null)
     setNodes(INITIAL_NODES)
-    setStageNotes({})
+    setPlannerNotes([])
+    setChapterNotes({})
     roundRef.current = 1
     setRound(1)
     setLog([])
@@ -432,7 +459,8 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     round,
     log,
     nodes,
-    stageNotes,
+    plannerNotes,
+    chapterNotes,
     chapterList,
     writtenChapters,
     retrievalSkipped,

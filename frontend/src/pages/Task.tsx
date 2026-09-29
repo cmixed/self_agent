@@ -48,7 +48,8 @@ export default function TaskPage() {
     round,
     log,
     nodes,
-    stageNotes,
+    plannerNotes,
+    chapterNotes,
     chapterList,
     writtenChapters,
     retrievalSkipped,
@@ -93,7 +94,7 @@ export default function TaskPage() {
       title: '分析任务并生成计划',
       status: nodes.planner as MacroStage['status'],
       badge: replans > 0 ? <Tag color="volcano">重新规划 {replans} 次</Tag> : undefined,
-      notes: stageNotes.planner,
+      notes: plannerNotes,
     },
     {
       key: 'researcher',
@@ -118,7 +119,10 @@ export default function TaskPage() {
       note: outline.length > 0 ? `已写 ${writtenChapters}/${outline.length} 章` : undefined,
       progress: outline.length > 0 ? { done: writtenChapters, total: outline.length } : undefined,
       chapters: chapterList,
-      notes: stageNotes.chapters,
+      // 只展示仍未解决的提示；已修正的章节提示会消失（历史见「执行日志」）
+      notes: chapterList
+        .filter((chapter) => chapter.validation !== 'passed')
+        .flatMap((chapter) => chapterNotes[chapter.index] ?? []),
     },
     {
       key: 'summarizer',
