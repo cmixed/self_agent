@@ -110,11 +110,24 @@ npm run build
 - [x] **Phase 1**：项目初始化 —— FastAPI、React、LLM Provider 抽象、DeepSeek 调用、测试
 - [x] **Phase 2**：LangGraph 编排（Planner → Writer → Summarizer）+ SSE 进度流
 - [x] **Phase 3A**：RAG 索引 —— 文档上传 → 解析/切分 → 向量化入库 → 检索
-- [ ] Phase 3B：RAG Tool + Researcher 接入 Graph
+- [x] **Phase 3B**：RAG Tool + Researcher 接入 Graph，正文标注来源 [n] 并返回来源列表
 - [ ] Phase 4：完整 Agent（Validator + 有限重试 / Re-plan + Summarizer）
 - [ ] Phase 5：Memory（Checkpoint + SQLite 长期记忆）
 - [ ] Phase 6：前端任务进度面板
 - [ ] Phase 7：评估（RAG / Agent / 长文本指标）
+
+## 当前 Agent 流程
+
+```text
+START → Planner ──(计划需要检索)──→ Researcher(RAG Tool) ──→ Writer → Summarizer → END
+              │                                                    ↑
+              ├──(计划不需要检索)──────────────────────────────────┘
+              └──(未能生成计划)──→ END(status=failed)
+```
+
+- 节点只返回增量状态，由 LangGraph reducer 合并（`app/models/state.py`）
+- RAG 以 Tool 形式提供（`app/rag/tools.py`），Agent 不直接访问 ChromaDB
+- 检索结果保留来源元数据，正文用 `[n]` 标注，并在结果中返回 `sources` 列表
 
 ## 接口
 

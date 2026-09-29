@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 from uuid import uuid4
 
@@ -13,16 +13,40 @@ from app.core.agent_graph import build_graph
 from app.core.errors import resolve_error
 from app.core.logging import get_logger
 from app.llm.base import LLMError, LLMProvider
-from app.models.state import AgentState, initial_state
+from app.models.state import AgentState, RetrievedDocument, initial_state
+from app.rag.tools import RagTool
 
 logger = get_logger(__name__)
 
 # 节点 -> (进行中提示, 完成提示)。仅这些节点会推送给前端（§19）。
 _NODE_EVENTS: dict[str, tuple[str, str]] = {
     "planner": ("正在分析任务并生成计划", "已完成任务规划"),
+    "researcher": ("正在检索个人知识库", "知识库检索完成"),
     "writer": ("正在撰写内容", "内容已生成"),
     "summarizer": ("正在整合最终结果", "已整合最终结果"),
 }
+
+
+def _sources(documents: list[RetrievedDocument]) -> list[dict[str, Any]]:
+    """把检索结果整理为去重的来源列表，编号与正文引用 [n] 对应。"""
+    seen: set[str] = set()
+    sources: list[dict[str, Any]] = []
+    for index, document in enumerate(documents, start=1):
+        chunk_id = document.get("chunk_id", "")
+        if chunk_id and chunk_id in seen:
+            continue
+        seen.add(chunk_id)
+        sources.append(
+            {
+                "index": index,
+                "document_id": document.get("document_id", ""),
+                "filename": document.get("filename", ""),
+                "page": document.get("page"),
+                "chunk_id": chunk_id,
+                "score": document.get("score"),
+            }
+        )
+    return sources
 
 
 def task_result(state: AgentState) -> dict[str, Any]:
@@ -32,6 +56,7 @@ def task_result(state: AgentState) -> dict[str, Any]:
         "status": state.get("task_status", "failed"),
         "plan": state.get("plan"),
         "step_results": state.get("step_results", []),
+        "sources": _sources(state.get("retrieved_documents") or []),
         "final_answer": state.get("final_answer", ""),
     }
 
@@ -39,8 +64,14 @@ def task_result(state: AgentState) -> dict[str, Any]:
 class TaskService:
     """运行一次 Agent 任务。"""
 
-    def __init__(self, llm: LLMProvider, *, max_retries: int = 2) -> None:
-        self._graph = build_graph(llm, max_retries=max_retries)
+    def __init__(
+        self,
+        llm: LLMProvider,
+        *,
+        rag_tool_provider: Callable[[], RagTool] | None = None,
+        max_retries: int = 2,
+    ) -> None:
+        self._graph = build_graph(llm, rag_tool_provider=rag_tool_provider, max_retries=max_retries)
 
     async def run(
         self,
@@ -109,8 +140,13 @@ class TaskService:
                         "message": done_message,
                     }
                     output = (event.get("data") or {}).get("output")
-                    if name == "planner" and isinstance(output, dict):
-                        payload["plan"] = output.get("plan")
+                    if isinstance(output, dict):
+                        if name == "planner":
+                            payload["plan"] = output.get("plan")
+                        if name == "researcher":
+                            payload["retrieved_count"] = len(
+                                output.get("retrieved_documents") or []
+                            )
                     yield _event(run_id, f"{name}_completed", **payload)
         except LLMError as exc:
             _, detail = resolve_error(exc)

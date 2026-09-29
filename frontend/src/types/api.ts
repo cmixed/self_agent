@@ -42,11 +42,21 @@ export interface StepResult {
   summary: string
 }
 
+export interface Source {
+  index: number
+  document_id: string
+  filename: string
+  page?: number | null
+  chunk_id: string
+  score?: number | null
+}
+
 export interface TaskResult {
   task_id: string
   status: string
   plan: Plan | null
   step_results: StepResult[]
+  sources: Source[]
   final_answer: string
 }
 
@@ -58,6 +68,7 @@ export interface TaskEvent {
   status: string
   message: string
   plan?: Plan | null
+  retrieved_count?: number
   error_type?: string
   result?: TaskResult
 }

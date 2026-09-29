@@ -106,6 +106,22 @@ def make_planner_node(
     return planner_node
 
 
-def route_after_planner(state: AgentState) -> str:
-    """计划存在则进入写作，否则安全结束。"""
-    return "writer" if state.get("plan") else "end"
+def make_route_after_planner(*, retrieval_available: bool) -> Callable[[AgentState], str]:
+    """构造 planner 之后的路由函数。
+
+    有计划且需要检索（且检索能力可用）→ researcher；否则 → writer；无计划 → 安全结束。
+    """
+
+    def route_after_planner(state: AgentState) -> str:
+        plan = state.get("plan")
+        if not plan:
+            return "end"
+        if retrieval_available and plan.get("needs_retrieval"):
+            return "researcher"
+        return "writer"
+
+    return route_after_planner
+
+
+# 默认（具备检索能力）的路由
+route_after_planner = make_route_after_planner(retrieval_available=True)

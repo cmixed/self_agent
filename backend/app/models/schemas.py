@@ -64,11 +64,23 @@ class StepResultOut(BaseModel):
     summary: str
 
 
+class SourceOut(BaseModel):
+    """最终结果引用的来源，编号与正文 [n] 对应。"""
+
+    index: int
+    document_id: str
+    filename: str
+    page: int | None = None
+    chunk_id: str
+    score: float | None = None
+
+
 class TaskResponse(BaseModel):
     task_id: str
     status: str
     plan: PlanOut | None = None
     step_results: list[StepResultOut] = Field(default_factory=list)
+    sources: list[SourceOut] = Field(default_factory=list)
     final_answer: str = ""
 
 

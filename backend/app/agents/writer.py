@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, StepResult
+from app.rag.tools import format_context
 
 logger = get_logger(__name__)
 
@@ -19,8 +20,10 @@ _WRITER_SYSTEM_PROMPT = """你是一个中文写作助手。请依据给定的�
 要求：
 1. 直接输出正文内容，不要输出 JSON，也不要复述计划本身。
 2. 结构清晰，可使用 Markdown 标题与段落。
-3. 当前系统尚未接入用户的个人知识库：如果计划中需要检索资料，请只依据通用知识作答，
-   并在内容中明确说明该部分未引用用户资料。
+3. 如果提供了「检索到的资料」，请优先依据这些资料作答，并用 [编号] 标注引用，
+   例如：RAG 通过向量检索增强生成能力[1]。并在正文结尾给出「参考来源」列表，
+   逐条列出用到的资料编号。
+4. 如果未提供资料，请只依据通用知识作答，并说明未引用用户资料。
 """
 
 
@@ -29,14 +32,25 @@ def _render_writer_input(state: AgentState) -> str:
     lines = [f"用户任务：{state.get('user_query', '')}"]
     if plan:
         lines.append(f"任务目标：{plan.get('goal', '')}")
-        if plan.get("needs_retrieval"):
-            lines.append("注意：本任务计划中要求检索用户资料，但当前环境无检索结果。")
         steps = plan.get("steps") or []
         if steps:
             rendered = "\n".join(
                 f"- [{step.get('type')}] {step.get('description')}" for step in steps
             )
             lines.append(f"计划步骤：\n{rendered}")
+
+    documents = state.get("retrieved_documents") or []
+    if documents:
+        lines.append(
+            "检索到的资料（请用 [编号] 引用，并在结尾给出「参考来源」列表）：\n"
+            + format_context(documents)
+        )
+    elif plan and plan.get("needs_retrieval"):
+        lines.append(
+            "注意：本任务需要检索用户资料，但知识库中没有检索到相关内容。"
+            "请只依据通用知识作答，并明确说明未引用用户资料。"
+        )
+
     preferences = state.get("user_preferences") or {}
     if preferences:
         rendered = "；".join(f"{key}={value}" for key, value in preferences.items())

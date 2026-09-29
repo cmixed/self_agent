@@ -2,23 +2,25 @@ import { Alert, Button, Card, Input, Space, Steps, Tag, Typography } from 'antd'
 import { useEffect, useState } from 'react'
 
 import { ApiError, getHealth, streamTask } from '../services/api'
-import type { HealthResponse, Plan, TaskEvent } from '../types/api'
+import type { HealthResponse, Plan, Source, TaskEvent } from '../types/api'
 
 const { Text, Paragraph } = Typography
 const { TextArea } = Input
 
-const STAGE_ORDER = ['planner', 'writer', 'summarizer'] as const
+const STAGE_ORDER = ['planner', 'researcher', 'writer', 'summarizer'] as const
 type StageKey = (typeof STAGE_ORDER)[number]
 type StageStatus = 'wait' | 'process' | 'finish' | 'error'
 
 const STAGE_TITLES: Record<StageKey, string> = {
   planner: '分析任务并生成计划',
+  researcher: '检索个人知识库',
   writer: '撰写内容',
   summarizer: '整合最终结果',
 }
 
 const INITIAL_STAGES: Record<StageKey, StageStatus> = {
   planner: 'wait',
+  researcher: 'wait',
   writer: 'wait',
   summarizer: 'wait',
 }
@@ -35,7 +37,10 @@ export default function TaskPage() {
   const [query, setQuery] = useState('')
   const [running, setRunning] = useState(false)
   const [stages, setStages] = useState<Record<StageKey, StageStatus>>(INITIAL_STAGES)
+  const [retrievalSkipped, setRetrievalSkipped] = useState(false)
+  const [retrievedCount, setRetrievedCount] = useState<number | null>(null)
   const [plan, setPlan] = useState<Plan | null>(null)
+  const [sources, setSources] = useState<Source[]>([])
   const [finalAnswer, setFinalAnswer] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [health, setHealth] = useState<HealthResponse | null>(null)
@@ -53,19 +58,29 @@ export default function TaskPage() {
       return
     }
     if (event.event === 'task_completed') {
-      setStages({ planner: 'finish', writer: 'finish', summarizer: 'finish' })
+      setStages({ planner: 'finish', researcher: 'finish', writer: 'finish', summarizer: 'finish' })
       setFinalAnswer(event.result?.final_answer ?? '')
+      setSources(event.result?.sources ?? [])
       return
     }
 
-    const match = /^(planner|writer|summarizer)_(started|completed)$/.exec(event.event)
+    const match = /^(planner|researcher|writer|summarizer)_(started|completed)$/.exec(event.event)
     if (!match) return
     const stage = match[1] as StageKey
     const phase = match[2]
 
     setStages((prev) => ({ ...prev, [stage]: phase === 'started' ? 'process' : 'finish' }))
-    if (event.event === 'planner_completed' && event.plan) {
-      setPlan(event.plan)
+
+    if (event.event === 'planner_completed') {
+      setPlan(event.plan ?? null)
+      // 计划不需要检索时，researcher 阶段直接标记为跳过
+      if (event.plan && !event.plan.needs_retrieval) {
+        setRetrievalSkipped(true)
+        setStages((prev) => ({ ...prev, researcher: 'finish' }))
+      }
+    }
+    if (event.event === 'researcher_completed') {
+      setRetrievedCount(event.retrieved_count ?? 0)
     }
   }
 
@@ -76,7 +91,10 @@ export default function TaskPage() {
     setRunning(true)
     setError(null)
     setPlan(null)
+    setSources([])
     setFinalAnswer(null)
+    setRetrievalSkipped(false)
+    setRetrievedCount(null)
     setStages(INITIAL_STAGES)
 
     try {
@@ -91,7 +109,8 @@ export default function TaskPage() {
 
   const finishedCount = STAGE_ORDER.filter((key) => stages[key] === 'finish').length
   const stepItems = STAGE_ORDER.map((key) => ({
-    title: STAGE_TITLES[key],
+    title:
+      key === 'researcher' && retrievalSkipped ? '未检索（计划不需要知识库）' : STAGE_TITLES[key],
     status:
       stages[key] === 'finish'
         ? ('finish' as const)
@@ -137,8 +156,11 @@ export default function TaskPage() {
               onClick={() => {
                 setQuery('')
                 setPlan(null)
+                setSources([])
                 setFinalAnswer(null)
                 setError(null)
+                setRetrievalSkipped(false)
+                setRetrievedCount(null)
                 setStages(INITIAL_STAGES)
               }}
             >
@@ -150,6 +172,12 @@ export default function TaskPage() {
 
       <Card title="执行进度">
         <Steps direction="vertical" size="small" current={finishedCount} items={stepItems} />
+        {retrievedCount !== null && (
+          <Paragraph style={{ margin: '12px 0 0' }}>
+            <Text type="secondary">知识库命中：</Text>
+            <Tag color={retrievedCount > 0 ? 'blue' : 'orange'}>{retrievedCount} 条片段</Tag>
+          </Paragraph>
+        )}
       </Card>
 
       {error && <Alert type="error" showIcon message={error} />}
@@ -171,6 +199,24 @@ export default function TaskPage() {
               <li key={step.id} style={{ marginBottom: 6 }}>
                 <Tag>{step.type}</Tag>
                 {step.description}
+              </li>
+            ))}
+          </ol>
+        </Card>
+      )}
+
+      {sources.length > 0 && (
+        <Card title="参考来源">
+          <ol style={{ paddingLeft: 20, margin: 0 }}>
+            {sources.map((source) => (
+              <li key={source.chunk_id} style={{ marginBottom: 6 }}>
+                <Text>
+                  [{source.index}] {source.filename}
+                  {source.page ? `（第 ${source.page} 页）` : ''}
+                </Text>
+                {typeof source.score === 'number' && (
+                  <Tag style={{ marginLeft: 8 }}>相似度 {source.score.toFixed(3)}</Tag>
+                )}
               </li>
             ))}
           </ol>

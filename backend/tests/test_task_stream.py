@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fakes import DRAFT_TEXT, PLAN_JSON, PLAN_PAYLOAD, ScriptedProvider
+from fakes import DRAFT_TEXT, PLAN_JSON, PLAN_PAYLOAD, ScriptedProvider, seed_knowledge_base
 from fastapi.testclient import TestClient
 
-from app.api.deps import get_llm_provider
+from app.api.deps import get_task_service
 from app.main import create_app
 from app.services.task_service import TaskService
 
@@ -56,7 +56,10 @@ async def test_stream_converts_error_to_task_failed() -> None:
 
 def test_stream_endpoint_emits_sse_frames() -> None:
     app = create_app()
-    app.dependency_overrides[get_llm_provider] = lambda: ScriptedProvider([PLAN_JSON, DRAFT_TEXT])
+    # 覆盖 TaskService，避免测试接触真实 Embedding 模型
+    app.dependency_overrides[get_task_service] = lambda: TaskService(
+        ScriptedProvider([PLAN_JSON, DRAFT_TEXT]), max_retries=0
+    )
 
     with (
         TestClient(app) as client,
@@ -71,3 +74,30 @@ def test_stream_endpoint_emits_sse_frames() -> None:
     assert events[0]["event"] == "task_started"
     assert events[-1]["event"] == "task_completed"
     assert events[-1]["result"]["final_answer"] == DRAFT_TEXT.strip()
+
+
+async def test_stream_includes_researcher_events(tmp_path) -> None:
+    _, tool = await seed_knowledge_base(tmp_path, text="# RAG\n\n检索增强生成使用向量数据库。")
+    service = TaskService(
+        ScriptedProvider([PLAN_JSON, DRAFT_TEXT]),
+        rag_tool_provider=lambda: tool,
+        max_retries=0,
+    )
+
+    events = await collect(service, "写一篇 RAG 综述")
+
+    assert [event["event"] for event in events] == [
+        "task_started",
+        "planner_started",
+        "planner_completed",
+        "researcher_started",
+        "researcher_completed",
+        "writer_started",
+        "writer_completed",
+        "summarizer_started",
+        "summarizer_completed",
+        "task_completed",
+    ]
+    researcher_done = next(event for event in events if event["event"] == "researcher_completed")
+    assert researcher_done["retrieved_count"] >= 1
+    assert events[-1]["result"]["sources"]

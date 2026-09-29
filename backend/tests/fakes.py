@@ -98,3 +98,30 @@ class FailingEmbeddingProvider(EmbeddingProvider):
 
     async def embed_query(self, text: str) -> list[float]:
         raise EmbeddingError("模拟向量化失败")
+
+
+async def seed_knowledge_base(tmp_path, *, text: str, top_k: int = 3):
+    """建一个临时知识库并写入一段文本，返回 (store, rag_tool)。"""
+    from pathlib import Path
+
+    from app.rag.retriever import Retriever
+    from app.rag.store import ChromaStore
+    from app.rag.tools import RagTool
+    from app.services.document_service import DocumentService
+
+    root = Path(tmp_path)
+    provider = FakeEmbeddingProvider()
+    store = ChromaStore(
+        persist_dir=root / "chroma",
+        collection_name="test_kb",
+        embedding_signature=provider.signature(),
+    )
+    service = DocumentService(
+        provider=provider,
+        store=store,
+        documents_dir=root / "documents",
+        chunk_size=200,
+        chunk_overlap=20,
+    )
+    await service.ingest(filename="rag.md", content=text.encode())
+    return store, RagTool(Retriever(provider, store, top_k=top_k))
