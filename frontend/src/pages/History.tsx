@@ -106,6 +106,7 @@ export default function HistoryPage() {
 
   const counts = {
     all: tasks.length,
+    running: tasks.filter((task) => task.status === 'running').length,
     completed: tasks.filter((task) => task.status === 'completed').length,
     cancelled: tasks.filter((task) => task.status === 'cancelled').length,
     failed: tasks.filter((task) => task.status === 'failed').length,
@@ -146,6 +147,7 @@ export default function HistoryPage() {
             onChange={(value) => setStatusFilter(String(value))}
             options={[
               { label: `全部 ${counts.all}`, value: 'all' },
+              { label: `运行中 ${counts.running}`, value: 'running' },
               { label: `已完成 ${counts.completed}`, value: 'completed' },
               { label: `已取消 ${counts.cancelled}`, value: 'cancelled' },
               { label: `失败 ${counts.failed}`, value: 'failed' },

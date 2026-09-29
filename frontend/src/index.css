@@ -233,6 +233,16 @@ html[data-theme='dark'] .app-backdrop::after {
   background: transparent;
 }
 
+.app-header-running {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
+
+.composer-hint {
+  font-size: 12px;
+}
+
 /* --- 页面容器 ------------------------------------------------------------- */
 .page-container {
   width: 100%;
