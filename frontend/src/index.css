@@ -600,6 +600,43 @@ html[data-theme='dark'] .app-backdrop::after {
   }
 }
 
+/* --- 统一空状态 ----------------------------------------------------------- */
+.empty-state {
+  padding: 12px 0 4px;
+}
+
+.empty-state.is-compact {
+  padding: 4px 0;
+}
+
+.empty-state-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.empty-state-title {
+  color: var(--ant-color-text);
+  font-size: 14px;
+}
+
+.empty-state-hint {
+  color: var(--ant-color-text-tertiary);
+  font-size: 12px;
+}
+
+/* --- 表单区（长期记忆） --------------------------------------------------- */
+.memory-form {
+  margin-top: 16px;
+  row-gap: 8px;
+}
+
+.memory-form-hint {
+  margin-top: 8px;
+  margin-bottom: 0;
+  font-size: 12px;
+}
+
 /* --- 响应式 --------------------------------------------------------------- */
 @media (max-width: 768px) {
   .app-content {

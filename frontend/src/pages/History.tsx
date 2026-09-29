@@ -1,12 +1,10 @@
 import { ReloadOutlined } from '@ant-design/icons'
 import {
-  Alert,
   Button,
   Card,
   Col,
   Descriptions,
   Drawer,
-  Empty,
   Input,
   Row,
   Segmented,
@@ -19,6 +17,8 @@ import {
 } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
+import EmptyState from '../components/EmptyState'
+import ErrorNotice from '../components/ErrorNotice'
 import MarkdownView from '../components/MarkdownView'
 import PageContainer from '../components/PageContainer'
 import { ApiError, getTask, getTaskState, listTasks } from '../services/api'
@@ -122,7 +122,13 @@ export default function HistoryPage() {
         </Button>
       }
     >
-      {error && <Alert type="error" showIcon closable title={error} onClose={() => setError(null)} />}
+      {error && (
+        <ErrorNotice
+          message={error}
+          onClose={() => setError(null)}
+          onRetry={() => void refresh()}
+        />
+      )}
 
       <Card title={`任务历史（${tasks.length}）`}>
         <div className="table-toolbar">
@@ -148,16 +154,9 @@ export default function HistoryPage() {
         </div>
 
         {visibleTasks.length === 0 && !loading ? (
-          <Empty
-            description={
-              <span>
-                {tasks.length === 0 ? '还没有任务记录' : '没有符合筛选条件的任务'}
-                <br />
-                <Text type="secondary">
-                  {tasks.length === 0 ? '先在「任务」页跑一个任务' : '试试清空搜索词或切换筛选'}
-                </Text>
-              </span>
-            }
+          <EmptyState
+            title={tasks.length === 0 ? '还没有任务记录' : '没有符合筛选条件的任务'}
+            hint={tasks.length === 0 ? '先在「任务」页跑一个任务' : '试试清空搜索词或切换筛选条件'}
           />
         ) : (
           <Table<TaskSummary>
@@ -299,7 +298,7 @@ export default function HistoryPage() {
                     children: detail.final_answer ? (
                       <MarkdownView content={detail.final_answer} />
                     ) : (
-                      <Empty description="该任务没有产出正文（可能被取消或失败）" />
+                      <EmptyState compact title="该任务没有产出正文" hint="可能被取消或失败" />
                     ),
                   },
                   {
@@ -323,7 +322,7 @@ export default function HistoryPage() {
                           ))}
                         </ol>
                       ) : (
-                        <Empty description="该任务未使用知识库来源" />
+                        <EmptyState compact title="该任务未使用知识库来源" hint="计划不需要检索，或知识库为空" />
                       ),
                   },
                   {
@@ -351,7 +350,7 @@ export default function HistoryPage() {
                         )}
                       </Space>
                     ) : (
-                      <Empty description="该任务没有校验记录" />
+                      <EmptyState compact title="该任务没有校验记录" />
                     ),
                   },
                 ]}

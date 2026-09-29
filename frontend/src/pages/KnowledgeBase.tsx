@@ -7,12 +7,10 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons'
 import {
-  Alert,
   App,
   Button,
   Card,
   Col,
-  Empty,
   Popconfirm,
   Row,
   Space,
@@ -26,6 +24,8 @@ import {
 import type { UploadProps } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
+import EmptyState from '../components/EmptyState'
+import ErrorNotice from '../components/ErrorNotice'
 import PageContainer from '../components/PageContainer'
 import { ApiError, deleteDocument, listDocuments, uploadDocument } from '../services/api'
 import type { DocumentInfo } from '../types/api'
@@ -121,17 +121,17 @@ export default function KnowledgeBasePage() {
       <Row gutter={[16, 16]}>
         <Col xs={12} lg={8}>
           <Card size="small">
-            <Statistic title="文档数" value={documents.length} />
+            <Statistic title="文档数" value={documents.length} loading={loading && documents.length === 0} />
           </Card>
         </Col>
         <Col xs={12} lg={8}>
           <Card size="small">
-            <Statistic title="文本块总数" value={totalChunks} />
+            <Statistic title="文本块总数" value={totalChunks} loading={loading && documents.length === 0} />
           </Card>
         </Col>
         <Col xs={12} lg={8}>
           <Card size="small">
-            <Statistic title="平均块数 / 文档" value={averageChunks} />
+            <Statistic title="平均块数 / 文档" value={averageChunks} loading={loading && documents.length === 0} />
           </Card>
         </Col>
       </Row>
@@ -156,21 +156,18 @@ export default function KnowledgeBasePage() {
       </Card>
 
       {error && (
-        <Alert type="error" showIcon closable title={error} onClose={() => setError(null)} />
+        <ErrorNotice
+          message={error}
+          onClose={() => setError(null)}
+          onRetry={() => void refresh()}
+        />
       )}
 
       <Card title={`知识库文档（${documents.length}）`}>
         {documents.length === 0 && !loading ? (
-          <Empty
-            description={
-              <span>
-                还没有任何文档
-                <br />
-                <Text type="secondary">
-                  先上传一份论文或笔记，Agent 才能在任务中检索并标注来源
-                </Text>
-              </span>
-            }
+          <EmptyState
+            title="还没有任何文档"
+            hint="先上传一份论文或笔记，Agent 才能在任务中检索并标注来源"
           />
         ) : (
           <Table<DocumentInfo>

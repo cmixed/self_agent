@@ -4,7 +4,6 @@ import {
   Card,
   Col,
   Descriptions,
-  Empty,
   Input,
   Result,
   Row,
@@ -25,6 +24,7 @@ import type {
   MacroStage,
   StageStatus,
 } from '../components/AgentProgress'
+import EmptyState from '../components/EmptyState'
 import PageContainer from '../components/PageContainer'
 import MarkdownView from '../components/MarkdownView'
 import { ApiError, cancelTask, streamTask } from '../services/api'
@@ -549,7 +549,7 @@ export default function TaskPage() {
             ))}
           </ol>
         ) : (
-          <Empty description="尚未生成大纲" />
+          <EmptyState compact title="尚未生成大纲" />
         ),
     },
     {
@@ -577,7 +577,7 @@ export default function TaskPage() {
           </ol>
         </Space>
       ) : (
-        <Empty description="尚未生成计划" />
+        <EmptyState compact title="尚未生成计划" />
       ),
     },
     {
@@ -605,7 +605,7 @@ export default function TaskPage() {
           )}
         </Space>
       ) : (
-        <Empty description="尚未执行校验" />
+        <EmptyState compact title="尚未执行校验" />
       ),
     },
     {
@@ -627,7 +627,7 @@ export default function TaskPage() {
             ))}
           </ol>
         ) : (
-          <Empty description="本次任务未使用知识库来源（可能计划不需要检索，或知识库为空）" />
+          <EmptyState compact title="本次任务未使用知识库来源" hint="计划不需要检索，或知识库为空" />
         ),
     },
   ]
