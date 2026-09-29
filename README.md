@@ -19,7 +19,7 @@
 | LLM | DeepSeek V4.1 Flash（`deepseek-flash`，OpenAI 兼容） |
 | 编排 | LangGraph（Planner → Writer → Summarizer） |
 | 后端 | Python 3.14 · uv · FastAPI · Pydantic |
-| 检索 | ChromaDB（Phase 3 起） |
+| 检索 | ChromaDB + 本地 Embedding（`BAAI/bge-small-zh-v1.5`，CPU） |
 | 持久化 | SQLite（Phase 5 起） |
 | 前端 | React 19 · TypeScript · Vite · Ant Design |
 
@@ -35,10 +35,12 @@
 │   │   ├── main.py        # FastAPI 入口
 │   │   ├── api/           # 路由、依赖注入与统一错误处理
 │   │   ├── agents/        # Agent 节点（planner / writer / summarizer）
-│   │   ├── core/          # 配置、日志、LangGraph 编排（agent_graph.py）
+│   │   ├── core/          # 配置、日志、错误映射、LangGraph 编排
+│   │   ├── embedding/     # Embedding 抽象（base / local / factory），独立于 LLM
 │   │   ├── llm/           # LLM Provider 抽象（base / deepseek / factory）
 │   │   ├── models/        # AgentState 与 API Schema
-│   │   └── services/      # 任务服务（组装状态、运行图）
+│   │   ├── rag/           # 文档加载 / 切分 / 向量存储 / 检索
+│   │   └── services/      # 任务服务、文档服务
 │   └── tests/             # 单元 / 集成 / smoke 测试
 ├── frontend/
 │   ├── src/services/      # 后端 API 客户端
@@ -59,6 +61,10 @@ cp .env.example .env
 ```
 
 > `.env` 已被 `.gitignore` 忽略，禁止提交。API Key 只从环境变量读取。
+
+首次上传文档时会自动下载本地 Embedding 模型 `BAAI/bge-small-zh-v1.5`
+（约 100 MB，缓存在 HuggingFace 缓存目录，仅需一次）。网络受限时可设置
+`HF_ENDPOINT=https://hf-mirror.com`，或可选设置 `HF_TOKEN` 提高下载速率。
 
 ## 启动后端
 
@@ -103,7 +109,8 @@ npm run build
 
 - [x] **Phase 1**：项目初始化 —— FastAPI、React、LLM Provider 抽象、DeepSeek 调用、测试
 - [x] **Phase 2**：LangGraph 编排（Planner → Writer → Summarizer）+ SSE 进度流
-- [ ] Phase 3：RAG（ChromaDB + RAG Tool + Researcher）
+- [x] **Phase 3A**：RAG 索引 —— 文档上传 → 解析/切分 → 向量化入库 → 检索
+- [ ] Phase 3B：RAG Tool + Researcher 接入 Graph
 - [ ] Phase 4：完整 Agent（Validator + 有限重试 / Re-plan + Summarizer）
 - [ ] Phase 5：Memory（Checkpoint + SQLite 长期记忆）
 - [ ] Phase 6：前端任务进度面板
@@ -117,6 +124,9 @@ npm run build
 | `POST` | `/api/chat` | 非流式对话（Phase 1 直连模型） |
 | `POST` | `/api/tasks` | 同步执行 Agent 任务，返回计划与最终结果 |
 | `POST` | `/api/tasks/stream` | 以 SSE 推送任务执行进度 |
+| `POST` | `/api/documents/upload` | 上传并索引文档（PDF / TXT / MD） |
+| `GET` | `/api/documents` | 列出已索引文档 |
+| `DELETE` | `/api/documents/{id}` | 删除文档及其向量 |
 
 `POST /api/tasks` 请求示例：
 

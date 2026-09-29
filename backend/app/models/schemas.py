@@ -72,6 +72,22 @@ class TaskResponse(BaseModel):
     final_answer: str = ""
 
 
+class DocumentInfo(BaseModel):
+    document_id: str
+    filename: str
+    title: str
+    chunks: int
+
+
+class DocumentListResponse(BaseModel):
+    documents: list[DocumentInfo] = Field(default_factory=list)
+
+
+class DeleteDocumentResponse(BaseModel):
+    document_id: str
+    status: str
+
+
 class ErrorResponse(BaseModel):
     """统一错误结构。``detail`` 只包含可安全展示的信息。"""
 

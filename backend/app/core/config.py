@@ -46,6 +46,22 @@ class Settings(BaseSettings):
     # 单个节点的最大重试次数（Validator 重试见 Phase 4，§16）
     max_retries: int = 2
 
+    # --- Embedding（独立于 LLM Provider，§12）---
+    embedding_provider: str = "local"
+    embedding_model: str = "BAAI/bge-small-zh-v1.5"
+    embedding_device: str = "cpu"
+    embedding_batch_size: int = 32
+    # bge 中文模型建议仅对查询加指令前缀（文档侧不加）
+    embedding_query_instruction: str = "为这个句子生成表示以用于检索相关文章："
+
+    # --- RAG ---
+    chunk_size: int = 800
+    chunk_overlap: int = 150
+    retrieval_top_k: int = 5
+    chroma_dir: Path = _REPO_ROOT / "data" / "chroma"
+    chroma_collection: str = "personal_kb"
+    documents_dir: Path = _REPO_ROOT / "data" / "documents"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

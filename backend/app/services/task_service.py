@@ -9,8 +9,8 @@ from collections.abc import AsyncIterator
 from typing import Any
 from uuid import uuid4
 
-from app.api.errors import resolve_llm_error
 from app.core.agent_graph import build_graph
+from app.core.errors import resolve_error
 from app.core.logging import get_logger
 from app.llm.base import LLMError, LLMProvider
 from app.models.state import AgentState, initial_state
@@ -113,7 +113,7 @@ class TaskService:
                         payload["plan"] = output.get("plan")
                     yield _event(run_id, f"{name}_completed", **payload)
         except LLMError as exc:
-            _, detail = resolve_llm_error(exc)
+            _, detail = resolve_error(exc)
             logger.warning(
                 "任务失败",
                 extra={

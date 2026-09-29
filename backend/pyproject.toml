@@ -10,6 +10,13 @@ dependencies = [
     "pydantic-settings>=2.7",
     "httpx[socks]>=0.28",
     "langgraph>=1.2.12",
+    "chromadb>=1.0",
+    "sentence-transformers>=3.0",
+    # 直接声明 torch 以便通过下面的 pytorch-cpu 源安装 CPU-only 版本
+    # （uv 的 tool.uv.sources 只对直接依赖生效）。
+    "torch>=2.4",
+    "pypdf>=5.0",
+    "python-multipart>=0.0.20",
 ]
 
 [dependency-groups]
@@ -23,6 +30,15 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# 本项目不使用 GPU，PyTorch 走 CPU-only 源，避免下载 CUDA/triton 的巨大依赖。
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
@@ -35,7 +51,14 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI 的依赖注入通过参数默认值表达，不属于 B008 的问题场景
-extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Header"]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Header",
+    "fastapi.File",
+    "fastapi.Form",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

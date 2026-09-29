@@ -17,10 +17,15 @@ def _create_provider(settings: Settings) -> LLMProvider:
     provider = settings.llm_provider.strip().lower()
 
     if provider == "deepseek":
-        if settings.deepseek_api_key is None:
+        api_key = (
+            settings.deepseek_api_key.get_secret_value().strip()
+            if settings.deepseek_api_key is not None
+            else ""
+        )
+        if not api_key:
             raise LLMConfigError("DEEPSEEK_API_KEY 未配置")
         return DeepSeekProvider(
-            api_key=settings.deepseek_api_key.get_secret_value(),
+            api_key=api_key,
             base_url=settings.deepseek_base_url,
             model=settings.deepseek_model,
             timeout_seconds=settings.deepseek_timeout_seconds,

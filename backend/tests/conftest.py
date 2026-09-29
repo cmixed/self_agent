@@ -6,14 +6,30 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 
 
 @pytest.fixture(autouse=True)
-def _isolate_settings(monkeypatch: pytest.MonkeyPatch):
-    """固定 LLM 相关环境变量，避免本机 .env 影响测试结果。"""
+def _isolate_settings(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """让测试不读取本机 ``.env``，避免本地配置影响结果。
+
+    ``smoke`` 标记的测试例外：它们就是要验证真实 API，必须使用本机 ``.env``。
+    """
+    if request.node.get_closest_marker("smoke"):
+        yield
+        return
+
+    monkeypatch.setattr(
+        Settings,
+        "model_config",
+        {**Settings.model_config, "env_file": None},
+    )
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
     get_settings.cache_clear()

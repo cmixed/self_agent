@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Sequence
 
+from app.embedding.base import EmbeddingError, EmbeddingProvider
 from app.llm.base import ChatMessage, LLMProvider, LLMResponse
 
 PLAN_PAYLOAD: dict = {
@@ -53,3 +55,46 @@ class ScriptedProvider(LLMProvider):
 
     async def aclose(self) -> None:
         return None
+
+
+class FakeEmbeddingProvider(EmbeddingProvider):
+    """确定性的字符袋向量，用于在测试中验证检索行为（不加载真实模型）。
+
+    相同文本得到相同向量，字符重叠越多余弦相似度越高。
+    """
+
+    name = "fake"
+
+    def __init__(self, dimension: int = 64) -> None:
+        super().__init__(model="fake-embedding", dimension=dimension)
+
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        return [self._vector(text) for text in texts]
+
+    async def embed_query(self, text: str) -> list[float]:
+        return self._vector(text)
+
+    def _vector(self, text: str) -> list[float]:
+        vector = [0.0] * self.dimension
+        for char in text:
+            if not char.isspace():
+                vector[ord(char) % self.dimension] += 1.0
+        norm = math.sqrt(sum(value * value for value in vector))
+        if norm == 0.0:
+            return vector
+        return [value / norm for value in vector]
+
+
+class FailingEmbeddingProvider(EmbeddingProvider):
+    """始终抛错的 Embedding，用于验证入库失败时的事务回滚。"""
+
+    name = "failing"
+
+    def __init__(self) -> None:
+        super().__init__(model="failing", dimension=4)
+
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        raise EmbeddingError("模拟向量化失败")
+
+    async def embed_query(self, text: str) -> list[float]:
+        raise EmbeddingError("模拟向量化失败")
