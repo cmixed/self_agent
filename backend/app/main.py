@@ -17,6 +17,7 @@ from app.api import chat, documents, health, memory, tasks
 from app.api.deps import (
     build_checkpoint_store,
     build_database,
+    build_task_repository,
     get_checkpoint_store,
 )
 from app.api.errors import register_exception_handlers
@@ -32,6 +33,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
     settings = get_settings()
     await asyncio.to_thread(build_database().initialize)
+    reconciled = await build_task_repository().reconcile_running_tasks()
+    if reconciled:
+        logger.warning(
+            f"已将 {reconciled} 条重启前遗留的「运行中」任务标记为已取消",
+            extra={"event": "tasks_reconciled", "status": "ok"},
+        )
     if settings.checkpoint_enabled:
         await build_checkpoint_store().start()
     logger.info(

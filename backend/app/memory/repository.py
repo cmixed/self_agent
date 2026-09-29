@@ -64,6 +64,13 @@ class TaskRepository:
         """标记任务为已取消（幂等：只影响仍在运行的记录）。"""
         await asyncio.to_thread(self._cancel_run, task_id)
 
+    async def reconcile_running_tasks(self) -> int:
+        """启动时把遗留的 running 记录标记为 cancelled。
+
+        进程重启后不可能还有任务在运行；不做这一步，被中断的记录会永远显示「运行中」。
+        """
+        return await asyncio.to_thread(self._reconcile_running_tasks)
+
     async def get_task(self, task_id: str) -> TaskRecord | None:
         return await asyncio.to_thread(self._get_task, task_id)
 
@@ -150,6 +157,24 @@ class TaskRepository:
                 (now, task_id),
             )
             connection.commit()
+
+    def _reconcile_running_tasks(self) -> int:
+        now = utc_now()
+        with self._database.connect() as connection:
+            cursor = connection.execute(
+                "UPDATE tasks SET status = 'cancelled' WHERE status = 'running'"
+            )
+            count = cursor.rowcount
+            connection.execute(
+                """
+                UPDATE task_runs
+                   SET status = 'cancelled', error_type = 'interrupted', finished_at = ?
+                 WHERE finished_at IS NULL
+                """,
+                (now,),
+            )
+            connection.commit()
+        return int(count)
 
     def _get_task(self, task_id: str) -> TaskRecord | None:
         with self._database.connect() as connection:

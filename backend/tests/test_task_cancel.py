@@ -174,3 +174,23 @@ async def test_cancel_endpoint_returns_404_when_not_running(task_id: str) -> Non
 
     assert response.status_code == 404
     assert "不在运行中" in response.json()["detail"]
+
+
+async def test_reconcile_running_tasks_on_startup(tmp_path: Path) -> None:
+    """重启后把遗留的 running 记录标记为 cancelled（否则会永远显示运行中）。"""
+    database = SqliteDatabase(tmp_path / "app.db")
+    database.initialize()
+    repository = TaskRepository(database)
+
+    await repository.start_run(task_id="leftover", user_id="u1", query="q")
+    await repository.start_run(task_id="done", user_id="u1", query="q")
+    await repository.finish_run(task_id="done", result={"status": "completed"})
+
+    count = await repository.reconcile_running_tasks()
+
+    assert count == 1
+    leftover = await repository.get_task("leftover")
+    assert leftover is not None and leftover.status == "cancelled"
+    assert leftover.error_type == "interrupted"
+    finished = await repository.get_task("done")
+    assert finished is not None and finished.status == "completed"

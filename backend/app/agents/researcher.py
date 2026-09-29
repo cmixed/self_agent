@@ -6,6 +6,7 @@ Phase 3B 采用单次检索：以用户任务（拼接计划目标）作为检�
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 
 from app.core.logging import get_logger
@@ -33,7 +34,9 @@ def make_researcher_node(
         query = _build_query(state)
 
         try:
-            documents = await tool_provider().search(query, top_k=top_k)
+            # RAG Tool 的构造可能触发 Embedding 模型加载：放到线程里，避免阻塞事件循环
+            tool = await asyncio.to_thread(tool_provider)
+            documents = await tool.search(query, top_k=top_k)
         except (EmbeddingError, DocumentError) as exc:
             # 检索失败不终止任务：记录可见的错误状态，降级为仅用通用知识作答（§20）
             logger.warning(

@@ -79,3 +79,26 @@ def test_fake_embedding_is_deterministic() -> None:
     assert provider.signature()["model"] == "fake-embedding"
     error = EmbeddingError("x")
     assert error.error_type == "embedding_error"
+
+
+async def test_researcher_builds_tool_off_event_loop(tmp_path: Path) -> None:
+    """RAG Tool（含 Embedding 模型）的构造必须在工作线程里完成。
+
+    历史缺陷：在事件循环里同步加载模型，无网络时 huggingface_hub 的
+    time.sleep 重试会把整个后端阻塞住，导致其它接口全部超时。
+    """
+    import threading
+
+    _, tool = await seed_knowledge_base(tmp_path, text="# RAG\n\n检索增强生成使用向量数据库。")
+    main_thread = threading.current_thread().name
+    seen: dict[str, str] = {}
+
+    def factory() -> RagTool:
+        seen["thread"] = threading.current_thread().name
+        return tool
+
+    node = make_researcher_node(factory)
+    await node(initial_state("什么是 RAG？", task_id="t-thread"))
+
+    assert seen["thread"] != main_thread
+    assert "Thread-" in seen["thread"] or seen["thread"] != main_thread

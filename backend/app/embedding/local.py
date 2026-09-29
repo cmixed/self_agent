@@ -9,7 +9,10 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 
+from app.core.logging import get_logger
 from app.embedding.base import EmbeddingConfigError, EmbeddingError, EmbeddingProvider
+
+logger = get_logger(__name__)
 
 
 class LocalSentenceTransformerEmbedding(EmbeddingProvider):
@@ -38,9 +41,18 @@ class LocalSentenceTransformerEmbedding(EmbeddingProvider):
         self._normalize = normalize
 
         try:
-            self._st_model = SentenceTransformer(model, device=device)
-        except Exception as exc:  # noqa: BLE001 - 统一转为本层的配置错误
-            raise EmbeddingConfigError(f"加载 Embedding 模型失败：{model}（{exc}）") from exc
+            # 离线优先：模型已缓存时直接加载，避免 huggingface_hub 的联网检查与
+            # time.sleep 重试（无网络时会把事件循环阻塞住）。
+            self._st_model = SentenceTransformer(model, device=device, local_files_only=True)
+        except Exception:  # noqa: BLE001 - 本地没有缓存时回退到在线下载
+            logger.warning(
+                "本地未找到 Embedding 模型缓存，改为在线下载",
+                extra={"event": "embedding_download", "status": "running", "node": model},
+            )
+            try:
+                self._st_model = SentenceTransformer(model, device=device)
+            except Exception as exc:  # noqa: BLE001 - 统一转为本层的配置错误
+                raise EmbeddingConfigError(f"加载 Embedding 模型失败：{model}（{exc}）") from exc
 
         # sentence-transformers 6.x 将方法名改为 get_embedding_dimension
         get_dimension = (

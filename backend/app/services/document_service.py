@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -68,8 +69,9 @@ class DocumentService:
             if not chunks:
                 raise DocumentLoadError("文档切分后没有得到任何文本块")
 
-            # 仅入库需要向量能力：延迟到此处才加载 Embedding 模型
-            provider = self._provider_factory()
+            # 仅入库需要向量能力：延迟到此处才加载 Embedding 模型。
+            # 放到线程里执行：模型加载/下载是阻塞操作，直接调用会卡住事件循环。
+            provider = await asyncio.to_thread(self._provider_factory)
             # 先与集合中已有向量比对维度，避免用错模型污染索引（§12）
             self._store.verify_dimension(provider.dimension)
             texts = [chunk.text for chunk in chunks]
