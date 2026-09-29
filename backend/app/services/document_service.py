@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -31,14 +32,14 @@ class DocumentService:
     def __init__(
         self,
         *,
-        provider: EmbeddingProvider,
+        provider_factory: Callable[[], EmbeddingProvider],
         store: ChromaStore,
         documents_dir: Path,
         chunk_size: int = 800,
         chunk_overlap: int = 150,
         embed_batch_size: int = 32,
     ) -> None:
-        self._provider = provider
+        self._provider_factory = provider_factory
         self._store = store
         self._documents_dir = documents_dir
         self._chunk_size = chunk_size
@@ -67,10 +68,12 @@ class DocumentService:
             if not chunks:
                 raise DocumentLoadError("文档切分后没有得到任何文本块")
 
+            # 仅入库需要向量能力：延迟到此处才加载 Embedding 模型
+            provider = self._provider_factory()
+            # 先与集合中已有向量比对维度，避免用错模型污染索引（§12）
+            self._store.verify_dimension(provider.dimension)
             texts = [chunk.text for chunk in chunks]
-            vectors = await embed_in_batches(
-                self._provider, texts, batch_size=self._embed_batch_size
-            )
+            vectors = await embed_in_batches(provider, texts, batch_size=self._embed_batch_size)
             self._store.add_chunks(
                 ids=[self._chunk_id(document_id, chunk) for chunk in chunks],
                 documents=texts,

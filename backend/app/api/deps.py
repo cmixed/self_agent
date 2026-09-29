@@ -34,14 +34,22 @@ _checkpoint_store: CheckpointStore | None = None
 
 
 def build_chroma_store() -> ChromaStore:
-    """进程级缓存的向量集合（避免每次请求重新打开 Chroma）。"""
+    """进程级缓存的向量集合（避免每次请求重新打开 Chroma）。
+
+    这里只用**配置**构造签名，不加载 Embedding 模型：
+    向量维度推迟到首次入库时由 :meth:`ChromaStore.ensure_dimension` 记录/校验，
+    因此「列出文档」「删除文档」等操作不会触发 100MB 模型的加载。
+    """
     global _store
     if _store is None:
         settings = get_settings()
         _store = ChromaStore(
             persist_dir=settings.chroma_dir,
             collection_name=settings.chroma_collection,
-            embedding_signature=get_embedding_provider().signature(),
+            embedding_signature={
+                "provider": settings.embedding_provider.strip().lower(),
+                "model": settings.embedding_model,
+            },
         )
     return _store
 
@@ -58,7 +66,7 @@ def build_rag_tool() -> RagTool:
 def build_document_service() -> DocumentService:
     settings = get_settings()
     return DocumentService(
-        provider=get_embedding_provider(),
+        provider_factory=get_embedding_provider,
         store=build_chroma_store(),
         documents_dir=settings.documents_dir,
         chunk_size=settings.chunk_size,

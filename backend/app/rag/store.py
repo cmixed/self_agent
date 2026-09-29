@@ -33,7 +33,7 @@ class ChromaStore:
         *,
         persist_dir: Path,
         collection_name: str,
-        embedding_signature: dict[str, str | int],
+        embedding_signature: dict[str, Any],
     ) -> None:
         import chromadb
         from chromadb.config import Settings
@@ -49,21 +49,56 @@ class ChromaStore:
             embedding_function=None,
             metadata={
                 "hnsw:space": "cosine",
-                **{f"embedding_{key}": value for key, value in embedding_signature.items()},
+                **{
+                    f"embedding_{key}": value
+                    for key, value in embedding_signature.items()
+                    if value is not None
+                },
             },
         )
         self._verify_signature(embedding_signature)
 
-    def _verify_signature(self, embedding_signature: dict[str, str | int]) -> None:
+    def _verify_signature(self, embedding_signature: dict[str, Any]) -> None:
+        """校验 embedding 配置是否与集合一致。
+
+        只比较本次提供的键，因此调用方可以只声明 ``provider`` / ``model``
+        （``dimension`` 需要加载模型才能得知，推迟到首次向量化时再校验/记录）。
+        """
         stored = {
             key[len("embedding_") :]: value
             for key, value in (self._collection.metadata or {}).items()
             if key.startswith("embedding_")
         }
-        if stored and stored != dict(embedding_signature):
+        for key, expected in embedding_signature.items():
+            if expected is None:
+                continue
+            actual = stored.get(key)
+            if actual is not None and actual != expected:
+                raise EmbeddingConfigError(
+                    f"集合 {self._collection_name} 的 embedding 配置与当前不一致："
+                    f"{key} 已存 {actual}，当前 {expected}。"
+                    "更换 Embedding 模型后需要重建索引（更换 collection 名称或清空数据）。"
+                )
+
+    def verify_dimension(self, dimension: int) -> None:
+        """校验向量维度与集合中已有向量一致。
+
+        维度不写入 metadata：Chroma 的 ``modify`` 会整体替换 metadata
+        （丢失 ``hnsw:space`` 与 provider/model），因此改为从已有向量推导维度。
+        集合为空时无需校验；非空且不一致说明更换了 Embedding 模型，必须重建索引。
+        """
+        if self._collection.count() == 0:
+            return
+        result = self._collection.get(limit=1, include=["embeddings"])
+        embeddings = result.get("embeddings")
+        if embeddings is None or len(embeddings) == 0:
+            return
+
+        stored = len(embeddings[0])
+        if stored != int(dimension):
             raise EmbeddingConfigError(
-                f"集合 {self._collection_name} 的 embedding 配置与当前不一致："
-                f"已存 {stored}，当前 {dict(embedding_signature)}。"
+                f"集合 {self._collection_name} 中已有向量的维度为 {stored}，"
+                f"当前 Embedding 模型输出 {dimension} 维；"
                 "更换 Embedding 模型后需要重建索引（更换 collection 名称或清空数据）。"
             )
 

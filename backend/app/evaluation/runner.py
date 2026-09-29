@@ -40,7 +40,7 @@ async def build_evaluation_kb(
         embedding_signature=provider.signature(),
     )
     service = DocumentService(
-        provider=provider,
+        provider_factory=lambda: provider,
         store=store,
         documents_dir=directory / "documents",
     )

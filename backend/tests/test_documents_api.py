@@ -18,7 +18,7 @@ def make_client(tmp_path: Path) -> TestClient:
         embedding_signature=FakeEmbeddingProvider().signature(),
     )
     service = DocumentService(
-        provider=FakeEmbeddingProvider(),
+        provider_factory=lambda: FakeEmbeddingProvider(),
         store=store,
         documents_dir=tmp_path / "documents",
         chunk_size=120,

@@ -51,6 +51,17 @@ port_in_use() {
   return 1
 }
 
+# 递归结束进程及其后代：uv run -> uvicorn -> (--reload 的 multiprocessing worker)
+# 只杀顶层 PID 会把 uvicorn 子进程孤儿化，导致端口一直被占。
+kill_tree() {
+  local signal="$1" pid="$2" child
+  if [[ -z "$pid" ]]; then return 0; fi
+  for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+    kill_tree "$signal" "$child"
+  done
+  kill "-$signal" "$pid" 2>/dev/null || true
+}
+
 # --- 退出清理 ---------------------------------------------------------------
 cleanup() {
   local code=$?
@@ -60,16 +71,15 @@ cleanup() {
 
   printf '\n'
   info "正在停止服务…"
-  for pid in "$BACKEND_TAIL_PID" "$FRONTEND_TAIL_PID" "$FRONTEND_PID" "$BACKEND_PID"; do
-    if [[ -n "$pid" ]]; then kill -TERM "$pid" 2>/dev/null || true; fi
-  done
+  if [[ -n "$BACKEND_TAIL_PID" ]]; then kill -TERM "$BACKEND_TAIL_PID" 2>/dev/null || true; fi
+  if [[ -n "$FRONTEND_TAIL_PID" ]]; then kill -TERM "$FRONTEND_TAIL_PID" 2>/dev/null || true; fi
 
-  sleep 1
-  for pid in "$FRONTEND_PID" "$BACKEND_PID"; do
-    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-      kill -KILL "$pid" 2>/dev/null || true
-    fi
-  done
+  kill_tree TERM "$FRONTEND_PID"
+  kill_tree TERM "$BACKEND_PID"
+  sleep 2
+  # 仍未退出的（含被孤立的子孙进程）强杀
+  kill_tree KILL "$FRONTEND_PID"
+  kill_tree KILL "$BACKEND_PID"
   wait 2>/dev/null || true
 
   local held=""

@@ -151,7 +151,7 @@ async def seed_knowledge_base(tmp_path, *, text: str, top_k: int = 3):
         embedding_signature=provider.signature(),
     )
     service = DocumentService(
-        provider=provider,
+        provider_factory=lambda: provider,
         store=store,
         documents_dir=root / "documents",
         chunk_size=200,
