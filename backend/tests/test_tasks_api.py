@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -15,9 +16,15 @@ from fakes import (
 )
 from fastapi.testclient import TestClient
 
-from app.api.deps import build_task_repository, get_task_service
+from app.api.deps import (
+    build_memory_repository,
+    build_task_repository,
+    get_memory_service,
+    get_task_service,
+)
 from app.main import create_app
 from app.rag.tools import RagTool
+from app.services.memory_service import MemoryService
 from app.services.task_service import TaskService
 
 
@@ -26,14 +33,22 @@ def make_client(
     rag_tool_provider: Callable[[], RagTool] | None = None,
     *,
     max_retries: int = 0,
+    memory_provider: ScriptedProvider | None = None,
 ) -> TestClient:
-    """用假的 LLM 与（可选的）临时知识库构建客户端，不触碰真实模型。"""
+    """用假的 LLM 与（可选的）临时知识库构建客户端。
+
+    长期记忆服务默认不接 LLM（提取为 no-op），确保测试完全离线；
+    需要验证自动提取时传入 ``memory_provider``。
+    """
     app = create_app()
     app.dependency_overrides[get_task_service] = lambda: TaskService(
         provider,
         rag_tool_provider=rag_tool_provider,
         repository=build_task_repository(),
         max_retries=max_retries,
+    )
+    app.dependency_overrides[get_memory_service] = lambda: MemoryService(
+        build_memory_repository(), memory_provider
     )
     return TestClient(app)
 
@@ -211,3 +226,56 @@ def test_failed_task_is_persisted_as_failed() -> None:
     assert record is not None
     assert record.status == "failed"
     assert record.error_type == "llm_response_format_error"
+
+
+def test_stored_preferences_are_injected_into_task() -> None:
+    """SQLite 中的长期偏好会并入任务的 user_preferences（请求可覆盖）。"""
+    provider = _provider()
+    with make_client(provider) as client:
+        asyncio.run(build_memory_repository().set_preference("local-user", "style", "学术严谨"))
+        created = client.post(
+            "/api/tasks",
+            json={"query": "写一篇 RAG 综述", "user_preferences": {"format": "Markdown"}},
+        )
+
+    assert created.status_code == 200
+    planner_prompt = provider.calls[0][1].content
+    assert "style=学术严谨" in planner_prompt
+    assert "format=Markdown" in planner_prompt
+
+
+_EXTRACTION_JSON = json.dumps(
+    {
+        "preferences": [{"key": "language", "value": "使用中文"}],
+        "memories": [{"kind": "task_type", "content": "经常撰写技术综述"}],
+    },
+    ensure_ascii=False,
+)
+
+
+def test_task_completion_extracts_long_term_memory() -> None:
+    """任务完成后用一次结构化调用提取长期记忆。"""
+    provider = _provider()
+    with make_client(provider, memory_provider=ScriptedProvider([_EXTRACTION_JSON])) as client:
+        response = client.post("/api/tasks", json={"query": "写一篇 RAG 综述"})
+        assert response.status_code == 200
+        profile = client.get("/api/memory").json()
+
+    assert profile["preferences"] == {"language": "使用中文"}
+    assert [memory["content"] for memory in profile["memories"]] == ["经常撰写技术综述"]
+
+
+def test_memory_extraction_failure_does_not_break_task() -> None:
+    """提取失败只记日志，任务结果照常返回。"""
+    provider = _provider()
+    # 提取调用返回非 JSON -> 解析失败 -> 被吞掉（best-effort）
+    with make_client(
+        provider, memory_provider=ScriptedProvider(["不是 JSON"], default="也不是 JSON")
+    ) as client:
+        response = client.post("/api/tasks", json={"query": "写一篇 RAG 综述"})
+        profile = client.get("/api/memory").json()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+    assert profile["preferences"] == {}
+    assert profile["memories"] == []

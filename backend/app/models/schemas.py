@@ -104,6 +104,30 @@ class DocumentInfo(BaseModel):
     chunks: int
 
 
+class MemoryOut(BaseModel):
+    memory_id: int
+    kind: str
+    content: str
+    source_task_id: str | None = None
+    created_at: str
+
+
+class MemoryProfileResponse(BaseModel):
+    user_id: str
+    preferences: dict[str, str] = Field(default_factory=dict)
+    memories: list[MemoryOut] = Field(default_factory=list)
+
+
+class SetPreferenceRequest(BaseModel):
+    value: str = Field(min_length=1, max_length=200)
+
+
+class AddMemoryRequest(BaseModel):
+    kind: str = Field(default="fact", min_length=1, max_length=40)
+    content: str = Field(min_length=1, max_length=300)
+    source_task_id: str | None = None
+
+
 class DocumentListResponse(BaseModel):
     documents: list[DocumentInfo] = Field(default_factory=list)
 

@@ -121,9 +121,28 @@ npm run build
 - [x] **Phase 4B**：Validator（章节级 + 整篇）+ 有限重试 / Re-plan + 安全结束
 - [x] **Phase 4C**：重试预算改为每章独立 + 修复 LangGraph 超步上限导致的中断
 - [x] **Phase 5A**：SQLite 基础设施 + 任务运行持久化 + `GET /api/tasks/{id}`
-- [ ] Phase 5B：长期记忆（偏好 / memories）+ LLM 自动提取 + LangGraph Checkpoint
+- [x] **Phase 5B**：长期记忆（偏好 / memories）+ 显式 API + LLM 自动提取
+- [ ] Phase 5C：LangGraph Checkpoint（短期记忆 / 可恢复）
 - [ ] Phase 6：前端任务进度面板
 - [ ] Phase 7：评估（RAG / Agent / 长文本指标）
+
+## Memory
+
+**短期记忆**：LangGraph `AgentState`（当前任务的消息、计划、章节、校验结果）。
+
+**长期记忆**（跨会话，存 SQLite，见 §14）：
+
+| 类型 | 存储 | 说明 |
+| --- | --- | --- |
+| 偏好 | `user_preferences` | 键值对，如 `style` / `format` / `language` / `task_types` |
+| 记忆 | `memories` | 自由文本事实，带 `kind` 与来源任务 id |
+
+写入方式：
+1. **显式 API**（上表）：用户或前端主动设置；
+2. **自动提取**：任务完成后用一次结构化 LLM 调用提取，best-effort（失败不影响任务）。
+
+规则：**显式设置的值优先** —— 自动提取不会覆盖已存在的偏好键；内容完全重复的记忆不会重复保存。
+任务运行时会先读取该用户的长期偏好，与本次请求的 `user_preferences` 合并（请求优先）后注入 Agent。
 
 ## 当前 Agent 流程
 

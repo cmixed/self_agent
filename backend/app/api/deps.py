@@ -15,16 +15,18 @@ from app.core.config import get_settings
 from app.embedding.factory import get_embedding_provider
 from app.llm.base import LLMProvider
 from app.llm.factory import get_llm
-from app.memory.repository import TaskRepository
+from app.memory.repository import MemoryRepository, TaskRepository
 from app.memory.sqlite import SqliteDatabase
 from app.rag.retriever import Retriever
 from app.rag.store import ChromaStore
 from app.rag.tools import RagTool
 from app.services.document_service import DocumentService
+from app.services.memory_service import MemoryService
 from app.services.task_service import TaskService
 
 _store: ChromaStore | None = None
 _task_repository: TaskRepository | None = None
+_memory_repository: MemoryRepository | None = None
 _database: SqliteDatabase | None = None
 
 
@@ -96,6 +98,13 @@ def build_task_repository() -> TaskRepository:
     return _task_repository
 
 
+def build_memory_repository() -> MemoryRepository:
+    global _memory_repository
+    if _memory_repository is None:
+        _memory_repository = MemoryRepository(build_database())
+    return _memory_repository
+
+
 def get_user_id(x_user_id: str | None = Header(default=None, alias="X-User-Id")) -> str:
     """无复杂用户系统（§31）：默认单用户，可通过请求头覆盖。"""
     settings = get_settings()
@@ -117,9 +126,20 @@ def get_task_repository() -> TaskRepository:
     return build_task_repository()
 
 
+def get_memory_repository() -> MemoryRepository:
+    return build_memory_repository()
+
+
+def get_memory_service(
+    provider: LLMProvider = Depends(get_llm_provider),
+) -> MemoryService:
+    return MemoryService(build_memory_repository(), provider)
+
+
 def reset_caches() -> None:
     """仅用于测试：清空进程级缓存的向量集合与持久化句柄。"""
-    global _store, _task_repository, _database
+    global _store, _task_repository, _memory_repository, _database
     _store = None
     _task_repository = None
+    _memory_repository = None
     _database = None

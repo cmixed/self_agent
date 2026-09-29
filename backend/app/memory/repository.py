@@ -33,6 +33,18 @@ class TaskRecord:
     result: dict[str, Any] | None
 
 
+@dataclass(frozen=True)
+class MemoryRecord:
+    """一条长期记忆。"""
+
+    memory_id: int
+    user_id: str
+    kind: str
+    content: str
+    source_task_id: str | None
+    created_at: str
+
+
 class TaskRepository:
     """tasks + task_runs 的读写。"""
 
@@ -163,3 +175,143 @@ def _row_to_record(row: Any) -> TaskRecord | None:
         error_type=row["error_type"],
         result=result,
     )
+
+
+class MemoryRepository:
+    """长期记忆的读写：user_preferences（键值偏好）与 memories（自由记忆）。"""
+
+    def __init__(self, database: SqliteDatabase) -> None:
+        self._database = database
+
+    async def get_preferences(self, user_id: str) -> dict[str, str]:
+        return await asyncio.to_thread(self._get_preferences, user_id)
+
+    async def set_preference(self, user_id: str, key: str, value: str) -> None:
+        await asyncio.to_thread(self._set_preference, user_id, key, value)
+
+    async def delete_preference(self, user_id: str, key: str) -> bool:
+        return await asyncio.to_thread(self._delete_preference, user_id, key)
+
+    async def list_memories(self, user_id: str, *, limit: int = 50) -> list[MemoryRecord]:
+        return await asyncio.to_thread(self._list_memories, user_id, limit)
+
+    async def add_memory(
+        self,
+        user_id: str,
+        *,
+        kind: str,
+        content: str,
+        source_task_id: str | None = None,
+    ) -> MemoryRecord | None:
+        """新增记忆；内容完全重复时返回 None（不重复保存）。"""
+        return await asyncio.to_thread(self._add_memory, user_id, kind, content, source_task_id)
+
+    async def delete_memory(self, user_id: str, memory_id: int) -> bool:
+        return await asyncio.to_thread(self._delete_memory, user_id, memory_id)
+
+    # --- 同步实现 ---
+
+    def _get_preferences(self, user_id: str) -> dict[str, str]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                "SELECT key, value FROM user_preferences WHERE user_id = ? ORDER BY key",
+                (user_id,),
+            ).fetchall()
+        return {row["key"]: row["value"] for row in rows}
+
+    def _set_preference(self, user_id: str, key: str, value: str) -> None:
+        now = utc_now()
+        with self._database.connect() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO users(user_id, created_at) VALUES (?, ?)",
+                (user_id, now),
+            )
+            connection.execute(
+                """
+                INSERT INTO user_preferences(user_id, key, value, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value,
+                                                        updated_at = excluded.updated_at
+                """,
+                (user_id, key, value, now),
+            )
+            connection.commit()
+
+    def _delete_preference(self, user_id: str, key: str) -> bool:
+        with self._database.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM user_preferences WHERE user_id = ? AND key = ?",
+                (user_id, key),
+            )
+            connection.commit()
+        return cursor.rowcount > 0
+
+    def _list_memories(self, user_id: str, limit: int) -> list[MemoryRecord]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT memory_id, user_id, kind, content, source_task_id, created_at
+                  FROM memories WHERE user_id = ?
+                 ORDER BY memory_id DESC LIMIT ?
+                """,
+                (user_id, max(1, limit)),
+            ).fetchall()
+        return [
+            MemoryRecord(
+                memory_id=row["memory_id"],
+                user_id=row["user_id"],
+                kind=row["kind"],
+                content=row["content"],
+                source_task_id=row["source_task_id"],
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
+    def _add_memory(
+        self, user_id: str, kind: str, content: str, source_task_id: str | None
+    ) -> MemoryRecord | None:
+        now = utc_now()
+        with self._database.connect() as connection:
+            duplicate = connection.execute(
+                """
+                SELECT memory_id FROM memories
+                 WHERE user_id = ? AND kind = ? AND content = ?
+                 LIMIT 1
+                """,
+                (user_id, kind, content),
+            ).fetchone()
+            if duplicate is not None:
+                return None
+
+            connection.execute(
+                "INSERT OR IGNORE INTO users(user_id, created_at) VALUES (?, ?)",
+                (user_id, now),
+            )
+            cursor = connection.execute(
+                """
+                INSERT INTO memories(user_id, kind, content, source_task_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (user_id, kind, content, source_task_id, now),
+            )
+            connection.commit()
+            memory_id = int(cursor.lastrowid or 0)
+
+        return MemoryRecord(
+            memory_id=memory_id,
+            user_id=user_id,
+            kind=kind,
+            content=content,
+            source_task_id=source_task_id,
+            created_at=now,
+        )
+
+    def _delete_memory(self, user_id: str, memory_id: int) -> bool:
+        with self._database.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM memories WHERE user_id = ? AND memory_id = ?",
+                (user_id, memory_id),
+            )
+            connection.commit()
+        return cursor.rowcount > 0

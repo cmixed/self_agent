@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api import chat, documents, health, tasks
+from app.api import chat, documents, health, memory, tasks
 from app.api.deps import build_database
 from app.api.errors import register_exception_handlers
 from app.core.config import get_settings
@@ -59,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router)
     app.include_router(tasks.router)
     app.include_router(documents.router)
+    app.include_router(memory.router)
     register_exception_handlers(app)
     return app
 
