@@ -367,10 +367,148 @@ html[data-theme='dark'] .app-backdrop::after {
   margin: 20px 0;
 }
 
+/* --- 任务提交区 ----------------------------------------------------------- */
+.composer-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.sample-tag {
+  cursor: pointer;
+}
+
+.sample-tag:hover {
+  border-color: var(--ant-color-primary);
+  color: var(--ant-color-primary);
+}
+
+/* --- Agent 执行进度列表 ---------------------------------------------------- */
+.stage-list-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.stage-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.stage-item {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+.stage-item + .stage-item {
+  margin-top: 2px;
+}
+
+.stage-item.is-current {
+  background: var(--ant-color-primary-bg);
+}
+
+.stage-item.is-current::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--ant-color-primary);
+}
+
+.stage-item.is-skipped {
+  opacity: 0.6;
+}
+
+.stage-marker {
+  width: 20px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.stage-icon {
+  font-size: 16px;
+}
+
+.stage-icon--finish {
+  color: var(--ant-color-success);
+}
+
+.stage-icon--process {
+  color: var(--ant-color-primary);
+}
+
+.stage-icon--error {
+  color: var(--ant-color-error);
+}
+
+.stage-icon--wait,
+.stage-icon--skip {
+  color: var(--ant-color-text-quaternary);
+}
+
+.stage-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.stage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stage-badge {
+  margin-left: auto;
+}
+
+.stage-progress {
+  margin: 6px 0 0;
+  max-width: 320px;
+}
+
+.stage-notes {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+/* --- 通用列表（计划 / 大纲 / 来源 / 校验） --------------------------------- */
+.plain-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.plain-list li {
+  margin-bottom: 6px;
+}
+
 /* --- 响应式 --------------------------------------------------------------- */
 @media (max-width: 768px) {
   .app-content {
     padding: 16px;
+  }
+
+  .composer-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .stage-badge {
+    margin-left: 0;
   }
 
   .page-header {

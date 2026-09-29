@@ -1,7 +1,25 @@
-import { Alert, Button, Card, Input, Space, Steps, Tag, Typography } from 'antd'
-import PageContainer from '../components/PageContainer'
-import { useState } from 'react'
+import {
+  Alert,
+  Button,
+  Card,
+  Col,
+  Descriptions,
+  Empty,
+  Input,
+  Result,
+  Row,
+  Space,
+  Statistic,
+  Tabs,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd'
+import { useEffect, useRef, useState } from 'react'
 
+import AgentProgress from '../components/AgentProgress'
+import type { StageStatus, StageView } from '../components/AgentProgress'
+import PageContainer from '../components/PageContainer'
 import MarkdownView from '../components/MarkdownView'
 import { ApiError, streamTask } from '../services/api'
 import type { Plan, Source, TaskEvent, Validation } from '../types/api'
@@ -9,16 +27,12 @@ import type { Plan, Source, TaskEvent, Validation } from '../types/api'
 const { Text, Paragraph } = Typography
 const { TextArea } = Input
 
-const STAGE_ORDER = [
-  'planner',
-  'researcher',
-  'outline',
-  'writer',
-  'validator',
-  'summarizer',
-] as const
+const PAGE_TITLE = '任务'
+const PAGE_DESCRIPTION = '提交一个复杂任务：Agent 会先规划、再检索你的资料、分章节撰写并自我校验。'
+const PAGE_MAX_WIDTH = 1080
+
+const STAGE_ORDER = ['planner', 'researcher', 'outline', 'writer', 'validator', 'summarizer'] as const
 type StageKey = (typeof STAGE_ORDER)[number]
-type StageStatus = 'wait' | 'process' | 'finish' | 'error'
 
 const STAGE_TITLES: Record<StageKey, string> = {
   planner: '分析任务并生成计划',
@@ -38,13 +52,11 @@ const INITIAL_STAGES: Record<StageKey, StageStatus> = {
   summarizer: 'wait',
 }
 
-function markRunningAsError(stages: Record<StageKey, StageStatus>): Record<StageKey, StageStatus> {
-  const next = { ...stages }
-  for (const key of STAGE_ORDER) {
-    if (next[key] === 'process') next[key] = 'error'
-  }
-  return next
-}
+const SAMPLE_TASKS = [
+  '根据我的资料写一篇 RAG 技术综述',
+  '总结我的资料里关于文本切分的要点',
+  '对比向量检索与关键词检索的差异',
+]
 
 const TARGET_LABEL = (target: string) =>
   target === 'document' ? '整篇文档' : `章节 ${target.replace('chapter_', '')}`
@@ -54,14 +66,21 @@ const chapterNumber = (target: string): number | null => {
   return match ? Number(match[1]) : null
 }
 
-const PAGE_TITLE = '任务'
-const PAGE_DESCRIPTION = '提交一个复杂任务：Agent 会先规划、再检索你的资料、分章节撰写并自我校验。'
-const PAGE_MAX_WIDTH = 1080
+function markRunningAsError(stages: Record<StageKey, StageStatus>): Record<StageKey, StageStatus> {
+  const next = { ...stages }
+  for (const key of STAGE_ORDER) {
+    if (next[key] === 'process') next[key] = 'error'
+  }
+  return next
+}
 
 export default function TaskPage() {
   const [query, setQuery] = useState('')
   const [running, setRunning] = useState(false)
+  const [hasStarted, setHasStarted] = useState(false)
+  const [taskId, setTaskId] = useState<string | null>(null)
   const [stages, setStages] = useState<Record<StageKey, StageStatus>>(INITIAL_STAGES)
+  const [stageNotes, setStageNotes] = useState<Record<string, string[]>>({})
   const [retrievalSkipped, setRetrievalSkipped] = useState(false)
   const [retrievedCount, setRetrievedCount] = useState<number | null>(null)
   const [plan, setPlan] = useState<Plan | null>(null)
@@ -73,13 +92,45 @@ export default function TaskPage() {
   const [finalAnswer, setFinalAnswer] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
+  const [duration, setDuration] = useState<number | null>(null)
+  const [activeTab, setActiveTab] = useState('content')
+
+  const startedAtRef = useRef<number | null>(null)
+  const resultRef = useRef<HTMLDivElement | null>(null)
+
+  // 运行中的本地计时（SSE 协议不含耗时字段，计时在前端完成）
+  useEffect(() => {
+    if (!running) return
+    const timer = window.setInterval(() => {
+      if (startedAtRef.current !== null) {
+        setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000))
+      }
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [running])
+
+  // 完成/失败后自动定位到结果（唯一动效）
+  useEffect(() => {
+    if (finalAnswer !== null) {
+      resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [finalAnswer])
+
+  const addNote = (stage: string, note: string) => {
+    setStageNotes((prev) => ({ ...prev, [stage]: [...(prev[stage] ?? []), note] }))
+  }
 
   const handleEvent = (event: TaskEvent) => {
+    if (event.task_id) setTaskId(event.task_id)
+
     if (event.event === 'task_failed') {
       setStages((prev) => markRunningAsError(prev))
       setError(event.message)
+      setDuration(Math.floor((Date.now() - (startedAtRef.current ?? Date.now())) / 1000))
       return
     }
+
     if (event.event === 'task_completed') {
       setStages({
         planner: 'finish',
@@ -94,27 +145,32 @@ export default function TaskPage() {
       if (event.result?.outline?.length) setOutline(event.result.outline)
       if (event.result?.validation) setValidation(event.result.validation)
       setReplans(event.result?.retry_count ?? 0)
-      // 标记最终未通过校验的章节
       for (const target of event.result?.failed_chapters ?? []) {
+        const n = chapterNumber(target)
+        if (n !== null) setChapterStatus((prev) => ({ ...prev, [n]: 'failed' }))
+      }
+      setDuration(Math.floor((Date.now() - (startedAtRef.current ?? Date.now())) / 1000))
+      setActiveTab('content')
+      return
+    }
+
+    if (event.event === 'retrying') {
+      // 校验未通过：稍后会重写章节或重新规划
+      setStages((prev) => ({ ...prev, validator: 'wait' }))
+      const target = event.target ?? ''
+      const action = event.suggested_action
+      const noteTarget: StageKey = action === 'replan' ? 'planner' : 'writer'
+      addNote(noteTarget, event.message)
+      if (event.exhausted) {
         const n = chapterNumber(target)
         if (n !== null) setChapterStatus((prev) => ({ ...prev, [n]: 'failed' }))
       }
       return
     }
-    if (event.event === 'retrying') {
-      // 校验未通过，稍后会重新执行 writer / planner
-      setStages((prev) => ({ ...prev, validator: 'wait' }))
-      if (event.exhausted) {
-        const n = chapterNumber(event.target ?? '')
-        if (n !== null) setChapterStatus((prev) => ({ ...prev, [n]: 'failed' }))
-      }
-      return
-    }
 
-    const match =
-      /^(planner|researcher|outline|writer|validator|summarizer)_(started|completed)$/.exec(
-        event.event,
-      )
+    const match = /^(planner|researcher|outline|writer|validator|summarizer)_(started|completed)$/.exec(
+      event.event,
+    )
     if (!match) return
     const stage = match[1] as StageKey
     const phase = match[2]
@@ -177,6 +233,12 @@ export default function TaskPage() {
   }
 
   const reset = () => {
+    setHasStarted(false)
+    setTaskId(null)
+    setStages(INITIAL_STAGES)
+    setStageNotes({})
+    setRetrievalSkipped(false)
+    setRetrievedCount(null)
     setPlan(null)
     setOutline([])
     setChapterStatus({})
@@ -186,9 +248,9 @@ export default function TaskPage() {
     setFinalAnswer(null)
     setCopied(false)
     setError(null)
-    setRetrievalSkipped(false)
-    setRetrievedCount(null)
-    setStages(INITIAL_STAGES)
+    setElapsed(0)
+    setDuration(null)
+    setActiveTab('content')
   }
 
   const handleRun = async () => {
@@ -197,159 +259,208 @@ export default function TaskPage() {
 
     setRunning(true)
     reset()
+    setHasStarted(true)
+    startedAtRef.current = Date.now()
 
     try {
       await streamTask(trimmed, handleEvent)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '任务执行失败，请稍后重试')
       setStages((prev) => markRunningAsError(prev))
+      setDuration(Math.floor((Date.now() - (startedAtRef.current ?? Date.now())) / 1000))
     } finally {
       setRunning(false)
     }
   }
 
-  const finishedCount = STAGE_ORDER.filter((key) => stages[key] === 'finish').length
   const writtenCount = Object.values(chapterStatus).filter((s) => s !== 'failed').length
-  const chapterHint =
-    outline.length > 0 && stages.writer !== 'wait'
-      ? `（已写 ${writtenCount}/${outline.length} 章）`
-      : ''
+  const failedCount = Object.values(chapterStatus).filter((s) => s === 'failed').length
 
-  const stepItems = STAGE_ORDER.map((key) => ({
-    title:
-      key === 'researcher' && retrievalSkipped ? '未检索（计划不需要知识库）' : STAGE_TITLES[key],
-    content: key === 'writer' ? chapterHint || undefined : undefined,
-    status:
-      stages[key] === 'finish'
-        ? ('finish' as const)
-        : stages[key] === 'process'
-          ? ('process' as const)
-          : stages[key] === 'error'
-            ? ('error' as const)
-            : ('wait' as const),
-  }))
+  const stageViews: StageView[] = STAGE_ORDER.map((key) => {
+    const view: StageView = {
+      key,
+      title: STAGE_TITLES[key],
+      status: stages[key],
+      notes: stageNotes[key],
+    }
+    if (key === 'researcher') {
+      view.skipped = retrievalSkipped
+      if (!retrievalSkipped && retrievedCount !== null) {
+        view.badge = <Tag color={retrievedCount > 0 ? 'blue' : 'orange'}>{retrievedCount} 条片段</Tag>
+      }
+    }
+    if (key === 'writer' && outline.length > 0) {
+      view.note = `已写 ${writtenCount}/${outline.length} 章`
+      view.progress = { done: writtenCount, total: outline.length }
+    }
+    if (key === 'validator' && validation) {
+      view.badge = (
+        <Tag color={validation.passed ? 'green' : 'red'}>
+          {validation.passed ? '通过' : '未通过'}
+        </Tag>
+      )
+    }
+    if (key === 'planner' && replans > 0) {
+      view.badge = <Tag color="volcano">重新规划 {replans} 次</Tag>
+    }
+    return view
+  })
 
-  return (
-    <PageContainer
-      title={PAGE_TITLE}
-      description={PAGE_DESCRIPTION}
-      maxWidth={PAGE_MAX_WIDTH}
-    >
-      <Card title="提交任务">
+  const tabItems = [
+    {
+      key: 'overview',
+      label: '概览',
+      children: (
         <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-          <TextArea
-            id="task-query"
-            name="query"
-            rows={3}
-            value={query}
-            placeholder="例如：根据我的资料写一篇 RAG 技术综述"
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <Space>
-            <Button type="primary" loading={running} onClick={() => void handleRun()}>
-              运行任务
-            </Button>
-            <Button
-              disabled={running}
-              onClick={() => {
-                setQuery('')
-                reset()
-              }}
-            >
-              清空
-            </Button>
-          </Space>
-        </Space>
-      </Card>
+          <Row gutter={[16, 16]}>
+            <Col xs={12} lg={6}>
+              <Statistic title="章节数" value={outline.length} />
+            </Col>
+            <Col xs={12} lg={6}>
+              <Statistic title="命中片段" value={retrievedCount ?? 0} />
+            </Col>
+            <Col xs={12} lg={6}>
+              <Statistic title="重新规划" value={replans} suffix="次" />
+            </Col>
+            <Col xs={12} lg={6}>
+              <Statistic title="执行耗时" value={duration ?? elapsed} suffix="秒" />
+            </Col>
+          </Row>
 
-      <Card title="执行进度">
-        <Steps orientation="vertical" size="small" current={finishedCount} items={stepItems} />
-        <Space style={{ marginTop: 12 }}>
-          {retrievedCount !== null && (
-            <span>
-              <Text type="secondary">知识库命中：</Text>
-              <Tag color={retrievedCount > 0 ? 'blue' : 'orange'}>{retrievedCount} 条片段</Tag>
-            </span>
+          {failedCount > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              title={`有 ${failedCount} 个章节已达重试上限、未通过校验`}
+              description="这些章节在正文中以「未通过校验」标注，其余章节正常产出。"
+            />
           )}
-          {replans > 0 && <Tag color="volcano">已重新规划 {replans} 次</Tag>}
+
+          {validation && (
+            <Descriptions column={1} size="small" bordered>
+              <Descriptions.Item label="校验对象">
+                {TARGET_LABEL(validation.target)}
+              </Descriptions.Item>
+              <Descriptions.Item label="校验结论">
+                <Tag color={validation.passed ? 'green' : 'red'}>
+                  {validation.passed ? '通过' : '未通过'}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="大纲完成情况">
+                共 {outline.length} 章
+                {failedCount > 0 ? `，其中 ${failedCount} 章未通过` : '，全部通过校验'}
+              </Descriptions.Item>
+              {taskId && (
+                <Descriptions.Item label="任务 ID">
+                  <Text code copyable>
+                    {taskId}
+                  </Text>
+                </Descriptions.Item>
+              )}
+            </Descriptions>
+          )}
         </Space>
-      </Card>
-
-      {error && <Alert type="error" showIcon title={error} />}
-
-      {plan && (
-        <Card title="研究计划">
-          <Paragraph style={{ marginBottom: 8 }}>
+      ),
+    },
+    {
+      key: 'content',
+      label: '正文',
+      children: finalAnswer ? (
+        <MarkdownView content={finalAnswer} />
+      ) : (
+        <Text type="secondary">尚未生成正文</Text>
+      ),
+    },
+    {
+      key: 'plan',
+      label: '计划',
+      children: plan ? (
+        <Space orientation="vertical" size="small" style={{ width: '100%' }}>
+          <Paragraph style={{ marginBottom: 0 }}>
             <Text strong>目标：</Text>
             {plan.goal}
           </Paragraph>
-          <Paragraph style={{ marginBottom: 8 }}>
-            <Text strong>是否需要知识库检索：</Text>
+          <Paragraph style={{ marginBottom: 0 }}>
+            <Text strong>需要知识库检索：</Text>
             <Tag color={plan.needs_retrieval ? 'blue' : 'default'}>
               {plan.needs_retrieval ? '需要' : '不需要'}
             </Tag>
           </Paragraph>
-          <ol style={{ paddingLeft: 20, margin: 0 }}>
+          <ol className="plain-list">
             {plan.steps.map((step) => (
-              <li key={step.id} style={{ marginBottom: 6 }}>
+              <li key={step.id}>
                 <Tag>{step.type}</Tag>
                 {step.description}
               </li>
             ))}
           </ol>
-        </Card>
-      )}
-
-      {outline.length > 0 && (
-        <Card title="文章大纲">
-          <ol style={{ paddingLeft: 20, margin: 0 }}>
+        </Space>
+      ) : (
+        <Empty description="尚未生成计划" />
+      ),
+    },
+    {
+      key: 'outline',
+      label: '大纲',
+      children:
+        outline.length > 0 ? (
+          <ol className="plain-list">
             {outline.map((title, index) => {
-              const num = index + 1
-              const status = chapterStatus[num]
+              const status = chapterStatus[index + 1]
               return (
-                <li key={`${index}-${title}`} style={{ marginBottom: 6 }}>
-                  <Text type={status === undefined ? 'secondary' : undefined}>
-                    {status === 'passed' ? '✓ ' : status === 'failed' ? '✗ ' : status === 'written' ? '• ' : '○ '}
-                    {title}
-                  </Text>
-                  {status === 'failed' && (
-                    <Tag color="red" style={{ marginLeft: 8 }}>
-                      未通过校验
-                    </Tag>
-                  )}
+                <li key={`${index}-${title}`}>
+                  <Tag
+                    color={
+                      status === 'passed' ? 'green' : status === 'failed' ? 'red' : 'default'
+                    }
+                  >
+                    {status === 'passed' ? '通过' : status === 'failed' ? '未通过' : status === 'written' ? '已写' : '待写'}
+                  </Tag>
+                  {title}
                 </li>
               )
             })}
           </ol>
-        </Card>
-      )}
-
-      {validation && (
-        <Card title="内容校验">
-          <Paragraph style={{ marginBottom: 8 }}>
-            <Text strong>校验对象：</Text>
-            {TARGET_LABEL(validation.target)}
-            <Tag style={{ marginLeft: 8 }} color={validation.passed ? 'green' : 'red'}>
+        ) : (
+          <Empty description="尚未生成大纲" />
+        ),
+    },
+    {
+      key: 'validation',
+      label: '校验',
+      children: validation ? (
+        <Space orientation="vertical" size="small" style={{ width: '100%' }}>
+          <div>
+            <Text strong>结论：</Text>
+            <Tag color={validation.passed ? 'green' : 'red'}>
               {validation.passed ? '通过' : '未通过'}
             </Tag>
-          </Paragraph>
-          {validation.issues.length > 0 && (
-            <ul style={{ paddingLeft: 20, margin: 0 }}>
+            <Text type="secondary">（{TARGET_LABEL(validation.target)}）</Text>
+          </div>
+          {validation.issues.length > 0 ? (
+            <ul className="plain-list">
               {validation.issues.map((issue, index) => (
-                <li key={index} style={{ marginBottom: 4 }}>
+                <li key={index}>
                   <Text type="warning">{issue}</Text>
                 </li>
               ))}
             </ul>
+          ) : (
+            <Text type="secondary">没有发现问题</Text>
           )}
-        </Card>
-      )}
-
-      {sources.length > 0 && (
-        <Card title="参考来源">
-          <ol style={{ paddingLeft: 20, margin: 0 }}>
+        </Space>
+      ) : (
+        <Empty description="尚未执行校验" />
+      ),
+    },
+    {
+      key: 'sources',
+      label: `来源${sources.length > 0 ? `（${sources.length}）` : ''}`,
+      children:
+        sources.length > 0 ? (
+          <ol className="plain-list">
             {sources.map((source) => (
-              <li key={source.chunk_id} style={{ marginBottom: 6 }}>
+              <li key={source.chunk_id}>
                 <Text>
                   [{source.index}] {source.filename}
                   {source.page ? `（第 ${source.page} 页）` : ''}
@@ -360,25 +471,105 @@ export default function TaskPage() {
               </li>
             ))}
           </ol>
-        </Card>
+        ) : (
+          <Empty description="本次任务未使用知识库来源（可能计划不需要检索，或知识库为空）" />
+        ),
+    },
+  ]
+
+  return (
+    <PageContainer
+      title={PAGE_TITLE}
+      description={PAGE_DESCRIPTION}
+      maxWidth={PAGE_MAX_WIDTH}
+      extra={running ? <Tag color="processing">运行中</Tag> : null}
+    >
+      <Card title="提交任务">
+        <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
+          <TextArea
+            id="task-query"
+            name="query"
+            autoSize={{ minRows: 3, maxRows: 8 }}
+            value={query}
+            disabled={running}
+            placeholder="例如：根据我的资料写一篇 RAG 技术综述"
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <div className="composer-actions">
+            <Space size={[8, 8]} wrap>
+              <Text type="secondary">示例：</Text>
+              {SAMPLE_TASKS.map((sample) => (
+                <Tag
+                  key={sample}
+                  className="sample-tag"
+                  onClick={() => {
+                    if (!running) setQuery(sample)
+                  }}
+                >
+                  {sample}
+                </Tag>
+              ))}
+            </Space>
+            <Space>
+              <Button type="primary" loading={running} onClick={() => void handleRun()}>
+                运行任务
+              </Button>
+              <Button
+                disabled={running}
+                onClick={() => {
+                  setQuery('')
+                  reset()
+                }}
+              >
+                清空
+              </Button>
+            </Space>
+          </div>
+        </Space>
+      </Card>
+
+      <Card title="执行进度">
+        <AgentProgress
+          stages={stageViews}
+          elapsedSeconds={elapsed}
+          running={running}
+          hasStarted={hasStarted}
+        />
+      </Card>
+
+      {error && (
+        <Result
+          status="error"
+          title="任务未能完成"
+          subTitle={error}
+          extra={
+            <Button type="primary" onClick={() => void handleRun()} disabled={running}>
+              重试
+            </Button>
+          }
+        />
       )}
 
       {finalAnswer !== null && (
-        <Card
-          title="最终结果"
-          extra={
-            <Space>
-              <Button size="small" onClick={() => void handleCopy()}>
-                {copied ? '已复制' : '复制'}
-              </Button>
-              <Button size="small" onClick={handleDownload}>
-                下载 .md
-              </Button>
-            </Space>
-          }
-        >
-          <MarkdownView content={finalAnswer} />
-        </Card>
+        <div ref={resultRef}>
+          <Card
+            title="执行结果"
+            extra={
+              <Space>
+                <Tooltip title="复制 Markdown 原文">
+                  <Button size="small" onClick={() => void handleCopy()}>
+                    {copied ? '已复制' : '复制'}
+                  </Button>
+                </Tooltip>
+                <Button size="small" onClick={handleDownload}>
+                  下载 .md
+                </Button>
+              </Space>
+            }
+          >
+            <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
+          </Card>
+        </div>
       )}
     </PageContainer>
   )
