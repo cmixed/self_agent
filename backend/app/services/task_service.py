@@ -22,7 +22,8 @@ logger = get_logger(__name__)
 _NODE_EVENTS: dict[str, tuple[str, str]] = {
     "planner": ("正在分析任务并生成计划", "已完成任务规划"),
     "researcher": ("正在检索个人知识库", "知识库检索完成"),
-    "writer": ("正在撰写内容", "内容已生成"),
+    "outline": ("正在生成文章大纲", "大纲已生成"),
+    "writer": ("正在撰写内容", "章节已完成"),
     "summarizer": ("正在整合最终结果", "已整合最终结果"),
 }
 
@@ -55,10 +56,20 @@ def task_result(state: AgentState) -> dict[str, Any]:
         "task_id": state.get("task_id", ""),
         "status": state.get("task_status", "failed"),
         "plan": state.get("plan"),
+        "outline": [section.get("title", "") for section in (state.get("outline") or [])],
         "step_results": state.get("step_results", []),
         "sources": _sources(state.get("retrieved_documents") or []),
         "final_answer": state.get("final_answer", ""),
     }
+
+
+def _chapter_index(node_input: Any) -> int | None:
+    """从节点输入推断当前要撰写第几章（已写章节数 + 1）。"""
+    if not isinstance(node_input, dict):
+        return None
+    sections = node_input.get("sections")
+    written = len(sections) if isinstance(sections, list) else 0
+    return written + 1
 
 
 class TaskService:
@@ -132,7 +143,16 @@ class TaskService:
 
                 start_message, done_message = _NODE_EVENTS[name]
                 if kind == "on_chain_start":
-                    yield _event(run_id, f"{name}_started", status="running", message=start_message)
+                    extra: dict[str, Any] = {}
+                    message = start_message
+                    if name == "writer":
+                        chapter = _chapter_index((event.get("data") or {}).get("input"))
+                        if chapter is not None:
+                            message = f"正在撰写第 {chapter} 章"
+                            extra["step"] = f"chapter_{chapter}"
+                    yield _event(
+                        run_id, f"{name}_started", status="running", message=message, **extra
+                    )
                 elif kind == "on_chain_end":
                     payload: dict[str, Any] = {
                         "step": name,
@@ -147,6 +167,13 @@ class TaskService:
                             payload["retrieved_count"] = len(
                                 output.get("retrieved_documents") or []
                             )
+                        if name == "outline":
+                            payload["outline"] = [
+                                section.get("title", "")
+                                for section in (output.get("outline") or [])
+                            ]
+                        if name == "writer":
+                            payload["step"] = output.get("current_step") or name
                     yield _event(run_id, f"{name}_completed", **payload)
         except LLMError as exc:
             _, detail = resolve_error(exc)

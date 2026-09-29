@@ -39,3 +39,23 @@ def format_context(
         content = document.get("content", "")[:max_chars_per_document]
         blocks.append(f"[{index}] 来源：{document.get('filename', '')}{location}\n{content}")
     return "\n\n".join(blocks)
+
+
+def render_references(documents: Sequence[RetrievedDocument]) -> str:
+    """渲染「参考来源」小节。
+
+    编号规则与 :func:`format_context` 及任务结果中的 ``sources`` 保持一致。
+    """
+    seen: set[str] = set()
+    lines: list[str] = []
+    for index, document in enumerate(documents, start=1):
+        chunk_id = document.get("chunk_id", "")
+        if chunk_id and chunk_id in seen:
+            continue
+        seen.add(chunk_id)
+        page = document.get("page")
+        location = f"（第 {page} 页）" if page is not None else ""
+        lines.append(f"[{index}] {document.get('filename', '')}{location}")
+    if not lines:
+        return ""
+    return "## 参考来源\n" + "\n".join(lines)

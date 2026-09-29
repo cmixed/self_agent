@@ -118,7 +118,7 @@ def make_route_after_planner(*, retrieval_available: bool) -> Callable[[AgentSta
             return "end"
         if retrieval_available and plan.get("needs_retrieval"):
             return "researcher"
-        return "writer"
+        return "outline"
 
     return route_after_planner
 

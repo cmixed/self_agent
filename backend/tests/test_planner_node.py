@@ -42,8 +42,8 @@ def test_route_after_planner() -> None:
     needs_retrieval = {"plan": {"goal": "g", "needs_retrieval": True, "steps": []}}
 
     assert route_after_planner(no_plan) == "end"  # type: ignore[arg-type]
-    assert route_after_planner(no_retrieval) == "writer"  # type: ignore[arg-type]
+    assert route_after_planner(no_retrieval) == "outline"  # type: ignore[arg-type]
     assert route_after_planner(needs_retrieval) == "researcher"  # type: ignore[arg-type]
-    # 无检索能力时退化为直接写作
+    # 无检索能力时退化为直接生成大纲
     degraded = make_route_after_planner(retrieval_available=False)
-    assert degraded(needs_retrieval) == "writer"  # type: ignore[arg-type]
+    assert degraded(needs_retrieval) == "outline"  # type: ignore[arg-type]

@@ -21,6 +21,10 @@ PLAN_PAYLOAD: dict = {
     ],
 }
 PLAN_JSON = json.dumps(PLAN_PAYLOAD, ensure_ascii=False)
+OUTLINE_PAYLOAD: dict = {
+    "sections": [{"title": "引言"}, {"title": "chunk 大小的影响"}],
+}
+OUTLINE_JSON = json.dumps(OUTLINE_PAYLOAD, ensure_ascii=False)
 DRAFT_TEXT = "# RAG 技术综述\n\n这是草稿正文。"
 
 

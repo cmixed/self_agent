@@ -1,7 +1,7 @@
 """Summarizer 节点（最终整合）。
 
-Phase 2 只做整合：把草稿收敛为 final_answer 并标记任务完成，不额外调用 LLM。
-长文的章节汇总属于 Phase 4（AGENTS.md §15）。
+把逐章生成的 ``sections`` 汇总为整篇文档，并附上「参考来源」。
+Phase 4B 会在汇总前插入 Validator，因此本节点只做整合，不再调用 LLM。
 """
 
 from __future__ import annotations
@@ -9,12 +9,34 @@ from __future__ import annotations
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage
 from app.models.state import AgentState, StepResult
+from app.rag.tools import render_references
 
 logger = get_logger(__name__)
 
 
+def _assemble(state: AgentState) -> str:
+    plan = state.get("plan")
+    goal = (plan or {}).get("goal") or state.get("user_query", "")
+    sections = state.get("sections") or []
+
+    parts: list[str] = []
+    if goal:
+        parts.append(f"# {goal}")
+    for section in sections:
+        content = section.get("content", "").strip()
+        parts.append(f"## {section.get('title', '')}\n\n{content}")
+
+    body = "\n\n".join(part for part in parts if part.strip()).strip()
+    if not body:
+        # 无章节（例如未生成大纲）时退回单次草稿
+        body = (state.get("draft") or "").strip()
+
+    references = render_references(state.get("retrieved_documents") or [])
+    return f"{body}\n\n{references}".strip() if references else body
+
+
 async def summarizer_node(state: AgentState) -> dict:
-    final_answer = (state.get("draft") or "").strip()
+    draft = _assemble(state)
 
     logger.info(
         "summarizer 完成",
@@ -26,7 +48,8 @@ async def summarizer_node(state: AgentState) -> dict:
         },
     )
     return {
-        "final_answer": final_answer,
+        "draft": draft,
+        "final_answer": draft,
         "current_step": "summarize",
         "task_status": "completed",
         "is_complete": True,

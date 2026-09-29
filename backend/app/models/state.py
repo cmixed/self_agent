@@ -56,7 +56,7 @@ class RetrievedDocument(TypedDict):
 
 
 class Section(TypedDict):
-    """长文中的一个章节（Phase 4 使用）。"""
+    """长文中的一个章节。"""
 
     title: str
     content: str
@@ -86,6 +86,7 @@ class AgentState(TypedDict, total=False):
     # --- 检索（Phase 3）---
     retrieved_documents: Annotated[list[RetrievedDocument], add]
     # --- 生成 ---
+    outline: list[Section]
     sections: Annotated[list[Section], add]
     draft: str
     # --- 验证与重试（Phase 4）---
@@ -113,6 +114,7 @@ def initial_state(
         current_step=None,
         step_results=[],
         retrieved_documents=[],
+        outline=[],
         sections=[],
         draft="",
         validation_result=None,

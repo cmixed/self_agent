@@ -55,6 +55,7 @@ export interface TaskResult {
   task_id: string
   status: string
   plan: Plan | null
+  outline: string[]
   step_results: StepResult[]
   sources: Source[]
   final_answer: string
@@ -68,6 +69,7 @@ export interface TaskEvent {
   status: string
   message: string
   plan?: Plan | null
+  outline?: string[]
   retrieved_count?: number
   error_type?: string
   result?: TaskResult

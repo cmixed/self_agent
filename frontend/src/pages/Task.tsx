@@ -7,20 +7,22 @@ import type { HealthResponse, Plan, Source, TaskEvent } from '../types/api'
 const { Text, Paragraph } = Typography
 const { TextArea } = Input
 
-const STAGE_ORDER = ['planner', 'researcher', 'writer', 'summarizer'] as const
+const STAGE_ORDER = ['planner', 'researcher', 'outline', 'writer', 'summarizer'] as const
 type StageKey = (typeof STAGE_ORDER)[number]
 type StageStatus = 'wait' | 'process' | 'finish' | 'error'
 
 const STAGE_TITLES: Record<StageKey, string> = {
   planner: '分析任务并生成计划',
   researcher: '检索个人知识库',
-  writer: '撰写内容',
+  outline: '生成文章大纲',
+  writer: '逐章撰写内容',
   summarizer: '整合最终结果',
 }
 
 const INITIAL_STAGES: Record<StageKey, StageStatus> = {
   planner: 'wait',
   researcher: 'wait',
+  outline: 'wait',
   writer: 'wait',
   summarizer: 'wait',
 }
@@ -40,6 +42,8 @@ export default function TaskPage() {
   const [retrievalSkipped, setRetrievalSkipped] = useState(false)
   const [retrievedCount, setRetrievedCount] = useState<number | null>(null)
   const [plan, setPlan] = useState<Plan | null>(null)
+  const [outline, setOutline] = useState<string[]>([])
+  const [chaptersDone, setChaptersDone] = useState(0)
   const [sources, setSources] = useState<Source[]>([])
   const [finalAnswer, setFinalAnswer] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -58,13 +62,22 @@ export default function TaskPage() {
       return
     }
     if (event.event === 'task_completed') {
-      setStages({ planner: 'finish', researcher: 'finish', writer: 'finish', summarizer: 'finish' })
+      setStages({
+        planner: 'finish',
+        researcher: 'finish',
+        outline: 'finish',
+        writer: 'finish',
+        summarizer: 'finish',
+      })
       setFinalAnswer(event.result?.final_answer ?? '')
       setSources(event.result?.sources ?? [])
+      if (event.result?.outline?.length) setOutline(event.result.outline)
       return
     }
 
-    const match = /^(planner|researcher|writer|summarizer)_(started|completed)$/.exec(event.event)
+    const match = /^(planner|researcher|outline|writer|summarizer)_(started|completed)$/.exec(
+      event.event,
+    )
     if (!match) return
     const stage = match[1] as StageKey
     const phase = match[2]
@@ -82,6 +95,24 @@ export default function TaskPage() {
     if (event.event === 'researcher_completed') {
       setRetrievedCount(event.retrieved_count ?? 0)
     }
+    if (event.event === 'outline_completed') {
+      setOutline(event.outline ?? [])
+    }
+    if (event.event === 'writer_completed') {
+      setChaptersDone((prev) => prev + 1)
+    }
+  }
+
+  const reset = () => {
+    setPlan(null)
+    setOutline([])
+    setChaptersDone(0)
+    setSources([])
+    setFinalAnswer(null)
+    setError(null)
+    setRetrievalSkipped(false)
+    setRetrievedCount(null)
+    setStages(INITIAL_STAGES)
   }
 
   const handleRun = async () => {
@@ -89,13 +120,7 @@ export default function TaskPage() {
     if (!trimmed || running) return
 
     setRunning(true)
-    setError(null)
-    setPlan(null)
-    setSources([])
-    setFinalAnswer(null)
-    setRetrievalSkipped(false)
-    setRetrievedCount(null)
-    setStages(INITIAL_STAGES)
+    reset()
 
     try {
       await streamTask(trimmed, handleEvent)
@@ -108,9 +133,15 @@ export default function TaskPage() {
   }
 
   const finishedCount = STAGE_ORDER.filter((key) => stages[key] === 'finish').length
+  const chapterHint =
+    outline.length > 0 && stages.writer !== 'wait'
+      ? `（第 ${Math.min(chaptersDone + (stages.writer === 'process' ? 1 : 0), outline.length)}/${outline.length} 章）`
+      : ''
+
   const stepItems = STAGE_ORDER.map((key) => ({
     title:
       key === 'researcher' && retrievalSkipped ? '未检索（计划不需要知识库）' : STAGE_TITLES[key],
+    description: key === 'writer' ? chapterHint || undefined : undefined,
     status:
       stages[key] === 'finish'
         ? ('finish' as const)
@@ -155,13 +186,7 @@ export default function TaskPage() {
               disabled={running}
               onClick={() => {
                 setQuery('')
-                setPlan(null)
-                setSources([])
-                setFinalAnswer(null)
-                setError(null)
-                setRetrievalSkipped(false)
-                setRetrievedCount(null)
-                setStages(INITIAL_STAGES)
+                reset()
               }}
             >
               清空
@@ -199,6 +224,21 @@ export default function TaskPage() {
               <li key={step.id} style={{ marginBottom: 6 }}>
                 <Tag>{step.type}</Tag>
                 {step.description}
+              </li>
+            ))}
+          </ol>
+        </Card>
+      )}
+
+      {outline.length > 0 && (
+        <Card title="文章大纲">
+          <ol style={{ paddingLeft: 20, margin: 0 }}>
+            {outline.map((title, index) => (
+              <li key={`${index}-${title}`} style={{ marginBottom: 6 }}>
+                <Text type={index < chaptersDone ? undefined : 'secondary'}>
+                  {index < chaptersDone ? '✓ ' : ''}
+                  {title}
+                </Text>
               </li>
             ))}
           </ol>

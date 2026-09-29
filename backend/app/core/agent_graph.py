@@ -2,14 +2,18 @@
 
 只负责节点连接与条件路由，业务逻辑在 ``app/agents/`` 中（见 AGENTS.md §4.2）。
 
-当前拓扑：
+当前拓扑（Phase 4A）：
 
-    START → planner ──(需要检索)──→ researcher ──→ writer → summarizer → END
-                  │                    ↑
-                  ├──(不需要检索)──────┘
-                  └──(无计划)────→ END
+    START → planner ──(需要检索)──→ researcher ──┐
+                  │                             ↓
+                  ├──(不需要检索)──────────→ outline → writer ──(还有章节)──┐
+                  │                                    ↑                   │
+                  │                                    └───────────────────┘
+                  │                                    │
+                  │                            (章节写完) ↓
+                  └──(无计划)──→ END          summarizer → END
 
-Phase 4 会在 writer 之后插入 validator 与有限重试；扩展均为增量插入。
+Phase 4B 会在 writer 之后、summarizer 之前插入 validator 与有限重试。
 """
 
 from __future__ import annotations
@@ -19,10 +23,11 @@ from collections.abc import Callable
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from app.agents.outline import make_outline_node
 from app.agents.planner import make_planner_node, make_route_after_planner
 from app.agents.researcher import make_researcher_node
 from app.agents.summarizer import summarizer_node
-from app.agents.writer import make_writer_node
+from app.agents.writer import make_writer_node, route_after_writer
 from app.llm.base import LLMProvider
 from app.models.state import AgentState
 from app.rag.tools import RagTool
@@ -42,13 +47,14 @@ def build_graph(
     graph = StateGraph(AgentState)
 
     graph.add_node("planner", make_planner_node(llm, max_retries=max_retries))
+    graph.add_node("outline", make_outline_node(llm, max_retries=max_retries))
     graph.add_node("writer", make_writer_node(llm))
     graph.add_node("summarizer", summarizer_node)
 
-    routes: dict[str, str] = {"writer": "writer", "end": END}
+    routes: dict[str, str] = {"outline": "outline", "end": END}
     if rag_tool_provider is not None:
         graph.add_node("researcher", make_researcher_node(rag_tool_provider))
-        graph.add_edge("researcher", "writer")
+        graph.add_edge("researcher", "outline")
         routes["researcher"] = "researcher"
 
     graph.add_edge(START, "planner")
@@ -57,7 +63,13 @@ def build_graph(
         make_route_after_planner(retrieval_available=rag_tool_provider is not None),
         routes,
     )
-    graph.add_edge("writer", "summarizer")
+    graph.add_edge("outline", "writer")
+    # 逐章循环：还有章节就回到 writer，否则汇总
+    graph.add_conditional_edges(
+        "writer",
+        route_after_writer,
+        {"writer": "writer", "summarize": "summarizer"},
+    )
     graph.add_edge("summarizer", END)
 
     return graph.compile()

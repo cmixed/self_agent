@@ -3,7 +3,14 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fakes import DRAFT_TEXT, PLAN_JSON, PLAN_PAYLOAD, ScriptedProvider, seed_knowledge_base
+from fakes import (
+    DRAFT_TEXT,
+    OUTLINE_JSON,
+    PLAN_JSON,
+    PLAN_PAYLOAD,
+    ScriptedProvider,
+    seed_knowledge_base,
+)
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_task_service
@@ -15,9 +22,12 @@ async def collect(service: TaskService, query: str) -> list[dict[str, Any]]:
     return [event async for event in service.stream(query)]
 
 
+def _provider() -> ScriptedProvider:
+    return ScriptedProvider([PLAN_JSON, OUTLINE_JSON, DRAFT_TEXT])
+
+
 async def test_stream_emits_events_in_execution_order() -> None:
-    provider = ScriptedProvider([PLAN_JSON, DRAFT_TEXT])
-    service = TaskService(provider, max_retries=0)
+    service = TaskService(_provider(), max_retries=0)
 
     events = await collect(service, "写一篇 RAG 综述")
     names = [event["event"] for event in events]
@@ -26,6 +36,10 @@ async def test_stream_emits_events_in_execution_order() -> None:
         "task_started",
         "planner_started",
         "planner_completed",
+        "outline_started",
+        "outline_completed",
+        "writer_started",
+        "writer_completed",
         "writer_started",
         "writer_completed",
         "summarizer_started",
@@ -37,9 +51,20 @@ async def test_stream_emits_events_in_execution_order() -> None:
     planned = next(event for event in events if event["event"] == "planner_completed")
     assert planned["plan"]["goal"] == PLAN_PAYLOAD["goal"]
 
+    outlined = next(event for event in events if event["event"] == "outline_completed")
+    assert outlined["outline"] == ["引言", "chunk 大小的影响"]
+
+    # 写作进度按章节推进
+    writer_events = [e for e in events if e["event"].startswith("writer_")]
+    assert [e["step"] for e in writer_events if e["event"] == "writer_completed"] == [
+        "chapter_1",
+        "chapter_2",
+    ]
+    assert writer_events[0]["message"] == "正在撰写第 1 章"
+
     completed = events[-1]
     assert completed["result"]["status"] == "completed"
-    assert completed["result"]["final_answer"] == DRAFT_TEXT.strip()
+    assert DRAFT_TEXT in completed["result"]["final_answer"]
 
 
 async def test_stream_converts_error_to_task_failed() -> None:
@@ -57,9 +82,7 @@ async def test_stream_converts_error_to_task_failed() -> None:
 def test_stream_endpoint_emits_sse_frames() -> None:
     app = create_app()
     # 覆盖 TaskService，避免测试接触真实 Embedding 模型
-    app.dependency_overrides[get_task_service] = lambda: TaskService(
-        ScriptedProvider([PLAN_JSON, DRAFT_TEXT]), max_retries=0
-    )
+    app.dependency_overrides[get_task_service] = lambda: TaskService(_provider(), max_retries=0)
 
     with (
         TestClient(app) as client,
@@ -73,16 +96,12 @@ def test_stream_endpoint_emits_sse_frames() -> None:
     events = [json.loads(frame) for frame in frames]
     assert events[0]["event"] == "task_started"
     assert events[-1]["event"] == "task_completed"
-    assert events[-1]["result"]["final_answer"] == DRAFT_TEXT.strip()
+    assert DRAFT_TEXT in events[-1]["result"]["final_answer"]
 
 
 async def test_stream_includes_researcher_events(tmp_path) -> None:
     _, tool = await seed_knowledge_base(tmp_path, text="# RAG\n\n检索增强生成使用向量数据库。")
-    service = TaskService(
-        ScriptedProvider([PLAN_JSON, DRAFT_TEXT]),
-        rag_tool_provider=lambda: tool,
-        max_retries=0,
-    )
+    service = TaskService(_provider(), rag_tool_provider=lambda: tool, max_retries=0)
 
     events = await collect(service, "写一篇 RAG 综述")
 
@@ -92,6 +111,10 @@ async def test_stream_includes_researcher_events(tmp_path) -> None:
         "planner_completed",
         "researcher_started",
         "researcher_completed",
+        "outline_started",
+        "outline_completed",
+        "writer_started",
+        "writer_completed",
         "writer_started",
         "writer_completed",
         "summarizer_started",

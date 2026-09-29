@@ -4,7 +4,14 @@ import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
-from fakes import DRAFT_TEXT, PLAN_JSON, PLAN_PAYLOAD, ScriptedProvider, seed_knowledge_base
+from fakes import (
+    DRAFT_TEXT,
+    OUTLINE_JSON,
+    PLAN_JSON,
+    PLAN_PAYLOAD,
+    ScriptedProvider,
+    seed_knowledge_base,
+)
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_task_service
@@ -25,8 +32,12 @@ def make_client(
     return TestClient(app)
 
 
-def test_create_task_returns_plan_and_answer() -> None:
-    provider = ScriptedProvider([PLAN_JSON, DRAFT_TEXT])
+def _provider() -> ScriptedProvider:
+    return ScriptedProvider([PLAN_JSON, OUTLINE_JSON, DRAFT_TEXT])
+
+
+def test_create_task_returns_plan_outline_and_answer() -> None:
+    provider = _provider()
     with make_client(provider) as client:
         response = client.post("/api/tasks", json={"query": "写一篇 RAG 综述"})
 
@@ -36,13 +47,16 @@ def test_create_task_returns_plan_and_answer() -> None:
     assert body["task_id"]
     assert body["plan"]["goal"] == PLAN_PAYLOAD["goal"]
     assert [step["id"] for step in body["plan"]["steps"]] == ["research", "write"]
-    assert body["final_answer"] == DRAFT_TEXT.strip()
-    # 未提供 RAG Tool 时不执行检索，直接写作
+    assert body["outline"] == ["引言", "chunk 大小的影响"]
+    # 未提供 RAG Tool 时不执行检索，逐章写作后汇总
     assert [result["step_id"] for result in body["step_results"]] == [
         "plan",
-        "write",
+        "outline",
+        "chapter_1",
+        "chapter_2",
         "summarize",
     ]
+    assert DRAFT_TEXT in body["final_answer"]
     assert body["sources"] == []
 
 
@@ -50,7 +64,7 @@ def test_create_task_with_retrieval_returns_sources(tmp_path: Path) -> None:
     _, tool = asyncio.run(
         seed_knowledge_base(tmp_path, text="# RAG\n\n检索增强生成使用向量数据库。")
     )
-    provider = ScriptedProvider([PLAN_JSON, DRAFT_TEXT])
+    provider = _provider()
 
     with make_client(provider, rag_tool_provider=lambda: tool) as client:
         response = client.post("/api/tasks", json={"query": "写一篇 RAG 综述"})
@@ -60,12 +74,15 @@ def test_create_task_with_retrieval_returns_sources(tmp_path: Path) -> None:
     assert [result["step_id"] for result in body["step_results"]] == [
         "plan",
         "research",
-        "write",
+        "outline",
+        "chapter_1",
+        "chapter_2",
         "summarize",
     ]
     assert body["sources"]
     assert body["sources"][0]["filename"] == "rag.md"
     assert body["sources"][0]["index"] == 1
+    assert "[1] rag.md" in body["final_answer"]
 
 
 def test_create_task_rejects_empty_query() -> None:

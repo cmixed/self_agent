@@ -111,7 +111,8 @@ npm run build
 - [x] **Phase 2**：LangGraph 编排（Planner → Writer → Summarizer）+ SSE 进度流
 - [x] **Phase 3A**：RAG 索引 —— 文档上传 → 解析/切分 → 向量化入库 → 检索
 - [x] **Phase 3B**：RAG Tool + Researcher 接入 Graph，正文标注来源 [n] 并返回来源列表
-- [ ] Phase 4：完整 Agent（Validator + 有限重试 / Re-plan + Summarizer）
+- [x] **Phase 4A**：长文分章节生成 —— Outline 节点 + Writer 逐章循环 + Summarizer 汇总
+- [ ] Phase 4B：Validator + 有限重试 / Re-plan
 - [ ] Phase 5：Memory（Checkpoint + SQLite 长期记忆）
 - [ ] Phase 6：前端任务进度面板
 - [ ] Phase 7：评估（RAG / Agent / 长文本指标）
@@ -119,15 +120,19 @@ npm run build
 ## 当前 Agent 流程
 
 ```text
-START → Planner ──(计划需要检索)──→ Researcher(RAG Tool) ──→ Writer → Summarizer → END
-              │                                                    ↑
-              ├──(计划不需要检索)──────────────────────────────────┘
-              └──(未能生成计划)──→ END(status=failed)
+START → Planner ──(计划需要检索)──→ Researcher(RAG Tool) ──┐
+              │                                          ↓
+              ├──(计划不需要检索)────────────────────→ Outline → Writer ⇄ (逐章循环)
+              │                                                     │
+              └──(未能生成计划)──→ END(status=failed)               ↓
+                                              Summarizer → END
 ```
 
 - 节点只返回增量状态，由 LangGraph reducer 合并（`app/models/state.py`）
 - RAG 以 Tool 形式提供（`app/rag/tools.py`），Agent 不直接访问 ChromaDB
-- 检索结果保留来源元数据，正文用 `[n]` 标注，并在结果中返回 `sources` 列表
+- 检索结果保留来源元数据，正文用 `[n]` 标注，结果中返回 `sources` 列表
+- 长文先由 Outline 生成章节，再由 Writer **每次写一章**循环完成，最后 Summarizer 汇总
+  并统一追加「参考来源」（章节数上限 `MAX_SECTIONS`，杜绝无限循环）
 
 ## 接口
 

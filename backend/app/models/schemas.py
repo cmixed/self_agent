@@ -79,6 +79,7 @@ class TaskResponse(BaseModel):
     task_id: str
     status: str
     plan: PlanOut | None = None
+    outline: list[str] = Field(default_factory=list)
     step_results: list[StepResultOut] = Field(default_factory=list)
     sources: list[SourceOut] = Field(default_factory=list)
     final_answer: str = ""
