@@ -193,3 +193,115 @@ def test_analyze_document_without_metadata() -> None:
     assert metrics.structure_match == 0.0
     assert metrics.citations_used == 0
     assert metrics.citation_validity == 0.0
+
+
+# --- 对比实验（用假 LLM，离线确定性）---
+
+
+async def test_run_baseline_uses_retrieved_documents(tmp_path: Path) -> None:
+    from fakes import ScriptedProvider
+
+    from app.evaluation.baseline import run_baseline
+    from app.evaluation.runner import build_evaluation_kb
+
+    dataset = load_dataset()
+    kb = await build_evaluation_kb(
+        dataset, provider=FakeEmbeddingProvider(), top_k=3, workdir=tmp_path
+    )
+    provider = ScriptedProvider(["这是基线回答[1]"])
+
+    result = await run_baseline(
+        llm=provider, rag_tool=kb.tool, query="RAG 的基本流程是什么？", top_k=3
+    )
+
+    assert result.answer == "这是基线回答[1]"
+    assert result.documents
+    assert result.llm_calls == 1
+    assert result.duration_seconds >= 0
+    # 基线只调用一次 LLM，且 prompt 里包含检索到的资料
+    assert len(provider.calls) == 1
+    assert "资料" in provider.calls[0][1].content
+
+
+async def test_evaluate_comparison_offline(tmp_path: Path) -> None:
+    from fakes import OUTLINE_JSON, PLAN_JSON, ScriptedProvider
+
+    from app.evaluation.compare import evaluate_comparison
+    from app.evaluation.runner import build_evaluation_kb
+    from app.services.task_service import TaskService
+
+    dataset = load_dataset()
+    # 限制为 1 条任务，避免多次消耗假响应
+    dataset = type(dataset)(
+        documents_dir=dataset.documents_dir,
+        retrieval_cases=dataset.retrieval_cases,
+        task_cases=dataset.task_cases[:1],
+    )
+    kb = await build_evaluation_kb(
+        dataset, provider=FakeEmbeddingProvider(), top_k=3, workdir=tmp_path
+    )
+
+    def factory(llm, rag_tool_provider):
+        return TaskService(llm, rag_tool_provider=rag_tool_provider, max_retries=0)
+
+    class PerCallProvider:
+        """每次 chat 都返回合适的假响应（json 用 PLAN/OUTLINE，文本用正文）。"""
+
+    # 用 ScriptedProvider：planner/outline/validator 走 json，writer 走文本
+    from fakes import VALIDATION_PASS_JSON
+
+    provider = ScriptedProvider(
+        [PLAN_JSON, OUTLINE_JSON],
+        default_text="## 引言\n\nchunk 大小影响检索质量[1]。",
+        default_json=VALIDATION_PASS_JSON,
+    )
+
+    report = await evaluate_comparison(
+        dataset,
+        provider=provider,
+        rag_tool_provider=lambda: kb.tool,
+        task_service_factory=factory,
+        top_k=3,
+    )
+
+    assert len(report.agent_runs) == 1
+    assert len(report.baseline_runs) == 1
+
+    agent = report.agent_runs[0]
+    baseline = report.baseline_runs[0]
+    assert agent.system == "agent"
+    assert baseline.system == "baseline"
+    # Agent 走完整流程，调用次数必然多于单次回答的基线
+    assert agent.llm_calls > baseline.llm_calls
+    assert agent.metrics.chapters >= 1
+
+
+def test_comparison_report_renders_tables(tmp_path: Path) -> None:
+    from app.evaluation.compare import ComparisonReport, SystemRun
+    from app.evaluation.generation import analyze_document
+    from app.evaluation.report import format_comparison_report
+
+    metrics = analyze_document(
+        "## 章节\n\n正文内容足够长以便通过重复率过滤。",
+        outline=["章节"],
+        source_indices={1},
+        expected_points=["正文"],
+    )
+    run = SystemRun(
+        case_id="t1",
+        system="agent",
+        status="completed",
+        metrics=metrics,
+        llm_calls=7,
+        duration_seconds=12.5,
+        sources_count=2,
+        chapters_failed=0,
+    )
+    report = ComparisonReport(agent_runs=[run], baseline_runs=[run])
+
+    text = format_comparison_report(report, top_k=5)
+
+    assert "# Agent vs 基线 对比评估报告" in text
+    assert "汇总对比" in text
+    assert "LLM 调用次数" in text
+    assert "| t1 | agent | completed |" in text

@@ -17,6 +17,7 @@ from pathlib import Path
 
 from app.core.logging import configure_logging
 from app.embedding.factory import get_embedding_provider
+from app.evaluation.compare import ComparisonReport
 from app.evaluation.dataset import load_dataset
 from app.evaluation.retrieval import RetrievalSummary
 from app.evaluation.runner import evaluate_retrieval
@@ -82,6 +83,49 @@ async def _run_retrieval(top_k: int, output: Path | None) -> RetrievalSummary:
     return summary
 
 
+async def _run_compare(top_k: int, output: Path | None) -> ComparisonReport:
+    """真实 LLM 对比实验（Agent vs 基线 RAG QA）。"""
+    import tempfile
+
+    from app.core.config import get_settings
+    from app.evaluation.compare import evaluate_comparison
+    from app.evaluation.report import format_comparison_report
+    from app.evaluation.runner import build_evaluation_kb
+    from app.llm.factory import get_llm
+    from app.services.task_service import TaskService
+
+    dataset = load_dataset()
+    settings = get_settings()
+
+    workdir = Path(tempfile.mkdtemp(prefix="eval-compare-"))
+    kb = await build_evaluation_kb(
+        dataset, provider=get_embedding_provider(), top_k=top_k, workdir=workdir
+    )
+
+    def task_service_factory(llm, rag_tool_provider):  # noqa: ANN001, ANN202
+        return TaskService(
+            llm,
+            rag_tool_provider=rag_tool_provider,
+            max_retries=settings.max_retries,
+        )
+
+    report = await evaluate_comparison(
+        dataset,
+        provider=get_llm(),
+        rag_tool_provider=lambda: kb.tool,
+        task_service_factory=task_service_factory,
+        top_k=top_k,
+    )
+
+    text = format_comparison_report(report, top_k=top_k)
+    print(text)
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text, encoding="utf-8")
+        print(f"[已写入] {output}")
+    return report
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="RAG / Agent 评估")
     parser.add_argument(
@@ -97,6 +141,11 @@ def main() -> None:
         default=None,
         help="把 Markdown 报告写入指定路径（默认仅打印）",
     )
+    parser.add_argument(
+        "--real",
+        action="store_true",
+        help="确认使用真实 LLM 执行 compare 套件（会产生 API 调用与费用）",
+    )
     args = parser.parse_args()
 
     configure_logging()
@@ -105,7 +154,9 @@ def main() -> None:
         asyncio.run(_run_retrieval(args.top_k, args.output))
         return
 
-    parser.error("compare 套件需要真实 LLM，将在后续步骤提供")
+    if not args.real:
+        parser.error("compare 套件会调用真实大模型（约 20-40 次调用），需显式加上 --real 确认")
+    asyncio.run(_run_compare(args.top_k, args.output))
 
 
 if __name__ == "__main__":

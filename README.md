@@ -125,7 +125,7 @@ npm run build
 - [x] **Phase 5B**：长期记忆（偏好 / memories）+ 显式 API + LLM 自动提取
 - [x] **Phase 5C**：LangGraph Checkpoint（SQLite 短期记忆 + 状态查询）
 - [x] **Phase 6**：前端面板 —— 任务执行、知识库管理、任务历史、长期记忆（Markdown 渲染）
-- [ ] Phase 7：评估（RAG / Agent / 长文本指标）
+- [x] **Phase 7**：评估 —— 检索指标（离线可复现）+ Agent vs 基线对比实验
 
 ## 前端
 
@@ -185,6 +185,33 @@ START → Planner ──(计划需要检索)──→ Researcher(RAG Tool) ─�
 - 计划级问题走 `replan` 回到 Planner（用全局 `retry_count` 单独限次）；
 - 循环上限：章节数 `MAX_SECTIONS`、每章重试 `MAX_RETRIES`、replan 限次，
   并由 `recursion_limit` 兜底，任何路径都不会无限循环
+
+## 评估
+
+```bash
+cd backend
+
+# 1) 检索指标：离线可复现，只用本地 Embedding 与向量库，不调用大模型
+uv run python -m app.evaluation.run --suite retrieval --top-k 5 \
+    --output ../docs/evaluation-report.md
+
+# 2) 对比实验：Agent vs 基线 RAG QA（调用真实 LLM，约 20-40 次调用，需 --real 确认）
+uv run python -m app.evaluation.run --suite compare --real --top-k 5 \
+    --output ../docs/evaluation-comparison.md
+```
+
+| 套件 | 指标 | 成本 |
+| --- | --- | --- |
+| `retrieval` | Hit@k、关键词覆盖、来源精确率、MRR | 免费（本地 Embedding） |
+| `compare` | 要点覆盖、章节数、引用有效性、来源引用率、重复率、篇幅、LLM 调用次数、耗时 | 真实 LLM 调用 |
+
+数据集与报告：
+
+- 数据集：`backend/app/evaluation/dataset/`（内置 3 篇语料 + 7 条检索问答 + 2 条长文任务）
+- 检索评估报告：`docs/evaluation-report.md`
+- 对比实验报告：`docs/evaluation-comparison.md`（含**指标局限**说明，不夸大结论）
+
+> 评估在**临时向量库**中进行，不会污染个人知识库。
 
 ## 接口
 
