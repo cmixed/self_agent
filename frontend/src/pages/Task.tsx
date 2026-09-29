@@ -121,10 +121,15 @@ export default function TaskPage() {
   const [elapsed, setElapsed] = useState(0)
   const [duration, setDuration] = useState<number | null>(null)
   const [activeTab, setActiveTab] = useState('content')
+  const [aborted, setAborted] = useState(false)
 
   const startedAtRef = useRef<number | null>(null)
   const logIdRef = useRef(0)
   const resultRef = useRef<HTMLDivElement | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+
+  // 卸载（切换页面）时中止流，避免 Agent 在后台继续跑
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   useEffect(() => {
     if (!running) return
@@ -332,6 +337,7 @@ export default function TaskPage() {
     setElapsed(0)
     setDuration(null)
     setActiveTab('content')
+    setAborted(false)
   }
 
   const handleRun = async () => {
@@ -342,16 +348,38 @@ export default function TaskPage() {
     reset()
     setHasStarted(true)
     startedAtRef.current = Date.now()
+    const controller = new AbortController()
+    abortRef.current = controller
 
     try {
-      await streamTask(trimmed, handleEvent)
+      await streamTask(trimmed, handleEvent, controller.signal)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : '任务执行失败，请稍后重试')
-      setNodes((prev) => markRunningAsError(prev))
+      if ((err as { name?: string } | null)?.name === 'AbortError') {
+        // 用户主动终止：不是错误，保留已完成的进度
+        setAborted(true)
+        setNodes(
+          (prev) =>
+            Object.fromEntries(
+              Object.entries(prev).map(([key, value]) => [
+                key,
+                value === 'process' ? 'wait' : value,
+              ]),
+            ) as Record<NodeKey, StageStatus>,
+        )
+        pushLog('终止', '用户手动终止任务，连接已关闭（后端 Agent 同步取消）', 'warn')
+      } else {
+        setError(err instanceof ApiError ? err.message : '任务执行失败，请稍后重试')
+        setNodes((prev) => markRunningAsError(prev))
+      }
       setDuration(Math.floor((Date.now() - (startedAtRef.current ?? Date.now())) / 1000))
     } finally {
+      abortRef.current = null
       setRunning(false)
     }
+  }
+
+  const handleAbort = () => {
+    abortRef.current?.abort()
   }
 
   // --- 进度视图：宏观 5 阶段，其中「逐章撰写与校验」按章节展开 -----------------
@@ -632,9 +660,15 @@ export default function TaskPage() {
               ))}
             </Space>
             <Space>
-              <Button type="primary" loading={running} onClick={() => void handleRun()}>
-                运行任务
-              </Button>
+              {running ? (
+                <Button danger onClick={handleAbort}>
+                  终止任务
+                </Button>
+              ) : (
+                <Button type="primary" onClick={() => void handleRun()}>
+                  运行任务
+                </Button>
+              )}
               <Button
                 disabled={running}
                 onClick={() => {
@@ -659,6 +693,15 @@ export default function TaskPage() {
           log={log}
         />
       </Card>
+
+      {aborted && (
+        <Alert
+          type="warning"
+          showIcon
+          title="任务已终止"
+          description="已关闭与后端的连接，Agent 会同步取消，不会继续消耗模型调用。已生成的计划 / 大纲 / 章节进度保留在上方。注意：正文只在任务正常完成时返回，因此终止后无法查看已写章节的正文；任务历史中该记录会停留在「运行中」状态。"
+        />
+      )}
 
       {error && (
         <Result
