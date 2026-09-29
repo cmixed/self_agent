@@ -509,6 +509,81 @@ html[data-theme='dark'] .app-backdrop::after {
   margin-bottom: 6px;
 }
 
+/* --- 章节级迭代（撰写 ⇄ 校验） -------------------------------------------- */
+.chapter-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding-left: 6px;
+  border-left: 2px solid var(--ant-color-border-secondary);
+}
+
+.chapter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.chapter-row.is-active {
+  background: var(--ant-color-primary-bg);
+}
+
+.chapter-index {
+  flex: 0 0 auto;
+  color: var(--ant-color-text-tertiary);
+}
+
+.chapter-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--ant-color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chapter-tags {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.chapter-tags .ant-tag {
+  margin-inline-end: 0;
+}
+
+/* --- 结构化执行日志 -------------------------------------------------------- */
+.event-log {
+  margin-top: 8px;
+}
+
+.event-log .ant-collapse-header {
+  padding: 4px 0 !important;
+}
+
+.event-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.event-log-list li {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.event-log-tag {
+  flex: 0 0 auto;
+  margin-inline-end: 0;
+}
+
 /* --- 响应式 --------------------------------------------------------------- */
 @media (max-width: 768px) {
   .app-content {
@@ -522,6 +597,14 @@ html[data-theme='dark'] .app-backdrop::after {
 
   .stage-badge {
     margin-left: 0;
+  }
+
+  .chapter-row {
+    flex-wrap: wrap;
+  }
+
+  .chapter-title {
+    flex: 1 1 100%;
   }
 
   .page-header {

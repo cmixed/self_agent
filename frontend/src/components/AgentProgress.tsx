@@ -4,28 +4,49 @@ import {
   CloseCircleFilled,
   LoadingOutlined,
   MinusCircleOutlined,
+  RedoOutlined,
 } from '@ant-design/icons'
-import { Progress, Tooltip, Typography } from 'antd'
+import { Collapse, Progress, Tag, Tooltip, Typography } from 'antd'
 import type { ReactNode } from 'react'
 
 const { Text } = Typography
 
 export type StageStatus = 'wait' | 'process' | 'finish' | 'error'
+export type ChapterValidation = 'pending' | 'passed' | 'failed'
 
-export interface StageView {
+/** 章节级进度：撰写与校验是一对循环，因此挂在同一个宏观阶段下 */
+export interface ChapterView {
+  index: number
+  title: string
+  /** 撰写次数（>1 表示被重写） */
+  written: number
+  writing: boolean
+  validation: ChapterValidation
+}
+
+export interface MacroStage {
   key: string
   title: string
   status: StageStatus
-  /** 阶段内的补充说明，如「已写 2/5 章」 */
+  /** 阶段补充说明 */
   note?: string
   /** 右侧徽标 */
   badge?: ReactNode
-  /** 该阶段下的结构化小注（如重试说明） */
+  /** 阶段下的结构化小注（如重试/重新规划说明） */
   notes?: string[]
-  /** 章节进度条（仅撰写阶段用） */
-  progress?: { done: number; total: number }
   /** 计划不需要检索时置灰跳过 */
   skipped?: boolean
+  /** 进度条（大纲/章节阶段用） */
+  progress?: { done: number; total: number }
+  /** 仅「逐章撰写与校验」阶段使用 */
+  chapters?: ChapterView[]
+}
+
+export interface LogEntry {
+  id: number
+  label: string
+  message: string
+  tone: 'info' | 'warn' | 'error'
 }
 
 function StatusIcon({ status }: { status: StageStatus }) {
@@ -41,25 +62,62 @@ function StatusIcon({ status }: { status: StageStatus }) {
   }
 }
 
+function ChapterRow({ chapter }: { chapter: ChapterView }) {
+  const writeTag = chapter.writing ? (
+    <Tag color="processing">撰写中</Tag>
+  ) : chapter.written > 0 ? (
+    <Tag color="blue">已写{chapter.written > 1 ? ` ×${chapter.written}` : ''}</Tag>
+  ) : (
+    <Tag>待写</Tag>
+  )
+
+  const validateTag =
+    chapter.validation === 'passed' ? (
+      <Tag color="green">校验通过</Tag>
+    ) : chapter.validation === 'failed' ? (
+      <Tag color="red">校验未通过</Tag>
+    ) : chapter.written > 0 ? (
+      <Tag color="warning">待校验</Tag>
+    ) : null
+
+  return (
+    <li className={`chapter-row${chapter.writing ? ' is-active' : ''}`}>
+      <span className="chapter-index">第 {chapter.index} 章</span>
+      <span className="chapter-title">{chapter.title || '（未命名）'}</span>
+      <span className="chapter-tags">
+        {writeTag}
+        {validateTag}
+      </span>
+    </li>
+  )
+}
+
 /**
- * Agent 执行进度列表。
+ * Agent 执行进度。
  *
- * 只展示结构化阶段与事件消息，不展示模型推理过程。
- * 不用 antd Steps：其 current 与 items[].status 的优先级不可靠，
- * 会把未开始的首项渲染成「进行中」。
+ * 按真实拓扑组织，而不是线性阶段列表：
+ *   规划 → 检索 → 大纲 →「逐章撰写 ⇄ 校验」(章节级展开) → 整合
+ * 校验失败会重写同一章、replan 会整轮回到规划，因此额外提供「轮次」与结构化执行日志。
+ * 只展示结构化事件，不展示模型推理过程。
  */
 export default function AgentProgress({
   stages,
   elapsedSeconds,
   running,
   hasStarted,
+  round,
+  log,
 }: {
-  stages: StageView[]
+  stages: MacroStage[]
   elapsedSeconds: number
   running: boolean
   hasStarted: boolean
+  round: number
+  log: LogEntry[]
 }) {
-  const doneCount = stages.filter((item) => item.status === 'finish' || item.skipped).length
+  const doneCount = stages.filter(
+    (item) => item.status === 'finish' || item.skipped,
+  ).length
 
   return (
     <div className="stage-list">
@@ -67,14 +125,16 @@ export default function AgentProgress({
         <Text type="secondary">
           {hasStarted ? `已完成 ${doneCount}/${stages.length} 个阶段` : '尚未运行'}
         </Text>
-        {running && elapsedSeconds > 0 ? (
-          <Text type="secondary">已用时 {elapsedSeconds}s</Text>
-        ) : null}
+        <span>
+          {round > 1 ? <Tag color="volcano">第 {round} 轮（重新规划后）</Tag> : null}
+          {running && elapsedSeconds > 0 ? (
+            <Text type="secondary">已用时 {elapsedSeconds}s</Text>
+          ) : null}
+        </span>
       </div>
 
       <ol className="stage-items">
         {stages.map((stage) => {
-          const status: StageStatus = stage.skipped ? 'wait' : stage.status
           const isCurrent = !stage.skipped && stage.status === 'process'
           return (
             <li
@@ -89,7 +149,7 @@ export default function AgentProgress({
                     <MinusCircleOutlined className="stage-icon stage-icon--skip" />
                   </Tooltip>
                 ) : (
-                  <StatusIcon status={status} />
+                  <StatusIcon status={stage.status} />
                 )}
               </span>
 
@@ -112,6 +172,14 @@ export default function AgentProgress({
                   />
                 ) : null}
 
+                {stage.chapters?.length ? (
+                  <ul className="chapter-list">
+                    {stage.chapters.map((chapter) => (
+                      <ChapterRow key={chapter.index} chapter={chapter} />
+                    ))}
+                  </ul>
+                ) : null}
+
                 {stage.notes?.length ? (
                   <ul className="stage-notes">
                     {stage.notes.map((note, index) => (
@@ -126,6 +194,44 @@ export default function AgentProgress({
           )
         })}
       </ol>
+
+      {log.length > 0 ? (
+        <Collapse
+          className="event-log"
+          ghost
+          size="small"
+          items={[
+            {
+              key: 'log',
+              label: (
+                <Text type="secondary">
+                  <RedoOutlined /> 执行日志（结构化事件 {log.length} 条，不含推理过程）
+                </Text>
+              ),
+              children: (
+                <ul className="event-log-list">
+                  {log.map((entry) => (
+                    <li key={entry.id}>
+                      <Tag className="event-log-tag">{entry.label}</Tag>
+                      <Text
+                        type={
+                          entry.tone === 'error'
+                            ? 'danger'
+                            : entry.tone === 'warn'
+                              ? 'warning'
+                              : 'secondary'
+                        }
+                      >
+                        {entry.message}
+                      </Text>
+                    </li>
+                  ))}
+                </ul>
+              ),
+            },
+          ]}
+        />
+      ) : null}
     </div>
   )
 }

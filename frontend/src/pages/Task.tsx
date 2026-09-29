@@ -18,7 +18,13 @@ import {
 import { useEffect, useRef, useState } from 'react'
 
 import AgentProgress from '../components/AgentProgress'
-import type { StageStatus, StageView } from '../components/AgentProgress'
+import type {
+  ChapterValidation,
+  ChapterView,
+  LogEntry,
+  MacroStage,
+  StageStatus,
+} from '../components/AgentProgress'
 import PageContainer from '../components/PageContainer'
 import MarkdownView from '../components/MarkdownView'
 import { ApiError, streamTask } from '../services/api'
@@ -31,25 +37,30 @@ const PAGE_TITLE = '任务'
 const PAGE_DESCRIPTION = '提交一个复杂任务：Agent 会先规划、再检索你的资料、分章节撰写并自我校验。'
 const PAGE_MAX_WIDTH = 1080
 
-const STAGE_ORDER = ['planner', 'researcher', 'outline', 'writer', 'validator', 'summarizer'] as const
-type StageKey = (typeof STAGE_ORDER)[number]
+/** 图中真实存在的 6 个节点（用于状态跟踪） */
+const NODE_KEYS = ['planner', 'researcher', 'outline', 'writer', 'validator', 'summarizer'] as const
+type NodeKey = (typeof NODE_KEYS)[number]
 
-const STAGE_TITLES: Record<StageKey, string> = {
-  planner: '分析任务并生成计划',
-  researcher: '检索个人知识库',
-  outline: '生成文章大纲',
-  writer: '逐章撰写内容',
-  validator: '校验内容质量',
-  summarizer: '整合最终结果',
-}
-
-const INITIAL_STAGES: Record<StageKey, StageStatus> = {
+const INITIAL_NODES: Record<NodeKey, StageStatus> = {
   planner: 'wait',
   researcher: 'wait',
   outline: 'wait',
   writer: 'wait',
   validator: 'wait',
   summarizer: 'wait',
+}
+
+const NODE_LABELS: Record<string, string> = {
+  planner: '规划',
+  researcher: '检索',
+  outline: '大纲',
+  writer: '撰写',
+  validator: '校验',
+  summarizer: '整合',
+  retrying: '重试',
+  task_started: '开始',
+  task_completed: '完成',
+  task_failed: '失败',
 }
 
 const SAMPLE_TASKS = [
@@ -61,17 +72,30 @@ const SAMPLE_TASKS = [
 const TARGET_LABEL = (target: string) =>
   target === 'document' ? '整篇文档' : `章节 ${target.replace('chapter_', '')}`
 
-const chapterNumber = (target: string): number | null => {
-  const match = /^chapter_(\d+)$/.exec(target)
+const chapterNumber = (value: string | null | undefined): number | null => {
+  const match = /^chapter_(\d+)$/.exec(value ?? '')
   return match ? Number(match[1]) : null
 }
 
-function markRunningAsError(stages: Record<StageKey, StageStatus>): Record<StageKey, StageStatus> {
-  const next = { ...stages }
-  for (const key of STAGE_ORDER) {
+const MAX_LOG_ENTRIES = 60
+
+function markRunningAsError(nodes: Record<NodeKey, StageStatus>): Record<NodeKey, StageStatus> {
+  const next = { ...nodes }
+  for (const key of NODE_KEYS) {
     if (next[key] === 'process') next[key] = 'error'
   }
   return next
+}
+
+interface ChapterState {
+  written: number
+  writing: boolean
+  validation: ChapterValidation
+}
+
+function eventLabel(eventName: string): string {
+  const prefix = eventName.replace(/_(started|completed)$/, '')
+  return NODE_LABELS[prefix] ?? prefix
 }
 
 export default function TaskPage() {
@@ -79,13 +103,15 @@ export default function TaskPage() {
   const [running, setRunning] = useState(false)
   const [hasStarted, setHasStarted] = useState(false)
   const [taskId, setTaskId] = useState<string | null>(null)
-  const [stages, setStages] = useState<Record<StageKey, StageStatus>>(INITIAL_STAGES)
+  const [nodes, setNodes] = useState<Record<NodeKey, StageStatus>>(INITIAL_NODES)
   const [stageNotes, setStageNotes] = useState<Record<string, string[]>>({})
+  const [round, setRound] = useState(1)
+  const [log, setLog] = useState<LogEntry[]>([])
   const [retrievalSkipped, setRetrievalSkipped] = useState(false)
   const [retrievedCount, setRetrievedCount] = useState<number | null>(null)
   const [plan, setPlan] = useState<Plan | null>(null)
   const [outline, setOutline] = useState<string[]>([])
-  const [chapterStatus, setChapterStatus] = useState<Record<number, 'written' | 'passed' | 'failed'>>({})
+  const [chapters, setChapters] = useState<Record<number, ChapterState>>({})
   const [validation, setValidation] = useState<Validation | null>(null)
   const [replans, setReplans] = useState(0)
   const [sources, setSources] = useState<Source[]>([])
@@ -97,9 +123,9 @@ export default function TaskPage() {
   const [activeTab, setActiveTab] = useState('content')
 
   const startedAtRef = useRef<number | null>(null)
+  const logIdRef = useRef(0)
   const resultRef = useRef<HTMLDivElement | null>(null)
 
-  // 运行中的本地计时（SSE 协议不含耗时字段，计时在前端完成）
   useEffect(() => {
     if (!running) return
     const timer = window.setInterval(() => {
@@ -110,29 +136,48 @@ export default function TaskPage() {
     return () => window.clearInterval(timer)
   }, [running])
 
-  // 完成/失败后自动定位到结果（唯一动效）
   useEffect(() => {
     if (finalAnswer !== null) {
       resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
   }, [finalAnswer])
 
+  const pushLog = (label: string, message: string, tone: LogEntry['tone'] = 'info') => {
+    logIdRef.current += 1
+    const entry: LogEntry = { id: logIdRef.current, label, message, tone }
+    setLog((prev) => [...prev, entry].slice(-MAX_LOG_ENTRIES))
+  }
+
   const addNote = (stage: string, note: string) => {
     setStageNotes((prev) => ({ ...prev, [stage]: [...(prev[stage] ?? []), note] }))
+  }
+
+  const updateChapter = (index: number, patch: Partial<ChapterState>) => {
+    setChapters((prev) => ({
+      ...prev,
+      [index]: {
+        written: prev[index]?.written ?? 0,
+        writing: prev[index]?.writing ?? false,
+        validation: prev[index]?.validation ?? 'pending',
+        ...patch,
+      },
+    }))
   }
 
   const handleEvent = (event: TaskEvent) => {
     if (event.task_id) setTaskId(event.task_id)
 
     if (event.event === 'task_failed') {
-      setStages((prev) => markRunningAsError(prev))
+      pushLog('失败', event.message, 'error')
+      setNodes((prev) => markRunningAsError(prev))
       setError(event.message)
       setDuration(Math.floor((Date.now() - (startedAtRef.current ?? Date.now())) / 1000))
       return
     }
 
     if (event.event === 'task_completed') {
-      setStages({
+      pushLog('完成', '任务完成')
+      setNodes({
         planner: 'finish',
         researcher: 'finish',
         outline: 'finish',
@@ -147,7 +192,7 @@ export default function TaskPage() {
       setReplans(event.result?.retry_count ?? 0)
       for (const target of event.result?.failed_chapters ?? []) {
         const n = chapterNumber(target)
-        if (n !== null) setChapterStatus((prev) => ({ ...prev, [n]: 'failed' }))
+        if (n !== null) updateChapter(n, { validation: 'failed' })
       }
       setDuration(Math.floor((Date.now() - (startedAtRef.current ?? Date.now())) / 1000))
       setActiveTab('content')
@@ -155,51 +200,84 @@ export default function TaskPage() {
     }
 
     if (event.event === 'retrying') {
-      // 校验未通过：稍后会重写章节或重新规划
-      setStages((prev) => ({ ...prev, validator: 'wait' }))
-      const target = event.target ?? ''
-      const action = event.suggested_action
-      const noteTarget: StageKey = action === 'replan' ? 'planner' : 'writer'
-      addNote(noteTarget, event.message)
+      const isReplan = event.suggested_action === 'replan'
+      pushLog('重试', event.message, 'warn')
+      setNodes((prev) => ({ ...prev, validator: 'wait' }))
+
+      if (isReplan) {
+        // replan 是整轮回退：清空章节进度并进入下一轮，避免"莫名跳回去"
+        setRound((prev) => prev + 1)
+        setChapters({})
+        addNote('planner', `第 ${round} 轮：${event.message}`)
+      } else {
+        addNote('chapters', event.message)
+      }
+
       if (event.exhausted) {
-        const n = chapterNumber(target)
-        if (n !== null) setChapterStatus((prev) => ({ ...prev, [n]: 'failed' }))
+        const n = chapterNumber(event.target)
+        if (n !== null) updateChapter(n, { validation: 'failed' })
       }
       return
     }
 
+    // 其余节点事件
     const match = /^(planner|researcher|outline|writer|validator|summarizer)_(started|completed)$/.exec(
       event.event,
     )
-    if (!match) return
-    const stage = match[1] as StageKey
-    const phase = match[2]
+    if (match) {
+      const node = match[1] as NodeKey
+      const phase = match[2]
+      setNodes((prev) => ({ ...prev, [node]: phase === 'started' ? 'process' : 'finish' }))
 
-    setStages((prev) => ({ ...prev, [stage]: phase === 'started' ? 'process' : 'finish' }))
+      const chapterLabel = chapterNumber(event.step)
+      const chapterSuffix = chapterLabel !== null ? `第 ${chapterLabel} 章 · ` : ''
+      if (phase === 'completed' || node === 'researcher') {
+        pushLog(
+          eventLabel(event.event),
+          `${chapterSuffix}${event.message}`,
+          node === 'validator' && event.passed === false ? 'warn' : 'info',
+        )
+      }
+    }
 
     if (event.event === 'planner_completed') {
       setPlan(event.plan ?? null)
       if (event.plan && !event.plan.needs_retrieval) {
         setRetrievalSkipped(true)
-        setStages((prev) => ({ ...prev, researcher: 'finish' }))
+        setNodes((prev) => ({ ...prev, researcher: 'finish' }))
       }
     }
     if (event.event === 'researcher_completed') {
       setRetrievedCount(event.retrieved_count ?? 0)
     }
     if (event.event === 'outline_completed') {
-      setOutline(event.outline ?? [])
-      setChapterStatus({})
+      const titles = event.outline ?? []
+      setOutline(titles)
+      setChapters(
+        Object.fromEntries(
+          titles.map((_, index) => [
+            index + 1,
+            { written: 0, writing: false, validation: 'pending' as ChapterValidation },
+          ]),
+        ),
+      )
+    }
+    if (event.event === 'writer_started') {
+      const n = chapterNumber(event.step)
+      if (n !== null) updateChapter(n, { writing: true })
     }
     if (event.event === 'writer_completed') {
-      const n = chapterNumber(event.step ?? '')
-      if (n !== null) setChapterStatus((prev) => ({ ...prev, [n]: 'written' }))
+      const n = chapterNumber(event.step)
+      if (n !== null) {
+        setChapters((prev) => {
+          const current = prev[n] ?? { written: 0, writing: false, validation: 'pending' as const }
+          return { ...prev, [n]: { ...current, written: current.written + 1, writing: false } }
+        })
+      }
     }
     if (event.event === 'validator_completed' && event.target?.startsWith('chapter_')) {
       const n = chapterNumber(event.target)
-      if (n !== null) {
-        setChapterStatus((prev) => ({ ...prev, [n]: event.passed ? 'passed' : 'written' }))
-      }
+      if (n !== null) updateChapter(n, { validation: event.passed ? 'passed' : 'failed' })
     }
     if (event.event === 'validator_completed') {
       setValidation({
@@ -235,13 +313,16 @@ export default function TaskPage() {
   const reset = () => {
     setHasStarted(false)
     setTaskId(null)
-    setStages(INITIAL_STAGES)
+    setNodes(INITIAL_NODES)
     setStageNotes({})
+    setRound(1)
+    setLog([])
+    logIdRef.current = 0
     setRetrievalSkipped(false)
     setRetrievedCount(null)
     setPlan(null)
     setOutline([])
-    setChapterStatus({})
+    setChapters({})
     setValidation(null)
     setReplans(0)
     setSources([])
@@ -266,45 +347,76 @@ export default function TaskPage() {
       await streamTask(trimmed, handleEvent)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '任务执行失败，请稍后重试')
-      setStages((prev) => markRunningAsError(prev))
+      setNodes((prev) => markRunningAsError(prev))
       setDuration(Math.floor((Date.now() - (startedAtRef.current ?? Date.now())) / 1000))
     } finally {
       setRunning(false)
     }
   }
 
-  const writtenCount = Object.values(chapterStatus).filter((s) => s !== 'failed').length
-  const failedCount = Object.values(chapterStatus).filter((s) => s === 'failed').length
-
-  const stageViews: StageView[] = STAGE_ORDER.map((key) => {
-    const view: StageView = {
-      key,
-      title: STAGE_TITLES[key],
-      status: stages[key],
-      notes: stageNotes[key],
+  // --- 进度视图：宏观 5 阶段，其中「逐章撰写与校验」按章节展开 -----------------
+  const chapterList: ChapterView[] = outline.map((title, index) => {
+    const state = chapters[index + 1]
+    return {
+      index: index + 1,
+      title,
+      written: state?.written ?? 0,
+      writing: state?.writing ?? false,
+      validation: state?.validation ?? 'pending',
     }
-    if (key === 'researcher') {
-      view.skipped = retrievalSkipped
-      if (!retrievalSkipped && retrievedCount !== null) {
-        view.badge = <Tag color={retrievedCount > 0 ? 'blue' : 'orange'}>{retrievedCount} 条片段</Tag>
-      }
-    }
-    if (key === 'writer' && outline.length > 0) {
-      view.note = `已写 ${writtenCount}/${outline.length} 章`
-      view.progress = { done: writtenCount, total: outline.length }
-    }
-    if (key === 'validator' && validation) {
-      view.badge = (
-        <Tag color={validation.passed ? 'green' : 'red'}>
-          {validation.passed ? '通过' : '未通过'}
-        </Tag>
-      )
-    }
-    if (key === 'planner' && replans > 0) {
-      view.badge = <Tag color="volcano">重新规划 {replans} 次</Tag>
-    }
-    return view
   })
+
+  const writtenChapters = chapterList.filter((chapter) => chapter.written > 0).length
+  const failedCount = chapterList.filter((chapter) => chapter.validation === 'failed').length
+  const passedCount = chapterList.filter((chapter) => chapter.validation === 'passed').length
+
+  const chapterStageStatus = (): StageStatus => {
+    if (nodes.writer === 'error' || nodes.validator === 'error') return 'error'
+    if (nodes.writer === 'process' || nodes.validator === 'process') return 'process'
+    if (nodes.writer === 'finish' && nodes.validator === 'finish') return 'finish'
+    return 'wait'
+  }
+
+  const macroStages: MacroStage[] = [
+    {
+      key: 'planner',
+      title: '分析任务并生成计划',
+      status: nodes.planner,
+      badge: replans > 0 ? <Tag color="volcano">重新规划 {replans} 次</Tag> : undefined,
+      notes: stageNotes.planner,
+    },
+    {
+      key: 'researcher',
+      title: '检索个人知识库',
+      status: nodes.researcher,
+      skipped: retrievalSkipped,
+      badge:
+        !retrievalSkipped && retrievedCount !== null ? (
+          <Tag color={retrievedCount > 0 ? 'blue' : 'orange'}>{retrievedCount} 条片段</Tag>
+        ) : undefined,
+    },
+    {
+      key: 'outline',
+      title: '生成文章大纲',
+      status: nodes.outline,
+      badge: outline.length > 0 ? <Tag>{outline.length} 章</Tag> : undefined,
+    },
+    {
+      key: 'chapters',
+      title: '逐章撰写与校验',
+      status: chapterStageStatus(),
+      note: outline.length > 0 ? `已写 ${writtenChapters}/${outline.length} 章` : undefined,
+      progress: outline.length > 0 ? { done: writtenChapters, total: outline.length } : undefined,
+      chapters: chapterList,
+      notes: stageNotes.chapters,
+    },
+    {
+      key: 'summarizer',
+      title: '整合最终结果',
+      status: nodes.summarizer,
+      badge: finalAnswer !== null ? <Tag color="green">已整合</Tag> : undefined,
+    },
+  ]
 
   const tabItems = [
     {
@@ -346,9 +458,9 @@ export default function TaskPage() {
                   {validation.passed ? '通过' : '未通过'}
                 </Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="大纲完成情况">
-                共 {outline.length} 章
-                {failedCount > 0 ? `，其中 ${failedCount} 章未通过` : '，全部通过校验'}
+              <Descriptions.Item label="章节情况">
+                共 {outline.length} 章：通过 {passedCount} 章
+                {failedCount > 0 ? `，未通过 ${failedCount} 章` : ''}
               </Descriptions.Item>
               {taskId && (
                 <Descriptions.Item label="任务 ID">
@@ -370,6 +482,41 @@ export default function TaskPage() {
       ) : (
         <Text type="secondary">尚未生成正文</Text>
       ),
+    },
+    {
+      key: 'chapters',
+      label: '章节',
+      children:
+        chapterList.length > 0 ? (
+          <ol className="plain-list">
+            {chapterList.map((chapter) => (
+              <li key={chapter.index}>
+                <Tag
+                  color={
+                    chapter.validation === 'passed'
+                      ? 'green'
+                      : chapter.validation === 'failed'
+                        ? 'red'
+                        : chapter.written > 0
+                          ? 'blue'
+                          : 'default'
+                  }
+                >
+                  {chapter.validation === 'passed'
+                    ? '通过'
+                    : chapter.validation === 'failed'
+                      ? '未通过'
+                      : chapter.written > 0
+                        ? `已写 ×${chapter.written}`
+                        : '待写'}
+                </Tag>
+                {chapter.title}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <Empty description="尚未生成大纲" />
+        ),
     },
     {
       key: 'plan',
@@ -398,32 +545,6 @@ export default function TaskPage() {
       ) : (
         <Empty description="尚未生成计划" />
       ),
-    },
-    {
-      key: 'outline',
-      label: '大纲',
-      children:
-        outline.length > 0 ? (
-          <ol className="plain-list">
-            {outline.map((title, index) => {
-              const status = chapterStatus[index + 1]
-              return (
-                <li key={`${index}-${title}`}>
-                  <Tag
-                    color={
-                      status === 'passed' ? 'green' : status === 'failed' ? 'red' : 'default'
-                    }
-                  >
-                    {status === 'passed' ? '通过' : status === 'failed' ? '未通过' : status === 'written' ? '已写' : '待写'}
-                  </Tag>
-                  {title}
-                </li>
-              )
-            })}
-          </ol>
-        ) : (
-          <Empty description="尚未生成大纲" />
-        ),
     },
     {
       key: 'validation',
@@ -530,10 +651,12 @@ export default function TaskPage() {
 
       <Card title="执行进度">
         <AgentProgress
-          stages={stageViews}
+          stages={macroStages}
           elapsedSeconds={elapsed}
           running={running}
           hasStarted={hasStarted}
+          round={round}
+          log={log}
         />
       </Card>
 
