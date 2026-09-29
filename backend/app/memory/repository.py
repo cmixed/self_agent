@@ -60,6 +60,10 @@ class TaskRepository:
     async def fail_run(self, *, task_id: str, error_type: str) -> None:
         await asyncio.to_thread(self._fail_run, task_id, error_type)
 
+    async def cancel_run(self, *, task_id: str) -> None:
+        """标记任务为已取消（幂等：只影响仍在运行的记录）。"""
+        await asyncio.to_thread(self._cancel_run, task_id)
+
     async def get_task(self, task_id: str) -> TaskRecord | None:
         return await asyncio.to_thread(self._get_task, task_id)
 
@@ -126,6 +130,24 @@ class TaskRepository:
                  WHERE run_id = ?
                 """,
                 (error_type, now, task_id),
+            )
+            connection.commit()
+
+    def _cancel_run(self, task_id: str) -> None:
+        """把仍在运行的记录标记为已取消（幂等，不会覆盖已完成的结果）。"""
+        now = utc_now()
+        with self._database.connect() as connection:
+            connection.execute(
+                "UPDATE tasks SET status = 'cancelled' WHERE task_id = ? AND status = 'running'",
+                (task_id,),
+            )
+            connection.execute(
+                """
+                UPDATE task_runs
+                   SET status = 'cancelled', error_type = 'task_cancelled', finished_at = ?
+                 WHERE run_id = ? AND finished_at IS NULL
+                """,
+                (now, task_id),
             )
             connection.commit()
 

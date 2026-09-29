@@ -117,6 +117,13 @@ class TaskSummaryOut(BaseModel):
     failed_chapters: list[str] = Field(default_factory=list)
 
 
+class CancelTaskResponse(BaseModel):
+    """取消正在运行的任务。"""
+
+    task_id: str
+    status: str
+
+
 class TaskListResponse(BaseModel):
     tasks: list[TaskSummaryOut] = Field(default_factory=list)
 

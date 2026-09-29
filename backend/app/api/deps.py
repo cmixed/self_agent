@@ -12,8 +12,10 @@ from __future__ import annotations
 from fastapi import Depends, Header
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
+from app.core import task_registry as core_task_registry
 from app.core.checkpoint import CheckpointStore
 from app.core.config import get_settings
+from app.core.task_registry import TaskRegistry
 from app.embedding.factory import get_embedding_provider
 from app.llm.base import LLMProvider
 from app.llm.factory import get_llm
@@ -153,6 +155,11 @@ def get_task_service(provider: LLMProvider = Depends(get_llm_provider)) -> TaskS
 
 def get_task_repository() -> TaskRepository:
     return build_task_repository()
+
+
+def get_task_registry() -> TaskRegistry:
+    """FastAPI 依赖：进程内运行任务注册表（测试可用 dependency_overrides 替换）。"""
+    return core_task_registry.get_task_registry()
 
 
 def get_memory_repository() -> MemoryRepository:

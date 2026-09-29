@@ -18,14 +18,17 @@ from fastapi.responses import StreamingResponse
 from app.api.deps import (
     get_checkpoint_store,
     get_memory_service,
+    get_task_registry,
     get_task_repository,
     get_task_service,
     get_user_id,
 )
 from app.core.checkpoint import CheckpointStore
 from app.core.logging import get_logger
+from app.core.task_registry import TaskRegistry
 from app.memory.repository import TaskRepository
 from app.models.schemas import (
+    CancelTaskResponse,
     TaskDetailResponse,
     TaskListResponse,
     TaskRequest,
@@ -153,6 +156,29 @@ async def get_task_state(
         chapters_written=len([s for s in values.get("sections") or [] if s.get("content")]),
         sources_count=len(values.get("retrieved_documents") or []),
     )
+
+
+@router.post("/tasks/{task_id}/cancel", response_model=CancelTaskResponse)
+async def cancel_task(
+    task_id: str,
+    registry: TaskRegistry = Depends(get_task_registry),
+) -> CancelTaskResponse:
+    """取消正在运行的任务（会同时中断进行中的模型调用）。
+
+    说明：运行状态保存在进程内存中，因此仅对**本进程**正在执行的任务有效；
+    已完成 / 已取消 / 不存在的任务返回 404。
+    """
+    if not registry.cancel(task_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="任务不在运行中（可能已完成、已取消或不存在）",
+        )
+
+    logger.info(
+        "收到取消请求",
+        extra={"task_id": task_id, "event": "task_cancel_requested", "status": "ok"},
+    )
+    return CancelTaskResponse(task_id=task_id, status="cancelling")
 
 
 @router.post("/tasks/stream")

@@ -75,6 +75,13 @@ export function getTaskState(taskId: string): Promise<TaskState> {
   return request<TaskState>(`/tasks/${taskId}/state`)
 }
 
+/** 取消正在运行的任务（后端会中断进行中的模型调用并把运行标记为 cancelled）。 */
+export function cancelTask(taskId: string): Promise<{ task_id: string; status: string }> {
+  return request<{ task_id: string; status: string }>(`/tasks/${taskId}/cancel`, {
+    method: 'POST',
+  })
+}
+
 /**
  * 提交任务并消费 SSE 进度流。
  *

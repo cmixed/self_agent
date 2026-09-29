@@ -27,7 +27,7 @@ import type {
 } from '../components/AgentProgress'
 import PageContainer from '../components/PageContainer'
 import MarkdownView from '../components/MarkdownView'
-import { ApiError, streamTask } from '../services/api'
+import { ApiError, cancelTask, streamTask } from '../services/api'
 import type { Plan, Source, TaskEvent, Validation } from '../types/api'
 
 const { Text, Paragraph } = Typography
@@ -379,6 +379,12 @@ export default function TaskPage() {
   }
 
   const handleAbort = () => {
+    // 先请求后端取消（把该运行标记为 cancelled 并中断模型调用），再关闭本地 SSE 流
+    if (taskId) {
+      void cancelTask(taskId).catch(() => {
+        // 任务可能刚好结束/已被取消 -> 404，忽略即可
+      })
+    }
     abortRef.current?.abort()
   }
 

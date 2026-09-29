@@ -12,6 +12,7 @@ const STATUS_COLOR: Record<string, string> = {
   completed: 'green',
   running: 'blue',
   failed: 'red',
+  cancelled: 'orange',
 }
 
 const PAGE_TITLE = '任务历史'

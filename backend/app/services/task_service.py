@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 from uuid import uuid4
@@ -16,6 +18,7 @@ from app.agents.chapters import chapter_index_from_target, chapter_target, faile
 from app.core.agent_graph import build_graph, recursion_limit
 from app.core.errors import resolve_error
 from app.core.logging import get_logger
+from app.core.task_registry import TaskRegistry, get_task_registry
 from app.llm.base import LLMError, LLMProvider
 from app.memory.repository import TaskRepository
 from app.models.state import AgentState, RetrievedDocument, initial_state
@@ -106,6 +109,7 @@ class TaskService:
         rag_tool_provider: Callable[[], RagTool] | None = None,
         repository: TaskRepository | None = None,
         checkpointer: BaseCheckpointSaver | None = None,
+        registry: TaskRegistry | None = None,
         max_retries: int = 2,
     ) -> None:
         self._graph = build_graph(
@@ -117,6 +121,7 @@ class TaskService:
         self._max_retries = max_retries
         self._repository = repository
         self._checkpointer = checkpointer
+        self._registry = registry or get_task_registry()
 
     def _config_for(self, run_id: str) -> dict[str, Any]:
         """图执行配置：超步上界 + （启用 Checkpoint 时）线程 id。"""
@@ -135,6 +140,30 @@ class TaskService:
         return self._max_retries
 
     async def run(
+        self,
+        query: str,
+        *,
+        user_preferences: dict[str, str] | None = None,
+        task_id: str | None = None,
+        user_id: str | None = None,
+    ) -> AgentState:
+        """同步执行入口：登记运行中的任务，使 /cancel 能精确取消。"""
+        run_id = task_id or str(uuid4())
+        self._registry.register(run_id, asyncio.current_task())
+        try:
+            return await self._run_impl(
+                query,
+                user_preferences=user_preferences,
+                task_id=run_id,
+                user_id=user_id,
+            )
+        except asyncio.CancelledError:
+            await self._mark_cancelled(run_id)
+            raise
+        finally:
+            self._registry.unregister(run_id)
+
+    async def _run_impl(
         self,
         query: str,
         *,
@@ -183,6 +212,20 @@ class TaskService:
             task_id=run_id, result=task_result(state, max_retries=self._max_retries)
         )
 
+    async def _mark_cancelled(self, run_id: str) -> None:
+        """取消时落库：把一个仍在运行的 run 标记为 cancelled。
+
+        用 asyncio.shield 保证清理不被同一次取消打断。
+        """
+        if self._repository is None:
+            return
+        logger.warning(
+            "任务被取消",
+            extra={"task_id": run_id, "event": "task_cancelled", "status": "cancelled"},
+        )
+        with contextlib.suppress(Exception):
+            await asyncio.shield(self._repository.cancel_run(task_id=run_id))
+
     async def _fail_run(self, run_id: str, exc: BaseException) -> None:
         if self._repository is None:
             return
@@ -190,6 +233,31 @@ class TaskService:
         await self._repository.fail_run(task_id=run_id, error_type=str(error_type))
 
     async def stream(
+        self,
+        query: str,
+        *,
+        user_preferences: dict[str, str] | None = None,
+        task_id: str | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """SSE 入口：登记运行中的任务；被取消时标记为 cancelled 再向上抛出。"""
+        run_id = task_id or str(uuid4())
+        self._registry.register(run_id, asyncio.current_task())
+        try:
+            async for event in self._stream_impl(
+                query,
+                user_preferences=user_preferences,
+                task_id=run_id,
+                user_id=user_id,
+            ):
+                yield event
+        except asyncio.CancelledError:
+            await self._mark_cancelled(run_id)
+            raise
+        finally:
+            self._registry.unregister(run_id)
+
+    async def _stream_impl(
         self,
         query: str,
         *,
