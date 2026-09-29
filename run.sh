@@ -5,6 +5,7 @@
 #  用法：
 #    ./run.sh              启动前后端（依赖缺失时自动安装）
 #    ./run.sh --install    强制重新安装依赖后再启动
+#    ./run.sh --force      启动前清理本项目上次遗留的后端/前端进程
 #    ./run.sh --help       查看帮助
 #
 #  环境变量：
@@ -29,6 +30,7 @@ FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 QUIET_BACKEND="${QUIET_BACKEND:-0}"
 
 INSTALL=0
+FORCE=0
 BACKEND_PID=""
 FRONTEND_PID=""
 BACKEND_TAIL_PID=""
@@ -97,6 +99,7 @@ cleanup() {
 for arg in "$@"; do
   case "$arg" in
     --install) INSTALL=1 ;;
+    --force) FORCE=1 ;;
     -h|--help) usage ;;
     *) error "未知参数：$arg（用 --help 查看用法）"; exit 2 ;;
   esac
@@ -148,15 +151,62 @@ maybe_install() {
   fi
 }
 
-check_ports() {
-  local bad=0
-  if port_in_use "$BACKEND_PORT"; then
-    error "端口 $BACKEND_PORT 已被占用（后端）：请先释放，或 BACKEND_PORT=其他端口（需同步改 vite 代理）"
-    bad=1
+port_pids() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnp 2>/dev/null | grep ":$port " | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u
   fi
-  if port_in_use "$FRONTEND_PORT"; then
-    error "端口 $FRONTEND_PORT 已被占用（前端）：可用 FRONTEND_PORT=其他端口 覆盖"
-    bad=1
+}
+
+# 本项目自己的 uvicorn / vite 进程（按进程工作目录判断，绝不误杀其它服务）
+our_project_pids() {
+  local pid cwd
+  for pid in $(pgrep -f 'uvicorn app\.main:app|node_modules/\.bin/vite' 2>/dev/null || true); do
+    cwd="$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)"
+    case "$cwd" in
+      "$ROOT_DIR"/*) echo "$pid" ;;
+    esac
+  done
+}
+
+free_stale_ports() {
+  local pids pid
+  pids="$(our_project_pids | sort -u)"
+  if [[ -z "$pids" ]]; then
+    return 0
+  fi
+  info "清理上次遗留的本项目进程：$(echo "$pids" | tr '\n' ' ')"
+  for pid in $pids; do kill_tree TERM "$pid"; done
+  sleep 1
+  for pid in $pids; do kill_tree KILL "$pid"; done
+  sleep 1
+}
+
+check_ports() {
+  if [[ $FORCE -eq 1 ]]; then
+    free_stale_ports
+  fi
+
+  local bad=0 port pid cmd
+  for port in "$BACKEND_PORT" "$FRONTEND_PORT"; do
+    if port_in_use "$port"; then
+      bad=1
+      error "端口 $port 已被占用："
+      for pid in $(port_pids "$port"); do
+        cmd="$(ps -o cmd= -p "$pid" 2>/dev/null | tr -s ' ' || true)"
+        printf '    pid %s  %s\n' "$pid" "$cmd" >&2
+      done
+    fi
+  done
+
+  if [[ $bad -eq 1 ]]; then
+    if [[ $FORCE -eq 1 ]]; then
+      error "上面是非本项目的进程，请手动结束（或改用其它端口）"
+    else
+      warn "若是上次运行遗留，可执行：./run.sh --force （只清理本项目进程；默认端口可用环境变量覆盖）"
+    fi
   fi
   return "$bad"
 }
@@ -204,7 +254,7 @@ ensure_env
 maybe_install
 check_ports || exit 1
 
-trap cleanup EXIT INT TERM
+trap cleanup EXIT INT TERM HUP
 
 mkdir -p "$LOG_DIR"
 : >"$BACKEND_LOG"
