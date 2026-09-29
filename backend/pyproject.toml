@@ -9,6 +9,7 @@ dependencies = [
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
     "httpx[socks]>=0.28",
+    "langgraph>=1.2.12",
 ]
 
 [dependency-groups]

@@ -39,6 +39,39 @@ class HealthResponse(BaseModel):
     llm_configured: bool
 
 
+class TaskRequest(BaseModel):
+    """提交一个 Agent 任务。"""
+
+    query: str = Field(min_length=1)
+    user_preferences: dict[str, str] = Field(default_factory=dict)
+
+
+class PlanStepOut(BaseModel):
+    id: str
+    type: str
+    description: str
+
+
+class PlanOut(BaseModel):
+    goal: str
+    needs_retrieval: bool
+    steps: list[PlanStepOut]
+
+
+class StepResultOut(BaseModel):
+    step_id: str
+    status: str
+    summary: str
+
+
+class TaskResponse(BaseModel):
+    task_id: str
+    status: str
+    plan: PlanOut | None = None
+    step_results: list[StepResultOut] = Field(default_factory=list)
+    final_answer: str = ""
+
+
 class ErrorResponse(BaseModel):
     """统一错误结构。``detail`` 只包含可安全展示的信息。"""
 

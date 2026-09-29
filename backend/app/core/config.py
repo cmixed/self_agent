@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     deepseek_timeout_seconds: float = 60.0
     deepseek_max_retries: int = 2
 
+    # --- Agent ---
+    # 单个节点的最大重试次数（Validator 重试见 Phase 4，§16）
+    max_retries: int = 2
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
