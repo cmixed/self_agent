@@ -73,7 +73,32 @@ cp .env.example .env
 （约 100 MB，缓存在 HuggingFace 缓存目录，仅需一次）。网络受限时可设置
 `HF_ENDPOINT=https://hf-mirror.com`，或可选设置 `HF_TOKEN` 提高下载速率。
 
-## 启动后端
+## 一键启动（推荐）
+
+```bash
+cd /home/cmixed/code/self_agent
+./run.sh
+```
+
+脚本会自动完成：检查 `uv` / `node` / `npm`、缺少 `.env` 时从 `.env.example` 生成、
+依赖缺失时自动 `uv sync` + `npm install`、检测端口占用、启动前后端并等待就绪、
+把两端日志带上 `[backend]` / `[frontend]` 前缀输出到当前终端。
+
+| 命令 | 说明 |
+| --- | --- |
+| `./run.sh` | 启动前后端（缺依赖自动安装） |
+| `./run.sh --install` | 强制重装依赖后再启动 |
+| `./run.sh --help` | 查看用法 |
+
+- 退出：**Ctrl+C**（会同时关闭前后端并释放端口）
+- 日志：`logs/backend.log` · `logs/frontend.log`
+- 端口：`BACKEND_PORT=8000`、`FRONTEND_PORT=5173`（可用环境变量覆盖；改后端端口需同步改 `frontend/vite.config.ts` 的代理）
+
+启动后打开 <http://localhost:5173>。
+
+## 手动启动（等价于上面两步）
+
+#### 后端
 
 ```bash
 cd backend
@@ -84,7 +109,7 @@ uv run uvicorn app.main:app --reload
 - 健康检查：`GET http://127.0.0.1:8000/api/health`
 - 接口文档：`http://127.0.0.1:8000/docs`
 
-## 启动前端
+#### 前端
 
 ```bash
 cd frontend
