@@ -378,11 +378,13 @@ html[data-theme='dark'] .app-backdrop::after {
 
 .sample-tag {
   cursor: pointer;
+  border-color: var(--ant-color-border);
 }
 
 .sample-tag:hover {
   border-color: var(--ant-color-primary);
   color: var(--ant-color-primary);
+  background: var(--ant-color-primary-bg);
 }
 
 /* --- Agent 执行进度列表 ---------------------------------------------------- */
@@ -428,6 +430,17 @@ html[data-theme='dark'] .app-backdrop::after {
 
 .stage-item.is-skipped {
   opacity: 0.6;
+}
+
+/* 阶段之间的极细连接线（对齐图标中心），让 6 个阶段读起来像一条流水线 */
+.stage-item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 21px;
+  top: 34px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--ant-color-split);
 }
 
 .stage-marker {
