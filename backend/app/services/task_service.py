@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 from uuid import uuid4
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.errors import GraphRecursionError
 
 from app.agents.chapters import chapter_index_from_target, chapter_target, failed_chapters
@@ -104,16 +105,30 @@ class TaskService:
         *,
         rag_tool_provider: Callable[[], RagTool] | None = None,
         repository: TaskRepository | None = None,
+        checkpointer: BaseCheckpointSaver | None = None,
         max_retries: int = 2,
     ) -> None:
-        self._graph = build_graph(llm, rag_tool_provider=rag_tool_provider, max_retries=max_retries)
+        self._graph = build_graph(
+            llm,
+            rag_tool_provider=rag_tool_provider,
+            checkpointer=checkpointer,
+            max_retries=max_retries,
+        )
         self._max_retries = max_retries
         self._repository = repository
+        self._checkpointer = checkpointer
+
+    def _config_for(self, run_id: str) -> dict[str, Any]:
+        """图执行配置：超步上界 + （启用 Checkpoint 时）线程 id。"""
+        config: dict[str, Any] = {"recursion_limit": recursion_limit(self._max_retries)}
+        if self._checkpointer is not None:
+            config["configurable"] = {"thread_id": run_id}
+        return config
 
     @property
     def _config(self) -> dict[str, Any]:
-        """图执行配置：给 LangGraph 足够大的超步上界（任务本身由预算约束）。"""
-        return {"recursion_limit": recursion_limit(self._max_retries)}
+        """不含 thread_id 的默认配置（兼容旧用法 / 测试）。"""
+        return self._config_for("")
 
     @property
     def max_retries(self) -> int:
@@ -136,7 +151,7 @@ class TaskService:
         )
         await self._start_run(run_id, query, user_id)
         try:
-            final_state = await self._graph.ainvoke(state, config=self._config)
+            final_state = await self._graph.ainvoke(state, config=self._config_for(run_id))
         except Exception as exc:
             await self._fail_run(run_id, exc)
             raise
@@ -195,7 +210,9 @@ class TaskService:
         final_state: AgentState = state
 
         try:
-            async for event in self._graph.astream_events(state, version="v2", config=self._config):
+            async for event in self._graph.astream_events(
+                state, version="v2", config=self._config_for(run_id)
+            ):
                 name = event.get("name")
                 kind = event.get("event")
 

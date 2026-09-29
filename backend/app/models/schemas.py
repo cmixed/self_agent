@@ -104,6 +104,20 @@ class DocumentInfo(BaseModel):
     chunks: int
 
 
+class TaskStateResponse(BaseModel):
+    """Agent checkpoint 中的结构化状态摘要（不包含消息原文与推理过程）。"""
+
+    task_id: str
+    checkpoint_id: str | None = None
+    status: str | None = None
+    current_step: str | None = None
+    is_complete: bool = False
+    retry_count: int = 0
+    outline: list[str] = Field(default_factory=list)
+    chapters_written: int = 0
+    sources_count: int = 0
+
+
 class MemoryOut(BaseModel):
     memory_id: int
     kind: str

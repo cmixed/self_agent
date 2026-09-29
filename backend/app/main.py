@@ -14,7 +14,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api import chat, documents, health, memory, tasks
-from app.api.deps import build_database
+from app.api.deps import (
+    build_checkpoint_store,
+    build_database,
+    get_checkpoint_store,
+)
 from app.api.errors import register_exception_handlers
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
@@ -28,15 +32,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
     settings = get_settings()
     await asyncio.to_thread(build_database().initialize)
+    if settings.checkpoint_enabled:
+        await build_checkpoint_store().start()
     logger.info(
         "应用启动 "
         f"env={settings.app_env} provider={settings.llm_provider} "
-        f"llm_configured={settings.llm_configured}",
+        f"llm_configured={settings.llm_configured} "
+        f"checkpoint={settings.checkpoint_enabled}",
         extra={"event": "startup", "status": "ok"},
     )
     try:
         yield
     finally:
+        store = get_checkpoint_store()
+        if store is not None:
+            await store.close()
         await close_llm()
         logger.info("应用关闭", extra={"event": "shutdown", "status": "ok"})
 

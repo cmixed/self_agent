@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -54,6 +55,7 @@ def build_graph(
     llm: LLMProvider,
     *,
     rag_tool_provider: Callable[[], RagTool] | None = None,
+    checkpointer: BaseCheckpointSaver | None = None,
     max_retries: int = 2,
 ) -> CompiledStateGraph:
     """构建并编译 Agent 图。
@@ -96,4 +98,4 @@ def build_graph(
     )
     graph.add_edge("summarizer", END)
 
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)

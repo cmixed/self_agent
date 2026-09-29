@@ -37,6 +37,7 @@ def _isolate_settings(
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "app.db"))
+    monkeypatch.setenv("CHECKPOINT_PATH", str(tmp_path / "checkpoints.db"))
 
     get_settings.cache_clear()
     reset_caches()

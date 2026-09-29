@@ -36,6 +36,9 @@ class Settings(BaseSettings):
 
     # --- 持久化 ---
     sqlite_path: Path = _REPO_ROOT / "data" / "sqlite" / "app.db"
+    # LangGraph Checkpoint（短期记忆），与业务数据分开存放
+    checkpoint_enabled: bool = True
+    checkpoint_path: Path = _REPO_ROOT / "data" / "sqlite" / "checkpoints.db"
 
     # --- LLM Provider ---
     llm_provider: str = "deepseek"

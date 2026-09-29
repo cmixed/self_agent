@@ -15,14 +15,21 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import (
+    get_checkpoint_store,
     get_memory_service,
     get_task_repository,
     get_task_service,
     get_user_id,
 )
+from app.core.checkpoint import CheckpointStore
 from app.core.logging import get_logger
 from app.memory.repository import TaskRepository
-from app.models.schemas import TaskDetailResponse, TaskRequest, TaskResponse
+from app.models.schemas import (
+    TaskDetailResponse,
+    TaskRequest,
+    TaskResponse,
+    TaskStateResponse,
+)
 from app.services.memory_service import MemoryService
 from app.services.task_service import TaskService, task_result
 
@@ -82,6 +89,42 @@ async def get_task(
         }
     )
     return TaskDetailResponse.model_validate(payload)
+
+
+@router.get("/tasks/{task_id}/state", response_model=TaskStateResponse)
+async def get_task_state(
+    task_id: str,
+    store: CheckpointStore | None = Depends(get_checkpoint_store),
+) -> TaskStateResponse:
+    """读取该任务最近的 Agent checkpoint 状态摘要（AGENTS.md §17 的结构化状态）。
+
+    只返回结构化进度，不返回模型消息或隐藏推理过程。
+    """
+    saver = store.saver if store is not None else None
+    if saver is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Checkpoint 未启用"
+        )
+
+    checkpoint_tuple = await saver.aget_tuple({"configurable": {"thread_id": task_id}})
+    if checkpoint_tuple is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="没有找到该任务的 checkpoint"
+        )
+
+    checkpoint = checkpoint_tuple.checkpoint or {}
+    values = checkpoint.get("channel_values") or {}
+    return TaskStateResponse(
+        task_id=task_id,
+        checkpoint_id=checkpoint.get("id"),
+        status=values.get("task_status"),
+        current_step=values.get("current_step"),
+        is_complete=bool(values.get("is_complete")),
+        retry_count=int(values.get("retry_count") or 0),
+        outline=[str(section.get("title", "")) for section in values.get("outline") or []],
+        chapters_written=len([s for s in values.get("sections") or [] if s.get("content")]),
+        sources_count=len(values.get("retrieved_documents") or []),
+    )
 
 
 @router.post("/tasks/stream")

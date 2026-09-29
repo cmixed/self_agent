@@ -10,7 +10,9 @@ Embedding 模型加载。
 from __future__ import annotations
 
 from fastapi import Depends, Header
+from langgraph.checkpoint.base import BaseCheckpointSaver
 
+from app.core.checkpoint import CheckpointStore
 from app.core.config import get_settings
 from app.embedding.factory import get_embedding_provider
 from app.llm.base import LLMProvider
@@ -28,6 +30,7 @@ _store: ChromaStore | None = None
 _task_repository: TaskRepository | None = None
 _memory_repository: MemoryRepository | None = None
 _database: SqliteDatabase | None = None
+_checkpoint_store: CheckpointStore | None = None
 
 
 def build_chroma_store() -> ChromaStore:
@@ -91,6 +94,23 @@ def build_database() -> SqliteDatabase:
     return _database
 
 
+def build_checkpoint_store() -> CheckpointStore:
+    """构造（不启动）Checkpoint 存储；生命周期由应用 lifespan 管理。"""
+    global _checkpoint_store
+    if _checkpoint_store is None:
+        _checkpoint_store = CheckpointStore(get_settings().checkpoint_path)
+    return _checkpoint_store
+
+
+def get_checkpoint_store() -> CheckpointStore | None:
+    return _checkpoint_store
+
+
+def get_checkpointer() -> BaseCheckpointSaver | None:
+    store = get_checkpoint_store()
+    return store.saver if store is not None else None
+
+
 def build_task_repository() -> TaskRepository:
     global _task_repository
     if _task_repository is None:
@@ -118,6 +138,7 @@ def get_task_service(provider: LLMProvider = Depends(get_llm_provider)) -> TaskS
         provider,
         rag_tool_provider=build_rag_tool,
         repository=build_task_repository(),
+        checkpointer=get_checkpointer(),
         max_retries=settings.max_retries,
     )
 

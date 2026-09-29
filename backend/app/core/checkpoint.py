@@ -1,0 +1,45 @@
+"""LangGraph Checkpoint（短期记忆）。
+
+与业务数据分离存放（AGENTS.md §13）：
+
+- ``app.db``：任务记录与长期记忆（业务数据）；
+- ``checkpoints.db``：LangGraph 的 Agent checkpoint（短期记忆 / 可恢复）。
+
+线程 id 使用 ``task_id``，因此可以按任务回溯 Agent 各阶段的落盘状态。
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import aiosqlite
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+
+class CheckpointStore:
+    """管理 AsyncSqliteSaver 的打开与关闭（生命周期由应用 lifespan 控制）。"""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._connection: aiosqlite.Connection | None = None
+        self._saver: AsyncSqliteSaver | None = None
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    @property
+    def saver(self) -> AsyncSqliteSaver | None:
+        return self._saver
+
+    async def start(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._connection = await aiosqlite.connect(self._path)
+        self._saver = AsyncSqliteSaver(self._connection)
+        await self._saver.setup()
+
+    async def close(self) -> None:
+        if self._connection is not None:
+            await self._connection.close()
+        self._connection = None
+        self._saver = None

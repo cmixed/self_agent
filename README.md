@@ -35,7 +35,7 @@
 │   │   ├── main.py        # FastAPI 入口
 │   │   ├── api/           # 路由、依赖注入与统一错误处理
 │   │   ├── agents/        # Agent 节点（planner / writer / summarizer）
-│   │   ├── core/          # 配置、日志、错误映射、LangGraph 编排
+│   │   ├── core/          # 配置、日志、错误映射、LangGraph 编排、Checkpoint
 │   │   ├── embedding/     # Embedding 抽象（base / local / factory），独立于 LLM
 │   │   ├── llm/           # LLM Provider 抽象（base / deepseek / factory）
 │   │   ├── memory/        # SQLite 访问层与仓储（任务记录 / 长期记忆）
@@ -122,13 +122,15 @@ npm run build
 - [x] **Phase 4C**：重试预算改为每章独立 + 修复 LangGraph 超步上限导致的中断
 - [x] **Phase 5A**：SQLite 基础设施 + 任务运行持久化 + `GET /api/tasks/{id}`
 - [x] **Phase 5B**：长期记忆（偏好 / memories）+ 显式 API + LLM 自动提取
-- [ ] Phase 5C：LangGraph Checkpoint（短期记忆 / 可恢复）
-- [ ] Phase 6：前端任务进度面板
+- [x] **Phase 5C**：LangGraph Checkpoint（SQLite 短期记忆 + 状态查询）
+- [ ] Phase 6：前端任务进度面板（上传文档 / 任务历史 / 记忆管理）
 - [ ] Phase 7：评估（RAG / Agent / 长文本指标）
 
 ## Memory
 
-**短期记忆**：LangGraph `AgentState`（当前任务的消息、计划、章节、校验结果）。
+**短期记忆**：LangGraph `AgentState`（当前任务的消息、计划、章节、校验结果），
+并通过 `AsyncSqliteSaver` 持久化到 `data/sqlite/checkpoints.db`（按 `task_id` 作为线程 id），
+可用 `GET /api/tasks/{id}/state` 读取结构化状态摘要（只返回进度，不返回消息与推理过程）。
 
 **长期记忆**（跨会话，存 SQLite，见 §14）：
 
