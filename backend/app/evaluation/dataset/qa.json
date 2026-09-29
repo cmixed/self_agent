@@ -1,0 +1,47 @@
+{
+  "description": "检索评估问答对：expected_document 为期望来源文件，expected_keywords 为期望在召回片段中出现的要点",
+  "cases": [
+    {
+      "id": "q1",
+      "question": "RAG 的基本流程分为哪两步？",
+      "expected_document": "rag_basics.md",
+      "expected_keywords": ["检索", "生成"]
+    },
+    {
+      "id": "q2",
+      "question": "为什么 RAG 可以降低幻觉风险？",
+      "expected_document": "rag_basics.md",
+      "expected_keywords": ["来源", "幻觉"]
+    },
+    {
+      "id": "q3",
+      "question": "余弦相似度是用来衡量什么的？",
+      "expected_document": "retrieval_and_vectors.md",
+      "expected_keywords": ["向量", "相似"]
+    },
+    {
+      "id": "q4",
+      "question": "检索时的 top-k 应该如何取值？",
+      "expected_document": "retrieval_and_vectors.md",
+      "expected_keywords": ["top", "无关"]
+    },
+    {
+      "id": "q5",
+      "question": "chunk 过大或过小分别有什么问题？",
+      "expected_document": "chunking_strategy.md",
+      "expected_keywords": ["无关", "上下文"]
+    },
+    {
+      "id": "q6",
+      "question": "chunk size 和 overlap 的常见建议取值是多少？",
+      "expected_document": "chunking_strategy.md",
+      "expected_keywords": ["500", "overlap"]
+    },
+    {
+      "id": "q7",
+      "question": "如何评估文本切分策略的好坏？",
+      "expected_document": "chunking_strategy.md",
+      "expected_keywords": ["命中率", "来源"]
+    }
+  ]
+}

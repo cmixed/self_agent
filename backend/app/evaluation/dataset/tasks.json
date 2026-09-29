@@ -1,0 +1,17 @@
+{
+  "description": "端到端任务评估：expected_points 为期望在最终长文中覆盖的要点（启发式打分）",
+  "tasks": [
+    {
+      "id": "t1",
+      "query": "根据我的资料写一篇简短的 RAG 检索质量技术说明",
+      "expected_points": ["chunk", "相似度", "检索"],
+      "min_chapters": 2
+    },
+    {
+      "id": "t2",
+      "query": "根据我的资料总结切分粒度如何影响 RAG 的检索质量",
+      "expected_points": ["overlap", "上下文", "质量"],
+      "min_chapters": 2
+    }
+  ]
+}
