@@ -584,6 +584,22 @@ html[data-theme='dark'] .app-backdrop::after {
   margin-inline-end: 0;
 }
 
+/* --- 表格工具栏（搜索 / 筛选 / 刷新） ------------------------------------ */
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 768px) {
+  .table-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 /* --- 响应式 --------------------------------------------------------------- */
 @media (max-width: 768px) {
   .app-content {

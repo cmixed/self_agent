@@ -1,28 +1,52 @@
-import { Alert, Button, Card, Descriptions, Drawer, Space, Table, Tag, Typography } from 'antd'
+import { ReloadOutlined } from '@ant-design/icons'
+import {
+  Alert,
+  Button,
+  Card,
+  Col,
+  Descriptions,
+  Drawer,
+  Empty,
+  Input,
+  Row,
+  Segmented,
+  Space,
+  Table,
+  Tabs,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd'
 import { useCallback, useEffect, useState } from 'react'
-import PageContainer from '../components/PageContainer'
 
 import MarkdownView from '../components/MarkdownView'
+import PageContainer from '../components/PageContainer'
 import { ApiError, getTask, getTaskState, listTasks } from '../services/api'
 import type { TaskDetail, TaskState, TaskSummary } from '../types/api'
+import { formatDateTime, formatDuration, taskDurationSeconds } from '../utils/format'
 
-const { Text, Paragraph } = Typography
-
-const STATUS_COLOR: Record<string, string> = {
-  completed: 'green',
-  running: 'blue',
-  failed: 'red',
-  cancelled: 'orange',
-}
+const { Text } = Typography
 
 const PAGE_TITLE = '任务历史'
-const PAGE_DESCRIPTION = '查看历史任务的执行状态、来源引用与最终结果。'
+const PAGE_DESCRIPTION = '查看历史任务的执行状态、来源引用、校验结论与最终结果。'
 const PAGE_MAX_WIDTH = 1120
+
+const STATUS_META: Record<string, { color: string; label: string }> = {
+  completed: { color: 'green', label: '已完成' },
+  running: { color: 'blue', label: '运行中' },
+  failed: { color: 'red', label: '失败' },
+  cancelled: { color: 'orange', label: '已取消' },
+}
+
+const statusMeta = (status: string) =>
+  STATUS_META[status] ?? { color: 'default', label: status }
 
 export default function HistoryPage() {
   const [tasks, setTasks] = useState<TaskSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [keyword, setKeyword] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
 
   const [detail, setDetail] = useState<TaskDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -57,15 +81,34 @@ export default function HistoryPage() {
     } finally {
       setDetailLoading(false)
     }
-  }
 
-  const loadState = async (taskId: string) => {
-    setStateError(null)
+    // 打开详情即自动读取 Agent checkpoint 状态（失败时给出可读提示）
     try {
       setState(await getTaskState(taskId))
     } catch (err) {
-      setStateError(err instanceof ApiError ? err.message : '读取 checkpoint 失败')
+      setStateError(
+        err instanceof ApiError
+          ? err.status === 503
+            ? '后端未启用 Checkpoint'
+            : '该任务没有可读取的 Checkpoint 记录'
+          : '读取 Checkpoint 失败',
+      )
     }
+  }
+
+  const visibleTasks = tasks.filter((task) => {
+    if (statusFilter !== 'all' && task.status !== statusFilter) return false
+    if (keyword.trim() && !task.query.toLowerCase().includes(keyword.trim().toLowerCase())) {
+      return false
+    }
+    return true
+  })
+
+  const counts = {
+    all: tasks.length,
+    completed: tasks.filter((task) => task.status === 'completed').length,
+    cancelled: tasks.filter((task) => task.status === 'cancelled').length,
+    failed: tasks.filter((task) => task.status === 'failed').length,
   }
 
   return (
@@ -73,71 +116,126 @@ export default function HistoryPage() {
       title={PAGE_TITLE}
       description={PAGE_DESCRIPTION}
       maxWidth={PAGE_MAX_WIDTH}
+      extra={
+        <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
+          刷新
+        </Button>
+      }
     >
-      {error && <Alert type="error" showIcon title={error} />}
+      {error && <Alert type="error" showIcon closable title={error} onClose={() => setError(null)} />}
 
-      <Card
-        title={`任务历史（${tasks.length}）`}
-        extra={<Button onClick={() => void refresh()} loading={loading}>刷新</Button>}
-      >
-        <Table<TaskSummary>
-          rowKey="task_id"
-          dataSource={tasks}
-          loading={loading}
-          pagination={false}
-          locale={{ emptyText: '还没有任务记录' }}
-          columns={[
-            {
-              title: '任务',
-              dataIndex: 'query',
-              key: 'query',
-              ellipsis: true,
-            },
-            {
-              title: '状态',
-              dataIndex: 'status',
-              key: 'status',
-              width: 110,
-              render: (status: string) => (
-                <Tag color={STATUS_COLOR[status] ?? 'default'}>{status}</Tag>
-              ),
-            },
-            {
-              title: '未通过章节',
-              dataIndex: 'failed_chapters',
-              key: 'failed_chapters',
-              width: 130,
-              render: (chapters: string[]) =>
-                chapters.length === 0 ? (
-                  <Text type="secondary">—</Text>
-                ) : (
-                  <Text type="warning">{chapters.join(', ')}</Text>
+      <Card title={`任务历史（${tasks.length}）`}>
+        <div className="table-toolbar">
+          <Input.Search
+            id="history-search"
+            name="keyword"
+            allowClear
+            placeholder="搜索任务内容"
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+            style={{ maxWidth: 320 }}
+          />
+          <Segmented
+            value={statusFilter}
+            onChange={(value) => setStatusFilter(String(value))}
+            options={[
+              { label: `全部 ${counts.all}`, value: 'all' },
+              { label: `已完成 ${counts.completed}`, value: 'completed' },
+              { label: `已取消 ${counts.cancelled}`, value: 'cancelled' },
+              { label: `失败 ${counts.failed}`, value: 'failed' },
+            ]}
+          />
+        </div>
+
+        {visibleTasks.length === 0 && !loading ? (
+          <Empty
+            description={
+              <span>
+                {tasks.length === 0 ? '还没有任务记录' : '没有符合筛选条件的任务'}
+                <br />
+                <Text type="secondary">
+                  {tasks.length === 0 ? '先在「任务」页跑一个任务' : '试试清空搜索词或切换筛选'}
+                </Text>
+              </span>
+            }
+          />
+        ) : (
+          <Table<TaskSummary>
+            rowKey="task_id"
+            dataSource={visibleTasks}
+            loading={loading}
+            pagination={visibleTasks.length > 10 ? { pageSize: 10, showSizeChanger: false } : false}
+            columns={[
+              {
+                title: '任务',
+                dataIndex: 'query',
+                key: 'query',
+                ellipsis: true,
+                render: (query: string) => (
+                  <Tooltip title={query}>
+                    <Text>{query}</Text>
+                  </Tooltip>
                 ),
-            },
-            {
-              title: '创建时间',
-              dataIndex: 'created_at',
-              key: 'created_at',
-              width: 200,
-              render: (value: string) => <Text type="secondary">{value.replace('T', ' ')}</Text>,
-            },
-            {
-              title: '操作',
-              key: 'action',
-              width: 90,
-              render: (_, record) => (
-                <Button type="link" onClick={() => void openDetail(record.task_id)}>
-                  详情
-                </Button>
-              ),
-            },
-          ]}
-        />
+              },
+              {
+                title: '状态',
+                dataIndex: 'status',
+                key: 'status',
+                width: 100,
+                render: (status: string) => {
+                  const meta = statusMeta(status)
+                  return <Tag color={meta.color}>{meta.label}</Tag>
+                },
+              },
+              {
+                title: '未通过章节',
+                dataIndex: 'failed_chapters',
+                key: 'failed_chapters',
+                width: 120,
+                render: (chapters: string[]) =>
+                  chapters.length === 0 ? (
+                    <Text type="secondary">—</Text>
+                  ) : (
+                    <Text type="warning">{chapters.join(', ')}</Text>
+                  ),
+              },
+              {
+                title: '耗时',
+                key: 'duration',
+                width: 100,
+                render: (_, record) => (
+                  <Text type="secondary">
+                    {formatDuration(taskDurationSeconds(record.created_at, record.finished_at))}
+                  </Text>
+                ),
+              },
+              {
+                title: '创建时间',
+                dataIndex: 'created_at',
+                key: 'created_at',
+                width: 170,
+                render: (value: string) => (
+                  <Text type="secondary">{formatDateTime(value)}</Text>
+                ),
+              },
+              {
+                title: '操作',
+                key: 'action',
+                width: 80,
+                render: (_, record) => (
+                  <Button type="link" onClick={() => void openDetail(record.task_id)}>
+                    详情
+                  </Button>
+                ),
+              },
+            ]}
+          />
+        )}
       </Card>
 
       <Drawer
         title={detail ? `任务详情 · ${detail.task_id.slice(0, 8)}` : '任务详情'}
-        size={760}
+        size="large"
         open={detail !== null}
         loading={detailLoading}
         onClose={() => setDetail(null)}
@@ -148,68 +246,116 @@ export default function HistoryPage() {
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="任务">{detail.query}</Descriptions.Item>
               <Descriptions.Item label="状态">
-                <Tag color={STATUS_COLOR[detail.status] ?? 'default'}>{detail.status}</Tag>
+                <Tag color={statusMeta(detail.status).color}>
+                  {statusMeta(detail.status).label}
+                </Tag>
                 {detail.error_type && <Tag color="red">{detail.error_type}</Tag>}
               </Descriptions.Item>
-              <Descriptions.Item label="创建 / 完成">
-                {detail.created_at.replace('T', ' ')} →{' '}
-                {detail.finished_at ? detail.finished_at.replace('T', ' ') : '—'}
+              <Descriptions.Item label="开始 / 结束">
+                {formatDateTime(detail.created_at)} → {formatDateTime(detail.finished_at)}
+              </Descriptions.Item>
+              <Descriptions.Item label="耗时">
+                {formatDuration(taskDurationSeconds(detail.created_at, detail.finished_at))}
               </Descriptions.Item>
               <Descriptions.Item label="重新规划次数">{detail.retry_count}</Descriptions.Item>
               <Descriptions.Item label="未通过校验章节">
-                {detail.failed_chapters.length ? detail.failed_chapters.join(', ') : '无'}
+                {detail.failed_chapters.length > 0 ? detail.failed_chapters.join(', ') : '无'}
               </Descriptions.Item>
             </Descriptions>
 
-            <Card
-              size="small"
-              title="Agent Checkpoint 状态"
-              extra={
-                <Button size="small" onClick={() => void loadState(detail.task_id)}>
-                  读取
-                </Button>
-              }
-            >
-              {stateError && <Paragraph type="danger">{stateError}</Paragraph>}
-              {state ? (
-                <Descriptions column={2} size="small">
-                  <Descriptions.Item label="当前步骤">{state.current_step ?? '—'}</Descriptions.Item>
-                  <Descriptions.Item label="是否完成">
+            <Card size="small" title="Agent Checkpoint 状态">
+              {stateError ? (
+                <Text type="secondary">{stateError}</Text>
+              ) : state ? (
+                <Row gutter={[16, 8]}>
+                  <Col span={12}>
+                    <Text type="secondary">当前步骤：</Text>
+                    {state.current_step ?? '—'}
+                  </Col>
+                  <Col span={12}>
+                    <Text type="secondary">是否完成：</Text>
                     {state.is_complete ? '是' : '否'}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="已写章节">
+                  </Col>
+                  <Col span={12}>
+                    <Text type="secondary">已写章节：</Text>
                     {state.chapters_written}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="检索片段">
+                  </Col>
+                  <Col span={12}>
+                    <Text type="secondary">检索片段：</Text>
                     {state.sources_count}
-                  </Descriptions.Item>
-                </Descriptions>
+                  </Col>
+                </Row>
               ) : (
-                <Text type="secondary">点击「读取」查看该任务的 checkpoint 结构化状态</Text>
+                <Text type="secondary">读取中…</Text>
               )}
             </Card>
 
-            {detail.sources.length > 0 && (
-              <Card size="small" title="参考来源">
-                <ol style={{ paddingLeft: 20, margin: 0 }}>
-                  {detail.sources.map((source) => (
-                    <li key={source.chunk_id}>
-                      [{source.index}] {source.filename}
-                      {typeof source.score === 'number'
-                        ? `（相似度 ${source.score.toFixed(3)}）`
-                        : ''}
-                    </li>
-                  ))}
-                </ol>
-              </Card>
-            )}
-
-            <Card size="small" title="最终结果">
-              {detail.final_answer ? (
-                <MarkdownView content={detail.final_answer} />
-              ) : (
-                <Text type="secondary">该任务没有产出正文（可能失败或未完成）</Text>
-              )}
+            <Card size="small">
+              <Tabs
+                items={[
+                  {
+                    key: 'content',
+                    label: '正文',
+                    children: detail.final_answer ? (
+                      <MarkdownView content={detail.final_answer} />
+                    ) : (
+                      <Empty description="该任务没有产出正文（可能被取消或失败）" />
+                    ),
+                  },
+                  {
+                    key: 'sources',
+                    label: `来源${detail.sources.length > 0 ? `（${detail.sources.length}）` : ''}`,
+                    children:
+                      detail.sources.length > 0 ? (
+                        <ol className="plain-list">
+                          {detail.sources.map((source) => (
+                            <li key={source.chunk_id}>
+                              <Text>
+                                [{source.index}] {source.filename}
+                                {source.page ? `（第 ${source.page} 页）` : ''}
+                              </Text>
+                              {typeof source.score === 'number' && (
+                                <Tag style={{ marginLeft: 8 }}>
+                                  相似度 {source.score.toFixed(3)}
+                                </Tag>
+                              )}
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <Empty description="该任务未使用知识库来源" />
+                      ),
+                  },
+                  {
+                    key: 'validation',
+                    label: '校验',
+                    children: detail.validation ? (
+                      <Space orientation="vertical" size="small" style={{ width: '100%' }}>
+                        <div>
+                          <Text strong>结论：</Text>
+                          <Tag color={detail.validation.passed ? 'green' : 'red'}>
+                            {detail.validation.passed ? '通过' : '未通过'}
+                          </Tag>
+                          <Text type="secondary">（{detail.validation.target}）</Text>
+                        </div>
+                        {detail.validation.issues.length > 0 ? (
+                          <ul className="plain-list">
+                            {detail.validation.issues.map((issue, index) => (
+                              <li key={index}>
+                                <Text type="warning">{issue}</Text>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <Text type="secondary">没有发现问题</Text>
+                        )}
+                      </Space>
+                    ) : (
+                      <Empty description="该任务没有校验记录" />
+                    ),
+                  },
+                ]}
+              />
             </Card>
           </Space>
         )}
