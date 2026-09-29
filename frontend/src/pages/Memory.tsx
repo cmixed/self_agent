@@ -1,5 +1,6 @@
-import { Alert, Button, Card, Form, Input, Popconfirm, Space, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Form, Input, Popconfirm, Table, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
+import PageContainer from '../components/PageContainer'
 
 import {
   ApiError,
@@ -14,6 +15,10 @@ import type { MemoryProfile, MemoryRecord } from '../types/api'
 const { Text, Paragraph } = Typography
 
 const COMMON_KEYS = ['style', 'format', 'language', 'task_types']
+
+const PAGE_TITLE = '长期记忆'
+const PAGE_DESCRIPTION = '跨会话生效的偏好与记忆：任务运行时会自动注入，显式设置的值优先。'
+const PAGE_MAX_WIDTH = 1120
 
 export default function MemoryPage() {
   const [profile, setProfile] = useState<MemoryProfile | null>(null)
@@ -60,10 +65,10 @@ export default function MemoryPage() {
   }))
 
   return (
-    <Space
-      orientation="vertical"
-      size="middle"
-      style={{ width: '100%', maxWidth: 900, margin: '0 auto' }}
+    <PageContainer
+      title={PAGE_TITLE}
+      description={PAGE_DESCRIPTION}
+      maxWidth={PAGE_MAX_WIDTH}
     >
       <Alert
         type="info"
@@ -208,6 +213,6 @@ export default function MemoryPage() {
           </Form.Item>
         </Form>
       </Card>
-    </Space>
+    </PageContainer>
   )
 }

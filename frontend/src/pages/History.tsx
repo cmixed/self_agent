@@ -1,5 +1,6 @@
 import { Alert, Button, Card, Descriptions, Drawer, Space, Table, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
+import PageContainer from '../components/PageContainer'
 
 import MarkdownView from '../components/MarkdownView'
 import { ApiError, getTask, getTaskState, listTasks } from '../services/api'
@@ -12,6 +13,10 @@ const STATUS_COLOR: Record<string, string> = {
   running: 'blue',
   failed: 'red',
 }
+
+const PAGE_TITLE = '任务历史'
+const PAGE_DESCRIPTION = '查看历史任务的执行状态、来源引用与最终结果。'
+const PAGE_MAX_WIDTH = 1120
 
 export default function HistoryPage() {
   const [tasks, setTasks] = useState<TaskSummary[]>([])
@@ -63,10 +68,10 @@ export default function HistoryPage() {
   }
 
   return (
-    <Space
-      orientation="vertical"
-      size="middle"
-      style={{ width: '100%', maxWidth: 1000, margin: '0 auto' }}
+    <PageContainer
+      title={PAGE_TITLE}
+      description={PAGE_DESCRIPTION}
+      maxWidth={PAGE_MAX_WIDTH}
     >
       {error && <Alert type="error" showIcon title={error} />}
 
@@ -208,6 +213,6 @@ export default function HistoryPage() {
           </Space>
         )}
       </Drawer>
-    </Space>
+    </PageContainer>
   )
 }

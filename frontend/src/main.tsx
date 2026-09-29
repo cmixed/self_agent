@@ -1,5 +1,3 @@
-import { ConfigProvider } from 'antd'
-import zhCN from 'antd/locale/zh_CN'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 
@@ -11,10 +9,9 @@ if (!rootElement) {
   throw new Error('未找到 #root 挂载点')
 }
 
+// 主题与 locale 配置在 App 内（ConfigProvider），此处只负责挂载
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <ConfigProvider locale={zhCN}>
-      <App />
-    </ConfigProvider>
+    <App />
   </React.StrictMode>,
 )

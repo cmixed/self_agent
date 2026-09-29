@@ -1,3 +1,9 @@
+/* =============================================================================
+   全局样式
+   - 组件颜色统一走 antd CSS 变量（--ant-*），随深浅主题自动切换
+   - Mica（毛玻璃）只用于高层级面板：侧栏 / 页头；正文卡片保持实心以保证对比度
+   ============================================================================= */
+
 html,
 body,
 #root {
@@ -8,14 +14,266 @@ body,
 body {
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background: #f5f5f5;
+  /* React 挂载前与视口边缘的底色 */
+  background: #f5f7fa;
 }
 
-/* 渲染后的 Markdown 正文样式 */
+html[data-theme='dark'] body {
+  background: #101216;
+}
+
+/* --- 自定义变量（按主题切换） --------------------------------------------- */
+:root {
+  --mica-blur: 22px;
+  --mica-alpha: 0.72;
+}
+
+:root[data-theme='light'] {
+  --mica-bg: rgba(255, 255, 255, var(--mica-alpha));
+  --mica-border: rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme='dark'] {
+  --mica-bg: rgba(22, 24, 29, var(--mica-alpha));
+  --mica-border: rgba(255, 255, 255, 0.08);
+}
+
+/* --- Mica 面板 ------------------------------------------------------------- */
+.surface-mica {
+  background: var(--mica-bg);
+  backdrop-filter: blur(var(--mica-blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--mica-blur)) saturate(150%);
+}
+
+/* 关闭毛玻璃时退化为实心（答辩现场提升对比度用） */
+:root[data-mica='off'] .surface-mica {
+  background: var(--ant-color-bg-container);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* 浏览器不支持 backdrop-filter 时同样退化 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .surface-mica {
+    background: var(--ant-color-bg-container);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* --- 静态底衬（无动画，仅让毛玻璃有内容可糊） ----------------------------- */
+.app-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.app-backdrop::before,
+.app-backdrop::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+}
+
+.app-backdrop::before {
+  width: 520px;
+  height: 520px;
+  left: -140px;
+  top: -160px;
+  background: #2563eb;
+  opacity: 0.28;
+}
+
+.app-backdrop::after {
+  width: 460px;
+  height: 460px;
+  right: -160px;
+  bottom: -180px;
+  background: #7c3aed;
+  opacity: 0.22;
+}
+
+html[data-theme='dark'] .app-backdrop::before {
+  opacity: 0.2;
+}
+
+html[data-theme='dark'] .app-backdrop::after {
+  opacity: 0.16;
+}
+
+/* --- 布局外壳 ------------------------------------------------------------- */
+.app-shell {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  background: transparent;
+}
+
+.app-sider {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  border-right: 1px solid var(--mica-border);
+}
+
+.app-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 16px 14px;
+}
+
+.brand-logo {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-text {
+  min-width: 0;
+}
+
+.brand-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ant-color-text);
+  white-space: nowrap;
+}
+
+.brand-subtitle {
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary);
+  white-space: nowrap;
+}
+
+/* 菜单容器透明，让 Mica 面板透出来（提高选择器权重以覆盖 antd 默认底色） */
+.app-sider .app-menu.ant-menu {
+  flex: 1;
+  background: transparent;
+  border-inline-end: none;
+}
+
+.sider-footer {
+  padding: 12px;
+  border-top: 1px solid var(--mica-border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.health-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.health-text {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
+
+.sider-actions {
+  display: flex;
+  align-items: center;
+}
+
+.mica-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mica-label {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
+
+.sider-version {
+  font-size: 11px;
+  color: var(--ant-color-text-quaternary);
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--mica-border);
+}
+
+.app-header-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ant-color-text);
+}
+
+.app-content {
+  padding: 24px;
+  background: transparent;
+}
+
+/* --- 页面容器 ------------------------------------------------------------- */
+.page-container {
+  width: 100%;
+  margin: 0 auto;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.page-header-text {
+  min-width: 0;
+}
+
+.page-title {
+  margin: 0 !important;
+}
+
+.page-description {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.page-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* --- Markdown 正文（跟随主题） -------------------------------------------- */
 .markdown-body {
   line-height: 1.75;
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--ant-color-text);
   word-break: break-word;
+  max-width: 76ch;
+  margin-inline: auto;
 }
 
 .markdown-body h1,
@@ -30,13 +288,13 @@ body {
 .markdown-body h1 {
   font-size: 22px;
   padding-bottom: 8px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
 }
 
 .markdown-body h2 {
   font-size: 19px;
   padding-bottom: 6px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
 }
 
 .markdown-body h3 {
@@ -59,24 +317,25 @@ body {
 
 .markdown-body blockquote {
   margin: 0 0 12px;
-  padding: 6px 12px;
-  border-left: 4px solid #ffccc7;
-  background: #fff7f6;
-  color: rgba(0, 0, 0, 0.72);
+  padding: 8px 12px;
+  border-left: 3px solid var(--ant-color-warning-border);
+  background: var(--ant-color-warning-bg);
+  color: var(--ant-color-text-secondary);
+  border-radius: 0 6px 6px 0;
 }
 
 .markdown-body code {
   padding: 2px 6px;
   border-radius: 4px;
-  background: #f5f5f5;
+  background: var(--ant-color-fill-tertiary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.9em;
 }
 
 .markdown-body pre {
   padding: 12px;
-  border-radius: 6px;
-  background: #f6f8fa;
+  border-radius: 8px;
+  background: var(--ant-color-fill-quaternary);
   overflow-x: auto;
 }
 
@@ -93,17 +352,42 @@ body {
 
 .markdown-body th,
 .markdown-body td {
-  border: 1px solid #f0f0f0;
+  border: 1px solid var(--ant-color-border-secondary);
   padding: 8px 12px;
   text-align: left;
 }
 
 .markdown-body th {
-  background: #fafafa;
+  background: var(--ant-color-fill-quaternary);
 }
 
 .markdown-body hr {
   border: none;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--ant-color-border-secondary);
   margin: 20px 0;
+}
+
+/* --- 响应式 --------------------------------------------------------------- */
+@media (max-width: 768px) {
+  .app-content {
+    padding: 16px;
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* --- 打印（答辩导出 PDF 用） ---------------------------------------------- */
+@media print {
+  .app-sider,
+  .app-header,
+  .app-backdrop {
+    display: none !important;
+  }
+
+  .app-content {
+    padding: 0;
+  }
 }

@@ -1,9 +1,10 @@
 import { Alert, Button, Card, Input, Space, Steps, Tag, Typography } from 'antd'
-import { useEffect, useState } from 'react'
+import PageContainer from '../components/PageContainer'
+import { useState } from 'react'
 
 import MarkdownView from '../components/MarkdownView'
-import { ApiError, getHealth, streamTask } from '../services/api'
-import type { HealthResponse, Plan, Source, TaskEvent, Validation } from '../types/api'
+import { ApiError, streamTask } from '../services/api'
+import type { Plan, Source, TaskEvent, Validation } from '../types/api'
 
 const { Text, Paragraph } = Typography
 const { TextArea } = Input
@@ -53,6 +54,10 @@ const chapterNumber = (target: string): number | null => {
   return match ? Number(match[1]) : null
 }
 
+const PAGE_TITLE = '任务'
+const PAGE_DESCRIPTION = '提交一个复杂任务：Agent 会先规划、再检索你的资料、分章节撰写并自我校验。'
+const PAGE_MAX_WIDTH = 1080
+
 export default function TaskPage() {
   const [query, setQuery] = useState('')
   const [running, setRunning] = useState(false)
@@ -67,14 +72,7 @@ export default function TaskPage() {
   const [sources, setSources] = useState<Source[]>([])
   const [finalAnswer, setFinalAnswer] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [health, setHealth] = useState<HealthResponse | null>(null)
   const [copied, setCopied] = useState(false)
-
-  useEffect(() => {
-    getHealth()
-      .then(setHealth)
-      .catch(() => setHealth(null))
-  }, [])
 
   const handleEvent = (event: TaskEvent) => {
     if (event.event === 'task_failed') {
@@ -232,23 +230,11 @@ export default function TaskPage() {
   }))
 
   return (
-    <Space
-      orientation="vertical"
-      size="middle"
-      style={{ width: '100%', maxWidth: 900, margin: '0 auto' }}
+    <PageContainer
+      title={PAGE_TITLE}
+      description={PAGE_DESCRIPTION}
+      maxWidth={PAGE_MAX_WIDTH}
     >
-      <Space>
-        <Text type="secondary">后端状态：</Text>
-        {health ? (
-          <Tag color={health.status === 'ok' ? 'green' : 'red'}>
-            {health.status} · {health.llm_provider}
-            {health.llm_configured ? '' : '（未配置 API Key）'}
-          </Tag>
-        ) : (
-          <Tag color="default">无法连接后端</Tag>
-        )}
-      </Space>
-
       <Card title="提交任务">
         <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
           <TextArea
@@ -394,6 +380,6 @@ export default function TaskPage() {
           <MarkdownView content={finalAnswer} />
         </Card>
       )}
-    </Space>
+    </PageContainer>
   )
 }

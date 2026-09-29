@@ -5,6 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>个人知识库任务型智能体</title>
+    <script>
+      // 在样式生效前恢复主题与毛玻璃偏好，避免首屏闪烁
+      ;(function () {
+        try {
+          var mode = localStorage.getItem('self-agent.theme')
+          document.documentElement.dataset.theme = mode === 'light' ? 'light' : 'dark'
+          document.documentElement.dataset.mica =
+            localStorage.getItem('self-agent.mica') === 'off' ? 'off' : 'on'
+        } catch (e) {
+          document.documentElement.dataset.theme = 'dark'
+          document.documentElement.dataset.mica = 'on'
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,12 +1,17 @@
-import { Alert, Button, Card, Popconfirm, Space, Table, Tag, Typography, Upload } from 'antd'
+import { Alert, Button, Card, Popconfirm, Table, Tag, Typography, Upload } from 'antd'
 import type { UploadProps } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
+import PageContainer from '../components/PageContainer'
 
 import { ApiError, deleteDocument, listDocuments, uploadDocument } from '../services/api'
 import type { DocumentInfo } from '../types/api'
 
 const { Text, Paragraph } = Typography
 const { Dragger } = Upload
+
+const PAGE_TITLE = '知识库'
+const PAGE_DESCRIPTION = '上传 PDF、TXT、Markdown 文档；Agent 检索这些资料并在正文中标注来源。'
+const PAGE_MAX_WIDTH = 1120
 
 export default function KnowledgeBasePage() {
   const [documents, setDocuments] = useState<DocumentInfo[]>([])
@@ -69,10 +74,10 @@ export default function KnowledgeBasePage() {
   }
 
   return (
-    <Space
-      orientation="vertical"
-      size="middle"
-      style={{ width: '100%', maxWidth: 900, margin: '0 auto' }}
+    <PageContainer
+      title={PAGE_TITLE}
+      description={PAGE_DESCRIPTION}
+      maxWidth={PAGE_MAX_WIDTH}
     >
       <Card title="上传文档">
         <Dragger {...uploadProps}>
@@ -128,6 +133,6 @@ export default function KnowledgeBasePage() {
           ]}
         />
       </Card>
-    </Space>
+    </PageContainer>
   )
 }
