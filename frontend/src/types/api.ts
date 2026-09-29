@@ -66,7 +66,10 @@ export interface TaskResult {
   step_results: StepResult[]
   sources: Source[]
   validation: Validation | null
+  /** 全局 replan 次数 */
   retry_count: number
+  /** 未通过校验的章节，如 ["chapter_3"] */
+  failed_chapters: string[]
   final_answer: string
 }
 
@@ -85,6 +88,7 @@ export interface TaskEvent {
   issues?: string[]
   suggested_action?: string
   retry_count?: number
+  exhausted?: boolean
   error_type?: string
   result?: TaskResult
 }

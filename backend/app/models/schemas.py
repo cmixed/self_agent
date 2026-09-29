@@ -90,7 +90,10 @@ class TaskResponse(BaseModel):
     step_results: list[StepResultOut] = Field(default_factory=list)
     sources: list[SourceOut] = Field(default_factory=list)
     validation: ValidationOut | None = None
+    # 全局 replan 次数
     retry_count: int = 0
+    # 未通过校验的章节（如 "chapter_3"）
+    failed_chapters: list[str] = Field(default_factory=list)
     final_answer: str = ""
 
 

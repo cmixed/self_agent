@@ -2,22 +2,30 @@
 
 不是重新生成文章，而是检查内容质量（AGENTS.md §16）：
 
-- **章节级**：还有章节未写完时，校验刚生成的那一章；
-- **整篇**：全部章节写完后，校验整篇文档。
+- **章节级**：校验刚写好的那一章；
+- **整篇**：所有章节写完后，再校验整篇文档。
 
-输出结构化结果 ``{passed, issues, suggested_action, target}``。失败时由路由决定
-重写（retry_writer → writer）或重新规划（replan → planner），并受 ``MAX_RETRIES``
-限制，超限后安全结束（进入 summarizer）。
+重试预算按**章节独立**计（``retry_counts``），每个章节最多失败 ``MAX_RETRIES`` 次：
+
+- 未达上限：重写该章（``retry_writer``）；
+- 已达上限：记录失败原因并**跳过该章**，其余章节继续执行；
+- replan 是计划级操作，用全局 ``retry_count`` 单独限次。
+
+任何路径都不会无限循环（§27）。
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Awaitable, Callable
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.agents.chapters import (
+    chapter_target,
+    last_written_index,
+    next_pending_index,
+)
 from app.agents.summarizer import assemble_document
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
@@ -25,8 +33,6 @@ from app.models.state import AgentState, Section, StepResult, ValidationResult
 from app.rag.tools import format_context
 
 logger = get_logger(__name__)
-
-_CHAPTER_TARGET = re.compile(r"^chapter_(\d+)$")
 
 _VALIDATOR_SYSTEM_PROMPT = """你是内容校验员。请检查给定内容是否满足任务要求。
 
@@ -54,6 +60,29 @@ class ValidationModel(BaseModel):
     suggested_action: Literal["continue", "retry_writer", "replan"] = "continue"
 
 
+def resolve_scope(state: AgentState, *, max_retries: int) -> tuple[str, int | None]:
+    """判断本次校验的范围。
+
+    返回 ``("chapter", index)`` 或 ``("document", None)``。
+    """
+    outline = state.get("outline") or []
+    if not outline:
+        return "document", None
+
+    current = last_written_index(state.get("sections") or [])
+    if current is None:
+        return "document", None
+
+    validations = state.get("chapter_validations") or {}
+    latest = validations.get(chapter_target(current))
+    chapter_done = isinstance(latest, dict) and bool(latest.get("passed"))
+    pending = next_pending_index(state, max_retries=max_retries)
+
+    if pending is not None or not chapter_done:
+        return "chapter", current
+    return "document", None
+
+
 def _render_input(state: AgentState, *, scope: str, target: str, content: str) -> str:
     plan = state.get("plan")
     lines = [f"用户任务：{state.get('user_query', '')}"]
@@ -75,8 +104,8 @@ def _render_input(state: AgentState, *, scope: str, target: str, content: str) -
     if documents:
         lines.append(f"检索到的资料：\n{format_context(documents)}")
 
-    scope_label = "整篇文档" if scope == "document" else f"章节（{target}）"
-    lines.append(f"待校验内容（{scope_label}）：\n{content}")
+    label = "整篇文档" if scope == "document" else f"章节（{target}）"
+    lines.append(f"待校验内容（{label}）：\n{content}")
     return "\n".join(lines)
 
 
@@ -87,14 +116,16 @@ def _render_chapter(sections: list[Section], index: int) -> str:
     return f"## {section.get('title', '')}\n\n{section.get('content', '')}"
 
 
-def resolve_target(state: AgentState) -> tuple[str, str]:
-    """返回 (target, content)：``target`` 为 ``document`` 或 ``chapter_N``。"""
-    outline = state.get("outline") or []
-    sections = state.get("sections") or []
-    if len(sections) < len(outline):
-        index = len(sections) - 1
-        return f"chapter_{index + 1}", _render_chapter(sections, index)
-    return "document", assemble_document(state)
+def _normalize_action(model: ValidationModel, *, scope: str) -> str:
+    if model.passed:
+        return "continue"
+    if model.suggested_action == "continue":
+        # 模型自相矛盾（未通过却说 continue）时按重写处理，避免空转
+        return "retry_writer"
+    if scope == "document" and model.suggested_action == "retry_writer":
+        # 整篇问题无法定位到具体章节，升级为重新规划
+        return "replan"
+    return model.suggested_action
 
 
 def make_validator_node(
@@ -103,8 +134,14 @@ def make_validator_node(
     """构造 validator 节点。"""
 
     async def validator_node(state: AgentState) -> dict:
-        target, content = resolve_target(state)
-        scope = "document" if target == "document" else "chapter"
+        scope, index = resolve_scope(state, max_retries=max_retries)
+        sections = state.get("sections") or []
+        if scope == "chapter" and index is not None:
+            target = chapter_target(index)
+            content = _render_chapter(sections, index)
+        else:
+            target = "document"
+            content = assemble_document(state, max_retries=max_retries)
 
         messages = [
             ChatMessage(role="system", content=_VALIDATOR_SYSTEM_PROMPT),
@@ -116,22 +153,28 @@ def make_validator_node(
         model = await llm.chat_structured(
             messages, ValidationModel, temperature=0.0, max_retries=max_retries
         )
-
-        if model.passed:
-            action = "continue"
-        elif model.suggested_action == "continue":
-            # 模型自相矛盾（未通过却说 continue）时按重写处理，避免空转
-            action = "retry_writer"
-        else:
-            action = model.suggested_action
+        action = _normalize_action(model, scope=scope)
 
         result = ValidationResult(
             passed=model.passed,
             issues=list(model.issues),
-            suggested_action=action,
+            suggested_action=action,  # type: ignore[typeddict-item]
             target=target,
         )
-        retry_count = state.get("retry_count", 0) + (0 if model.passed else 1)
+
+        # 计费：章节失败计入该章的独立预算；replan 计入全局次数
+        retry_counts = dict(state.get("retry_counts") or {})
+        replan_count = state.get("retry_count", 0)
+        if not model.passed:
+            if action == "replan":
+                replan_count += 1
+            else:
+                retry_counts[target] = retry_counts.get(target, 0) + 1
+        chapter_validations = {**(state.get("chapter_validations") or {}), target: result}
+
+        exhausted = (
+            not model.passed and action != "replan" and retry_counts.get(target, 0) >= max_retries
+        )
 
         logger.info(
             "validator 完成",
@@ -142,14 +185,19 @@ def make_validator_node(
                 "status": "ok" if model.passed else "failed",
             },
         )
-        summary = (
-            f"校验通过（{target}）"
-            if model.passed
-            else f"校验未通过（{target}）：{'；'.join(model.issues) or action}"
-        )
+        if model.passed:
+            summary = f"校验通过（{target}）"
+        else:
+            reason = "；".join(model.issues) or action
+            summary = f"校验未通过（{target}）：{reason}"
+            if exhausted:
+                summary = f"{summary}；该章节已达重试上限，跳过并继续其他章节"
+
         return {
             "validation_result": result,
-            "retry_count": retry_count,
+            "chapter_validations": chapter_validations,
+            "retry_counts": retry_counts,
+            "retry_count": replan_count,
             "task_status": "validating",
             "current_step": f"validate_{target}",
             "messages": [ChatMessage(role="assistant", content=f"[validator] {summary}")],
@@ -166,30 +214,37 @@ def make_validator_node(
 
 
 def make_route_after_validation(*, max_retries: int):
-    """构造 validator 之后的路由函数。"""
+    """构造 validator 之后的路由函数。
+
+    可能的目标：``writer``（继续写 / 重写）、``planner``（replan）、
+    ``validator``（进入整篇校验）、``summarize``（完成或安全结束）。
+    """
 
     def route_after_validation(state: AgentState) -> str:
         result = state.get("validation_result") or {}
-        outline = state.get("outline") or []
-        sections = state.get("sections") or []
-        retry_count = state.get("retry_count", 0)
+        target = str(result.get("target", ""))
+        is_document = target == "document"
+        retry_counts = state.get("retry_counts") or {}
+        replan_count = state.get("retry_count", 0)
+        pending = next_pending_index(state, max_retries=max_retries)
 
         if result.get("passed"):
-            # 通过：还有章节就继续写，否则汇总
-            return "writer" if len(sections) < len(outline) else "summarize"
+            if is_document:
+                return "summarize"
+            if pending is not None:
+                return "writer"
+            # 章节全部完成，进入整篇校验
+            return "validator"
 
-        # 未通过：超过重试上限则安全结束（§16）
-        if retry_count >= max_retries:
-            return "summarize"
-
-        if result.get("suggested_action") == "replan":
+        if result.get("suggested_action") == "replan" and replan_count < max_retries:
             return "planner"
-        return "writer"
+
+        if not is_document and retry_counts.get(target, 0) < max_retries:
+            return "writer"
+
+        # 该章已达上限（或被跳过）：继续其他章节，否则进入整篇校验
+        if pending is not None:
+            return "writer"
+        return "summarize" if is_document else "validator"
 
     return route_after_validation
-
-
-def chapter_index_from_target(target: str) -> int | None:
-    """``"chapter_2"`` -> ``1``（0 基下标）；``"document"`` -> ``None``。"""
-    match = _CHAPTER_TARGET.match(target or "")
-    return int(match.group(1)) - 1 if match else None

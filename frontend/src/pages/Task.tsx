@@ -47,6 +47,11 @@ function markRunningAsError(stages: Record<StageKey, StageStatus>): Record<Stage
 const TARGET_LABEL = (target: string) =>
   target === 'document' ? '整篇文档' : `章节 ${target.replace('chapter_', '')}`
 
+const chapterNumber = (target: string): number | null => {
+  const match = /^chapter_(\d+)$/.exec(target)
+  return match ? Number(match[1]) : null
+}
+
 export default function TaskPage() {
   const [query, setQuery] = useState('')
   const [running, setRunning] = useState(false)
@@ -55,9 +60,9 @@ export default function TaskPage() {
   const [retrievedCount, setRetrievedCount] = useState<number | null>(null)
   const [plan, setPlan] = useState<Plan | null>(null)
   const [outline, setOutline] = useState<string[]>([])
-  const [chaptersDone, setChaptersDone] = useState(0)
+  const [chapterStatus, setChapterStatus] = useState<Record<number, 'written' | 'passed' | 'failed'>>({})
   const [validation, setValidation] = useState<Validation | null>(null)
-  const [retries, setRetries] = useState(0)
+  const [replans, setReplans] = useState(0)
   const [sources, setSources] = useState<Source[]>([])
   const [finalAnswer, setFinalAnswer] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -88,13 +93,21 @@ export default function TaskPage() {
       setSources(event.result?.sources ?? [])
       if (event.result?.outline?.length) setOutline(event.result.outline)
       if (event.result?.validation) setValidation(event.result.validation)
-      setRetries(event.result?.retry_count ?? 0)
+      setReplans(event.result?.retry_count ?? 0)
+      // 标记最终未通过校验的章节
+      for (const target of event.result?.failed_chapters ?? []) {
+        const n = chapterNumber(target)
+        if (n !== null) setChapterStatus((prev) => ({ ...prev, [n]: 'failed' }))
+      }
       return
     }
     if (event.event === 'retrying') {
       // 校验未通过，稍后会重新执行 writer / planner
       setStages((prev) => ({ ...prev, validator: 'wait' }))
-      setRetries(event.retry_count ?? 0)
+      if (event.exhausted) {
+        const n = chapterNumber(event.target ?? '')
+        if (n !== null) setChapterStatus((prev) => ({ ...prev, [n]: 'failed' }))
+      }
       return
     }
 
@@ -120,10 +133,17 @@ export default function TaskPage() {
     }
     if (event.event === 'outline_completed') {
       setOutline(event.outline ?? [])
-      setChaptersDone(0)
+      setChapterStatus({})
     }
     if (event.event === 'writer_completed') {
-      setChaptersDone((prev) => prev + 1)
+      const n = chapterNumber(event.step ?? '')
+      if (n !== null) setChapterStatus((prev) => ({ ...prev, [n]: 'written' }))
+    }
+    if (event.event === 'validator_completed' && event.target?.startsWith('chapter_')) {
+      const n = chapterNumber(event.target)
+      if (n !== null) {
+        setChapterStatus((prev) => ({ ...prev, [n]: event.passed ? 'passed' : 'written' }))
+      }
     }
     if (event.event === 'validator_completed') {
       setValidation({
@@ -138,9 +158,9 @@ export default function TaskPage() {
   const reset = () => {
     setPlan(null)
     setOutline([])
-    setChaptersDone(0)
+    setChapterStatus({})
     setValidation(null)
-    setRetries(0)
+    setReplans(0)
     setSources([])
     setFinalAnswer(null)
     setError(null)
@@ -167,9 +187,10 @@ export default function TaskPage() {
   }
 
   const finishedCount = STAGE_ORDER.filter((key) => stages[key] === 'finish').length
+  const writtenCount = Object.values(chapterStatus).filter((s) => s !== 'failed').length
   const chapterHint =
     outline.length > 0 && stages.writer !== 'wait'
-      ? `（第 ${Math.min(chaptersDone + (stages.writer === 'process' ? 1 : 0), outline.length)}/${outline.length} 章）`
+      ? `（已写 ${writtenCount}/${outline.length} 章）`
       : ''
 
   const stepItems = STAGE_ORDER.map((key) => ({
@@ -238,7 +259,7 @@ export default function TaskPage() {
               <Tag color={retrievedCount > 0 ? 'blue' : 'orange'}>{retrievedCount} 条片段</Tag>
             </span>
           )}
-          {retries > 0 && <Tag color="volcano">已重试 {retries} 次</Tag>}
+          {replans > 0 && <Tag color="volcano">已重新规划 {replans} 次</Tag>}
         </Space>
       </Card>
 
@@ -270,14 +291,23 @@ export default function TaskPage() {
       {outline.length > 0 && (
         <Card title="文章大纲">
           <ol style={{ paddingLeft: 20, margin: 0 }}>
-            {outline.map((title, index) => (
-              <li key={`${index}-${title}`} style={{ marginBottom: 6 }}>
-                <Text type={index < chaptersDone ? undefined : 'secondary'}>
-                  {index < chaptersDone ? '✓ ' : ''}
-                  {title}
-                </Text>
-              </li>
-            ))}
+            {outline.map((title, index) => {
+              const num = index + 1
+              const status = chapterStatus[num]
+              return (
+                <li key={`${index}-${title}`} style={{ marginBottom: 6 }}>
+                  <Text type={status === undefined ? 'secondary' : undefined}>
+                    {status === 'passed' ? '✓ ' : status === 'failed' ? '✗ ' : status === 'written' ? '• ' : '○ '}
+                    {title}
+                  </Text>
+                  {status === 'failed' && (
+                    <Tag color="red" style={{ marginLeft: 8 }}>
+                      未通过校验
+                    </Tag>
+                  )}
+                </li>
+              )
+            })}
           </ol>
         </Card>
       )}

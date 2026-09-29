@@ -16,17 +16,18 @@ from app.core.agent_graph import build_graph
 from app.models.state import initial_state
 from app.services.task_service import TaskService, task_result
 
-# planner -> outline -> 逐章写作 + 校验(2 章) -> summarizer
+# planner -> outline -> 每章 (writer -> validator) -> 整篇校验 -> summarizer
 _HAPPY_STEPS = [
     "plan",
     "outline",
     "chapter_1",
     "validate_chapter_1",
     "chapter_2",
+    "validate_chapter_2",
     "validate_document",
     "summarize",
 ]
-_HAPPY_JSON_MODES = [True, True, False, True, False, True]
+_HAPPY_JSON_MODES = [True, True, False, True, False, True, True]
 
 
 def _step_ids(state: dict) -> list[str]:
@@ -75,7 +76,9 @@ async def test_graph_rewrites_chapter_when_validation_fails() -> None:
     assert final["task_status"] == "completed"
     assert len(final["sections"]) == 2
     assert final["sections"][0]["content"] == "修正后的第一章"
-    assert final["retry_count"] == 1
+    # 章节重试不占用全局 replan 预算
+    assert final["retry_count"] == 0
+    assert final["retry_counts"] == {"chapter_1": 1}
     assert final["validation_result"]["passed"] is True
     assert _step_ids(final) == [
         "plan",
@@ -85,6 +88,7 @@ async def test_graph_rewrites_chapter_when_validation_fails() -> None:
         "chapter_1",
         "validate_chapter_1",
         "chapter_2",
+        "validate_chapter_2",
         "validate_document",
         "summarize",
     ]
@@ -92,8 +96,40 @@ async def test_graph_rewrites_chapter_when_validation_fails() -> None:
     assert "第一章过于空泛" in provider.calls[4][1].content
 
 
+async def test_graph_skips_exhausted_chapter_and_continues() -> None:
+    """某章达重试上限后跳过，其他章节继续执行，并在最终结果中标记（per-chapter 预算）。"""
+    provider = ScriptedProvider(
+        [PLAN_JSON, OUTLINE_JSON, "失败的第一章", validation_fail_json("retry_writer")]
+    )
+    graph = build_graph(provider, max_retries=1)
+
+    final = await graph.ainvoke(initial_state("写一篇 RAG 综述", task_id="t-skip"))
+
+    assert final["task_status"] == "completed"
+    # 第 1 章失败被跳过，第 2 章仍继续
+    assert _step_ids(final) == [
+        "plan",
+        "outline",
+        "chapter_1",
+        "validate_chapter_1",
+        "chapter_2",
+        "validate_chapter_2",
+        "validate_document",
+        "summarize",
+    ]
+    assert final["sections"][0]["content"] == "失败的第一章"
+    assert final["sections"][1]["content"]  # 第 2 章正常产出
+    assert final["retry_counts"] == {"chapter_1": 1}
+    assert final["retry_count"] == 0  # 章节失败不消耗 replan 预算
+
+    result = task_result(final, max_retries=1)
+    assert result["failed_chapters"] == ["chapter_1"]
+    # 最终结果明确标记未通过
+    assert "未通过校验" in result["final_answer"]
+
+
 async def test_graph_replans_when_validation_says_replan() -> None:
-    """整篇校验失败且判定为计划问题 -> replan 回到 planner 并重置章节。"""
+    """replan 回到 planner 并重置章节与预算（replan 使用全局预算）。"""
     provider = ScriptedProvider(
         [
             PLAN_JSON,
@@ -113,30 +149,9 @@ async def test_graph_replans_when_validation_says_replan() -> None:
     assert _step_ids(final).count("plan") == 2
     assert len(final["sections"]) == 2
     assert final["sections"][0]["content"] == "重新规划后的第一章"
-    assert final["retry_count"] == 1
+    assert final["retry_count"] == 1  # replan 计数
     assert final["validation_result"]["passed"] is True
-
-
-async def test_graph_stops_retrying_at_limit() -> None:
-    """超过 MAX_RETRIES 后不再重试，安全结束并输出当前结果（§16）。"""
-    provider = ScriptedProvider(
-        [PLAN_JSON, OUTLINE_JSON, "唯一初稿", validation_fail_json("retry_writer")]
-    )
-    graph = build_graph(provider, max_retries=1)
-
-    final = await graph.ainvoke(initial_state("写一篇 RAG 综述", task_id="t-cap"))
-
-    assert final["task_status"] == "completed"
-    assert final["retry_count"] == 1
-    assert final["validation_result"]["passed"] is False
-    assert _step_ids(final) == [
-        "plan",
-        "outline",
-        "chapter_1",
-        "validate_chapter_1",
-        "summarize",
-    ]
-    assert "唯一初稿" in final["final_answer"]
+    assert final["retry_counts"] == {}  # replan 后章节预算重置
 
 
 async def test_task_service_assigns_task_id_and_runs_graph() -> None:
@@ -179,6 +194,7 @@ async def test_graph_with_retrieval_runs_researcher_and_feeds_writer(
         "chapter_1",
         "validate_chapter_1",
         "chapter_2",
+        "validate_chapter_2",
         "validate_document",
         "summarize",
     ]
@@ -200,7 +216,7 @@ async def test_task_service_reports_sources_and_references(tmp_path: Path) -> No
     )
 
     state = await service.run("写一篇 RAG 综述")
-    result = task_result(state)
+    result = task_result(state, max_retries=0)
 
     assert result["sources"]
     first = result["sources"][0]
@@ -213,3 +229,4 @@ async def test_task_service_reports_sources_and_references(tmp_path: Path) -> No
     assert "[1] rag.md" in result["final_answer"]
     assert result["validation"]["passed"] is True
     assert result["retry_count"] == 0
+    assert result["failed_chapters"] == []

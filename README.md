@@ -138,9 +138,12 @@ START → Planner ──(计划需要检索)──→ Researcher(RAG Tool) ─�
 - 检索结果保留来源元数据，正文用 `[n]` 标注，结果中返回 `sources` 列表
 - 长文先由 Outline 生成章节，再由 Writer **每次写一章**循环完成，最后 Summarizer 汇总
   并统一追加「参考来源」（章节数上限 `MAX_SECTIONS`，杜绝无限循环）
-- Validator 先做**章节级**校验、全部写完后再做**整篇**校验；未通过时按
-  `suggested_action` 选择重写该章（`retry_writer`）或重新规划（`replan`），
-  累计失败次数受 `MAX_RETRIES` 限制，超限后进入 Summarizer 安全结束
+- Validator 先做**章节级**校验，全部章节写完后做**整篇**校验；
+- 重试预算**按章节独立**（`retry_counts`，上限 `MAX_RETRIES`）：未达上限则重写该章，
+  已达上限则记录问题、**跳过该章**并继续其他章节，最终结果中明确标记未通过；
+- 计划级问题走 `replan` 回到 Planner（用全局 `retry_count` 单独限次）；
+- 循环上限：章节数 `MAX_SECTIONS`、每章重试 `MAX_RETRIES`、replan 限次，
+  并由 `recursion_limit` 兜底，任何路径都不会无限循环
 
 ## 接口
 
@@ -175,6 +178,7 @@ START → Planner ──(计划需要检索)──→ Researcher(RAG Tool) ─�
   "sources": [{ "index": 1, "filename": "rag.md", "page": null, "score": 0.69 }],
   "validation": { "passed": true, "issues": [], "suggested_action": "continue", "target": "document" },
   "retry_count": 0,
+  "failed_chapters": [],
   "final_answer": "# ..."
 }
 ```

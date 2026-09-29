@@ -11,14 +11,12 @@ from collections.abc import Awaitable, Callable
 
 from pydantic import BaseModel, Field
 
+from app.agents.chapters import MAX_SECTIONS
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, Section, StepResult
 
 logger = get_logger(__name__)
-
-# 章节数硬上限：防止异常情况下无界循环（§27 禁止无限 Loop）
-MAX_SECTIONS = 8
 
 _OUTLINE_SYSTEM_PROMPT = """你是一个写作大纲设计者。请为用户的写作任务设计章节大纲。
 
@@ -71,6 +69,8 @@ def make_outline_node(
 
         outline = [Section(title=section.title, content="") for section in outline_model.sections]
         titles = [section["title"] for section in outline]
+        # sections 与 outline 按下标对齐，供逐章填充 / 重写 / 跳过失败章节
+        sections = [Section(title=title, content="") for title in titles]
 
         logger.info(
             "outline 完成",
@@ -83,9 +83,11 @@ def make_outline_node(
         )
         return {
             "outline": outline,
-            # replan 时重置生成结果，确保从干净状态重新写作
-            "sections": [],
+            # replan 时重置生成与校验状态，确保从干净状态重新写作
+            "sections": sections,
             "validation_result": None,
+            "retry_counts": {},
+            "chapter_validations": {},
             "current_step": "outline",
             "task_status": "writing",
             "messages": [

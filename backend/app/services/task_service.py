@@ -5,12 +5,14 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 from uuid import uuid4
 
-from app.core.agent_graph import build_graph
+from langgraph.errors import GraphRecursionError
+
+from app.agents.chapters import chapter_index_from_target, chapter_target, failed_chapters
+from app.core.agent_graph import build_graph, recursion_limit
 from app.core.errors import resolve_error
 from app.core.logging import get_logger
 from app.llm.base import LLMError, LLMProvider
@@ -52,8 +54,9 @@ def _sources(documents: list[RetrievedDocument]) -> list[dict[str, Any]]:
     return sources
 
 
-def task_result(state: AgentState) -> dict[str, Any]:
+def task_result(state: AgentState, *, max_retries: int) -> dict[str, Any]:
     """把最终状态整理为 API 结果结构（TaskResponse 的字段集合）。"""
+    failed = failed_chapters(state, max_retries=max_retries)
     return {
         "task_id": state.get("task_id", ""),
         "status": state.get("task_status", "failed"),
@@ -63,6 +66,7 @@ def task_result(state: AgentState) -> dict[str, Any]:
         "sources": _sources(state.get("retrieved_documents") or []),
         "validation": state.get("validation_result"),
         "retry_count": state.get("retry_count", 0),
+        "failed_chapters": [chapter_target(index) for index in failed],
         "final_answer": state.get("final_answer", ""),
     }
 
@@ -70,20 +74,24 @@ def task_result(state: AgentState) -> dict[str, Any]:
 def _chapter_index(node_input: Any) -> int | None:
     """从节点输入推断本次要写第几章。
 
-    重写时（validator 判定 retry_writer）以校验对象为准，否则为「已写章节数 + 1」。
+    重写时（validator 判定 retry_writer）以校验对象为准，否则为「下一个待写章节 + 1」。
     """
     if not isinstance(node_input, dict):
         return None
 
     validation = node_input.get("validation_result")
     if isinstance(validation, dict) and not validation.get("passed"):
-        match = re.match(r"^chapter_(\d+)$", str(validation.get("target", "")))
-        if match:
-            return int(match.group(1))
+        index = chapter_index_from_target(str(validation.get("target", "")))
+        if index is not None:
+            return index + 1
 
     sections = node_input.get("sections")
-    written = len(sections) if isinstance(sections, list) else 0
-    return written + 1
+    if isinstance(sections, list):
+        for index, section in enumerate(sections):
+            if not (section.get("content") or "").strip():
+                return index + 1
+        return len(sections) + 1
+    return None
 
 
 class TaskService:
@@ -99,6 +107,15 @@ class TaskService:
         self._graph = build_graph(llm, rag_tool_provider=rag_tool_provider, max_retries=max_retries)
         self._max_retries = max_retries
 
+    @property
+    def _config(self) -> dict[str, Any]:
+        """图执行配置：给 LangGraph 足够大的超步上界（任务本身由预算约束）。"""
+        return {"recursion_limit": recursion_limit(self._max_retries)}
+
+    @property
+    def max_retries(self) -> int:
+        return self._max_retries
+
     async def run(
         self,
         query: str,
@@ -113,7 +130,7 @@ class TaskService:
             "任务开始",
             extra={"task_id": run_id, "event": "task_started", "status": "running"},
         )
-        final_state = await self._graph.ainvoke(state)
+        final_state = await self._graph.ainvoke(state, config=self._config)
         logger.info(
             "任务结束",
             extra={
@@ -143,7 +160,7 @@ class TaskService:
         final_state: AgentState = state
 
         try:
-            async for event in self._graph.astream_events(state, version="v2"):
+            async for event in self._graph.astream_events(state, version="v2", config=self._config):
                 name = event.get("name")
                 kind = event.get("event")
 
@@ -222,6 +239,44 @@ class TaskService:
                 error_type=exc.error_type,
             )
             return
+        except GraphRecursionError:
+            # 兜底：即使超出安全上界，也要以可读事件结束，而不是中断 SSE（§20）
+            logger.error(
+                "图执行超出超步上限",
+                extra={
+                    "task_id": run_id,
+                    "event": "task_failed",
+                    "status": "error",
+                    "error_type": "graph_recursion_limit",
+                },
+            )
+            yield _event(
+                run_id,
+                "task_failed",
+                status="error",
+                message="任务步骤过多，已超出安全上限并终止",
+                error_type="graph_recursion_limit",
+            )
+            return
+        except Exception:
+            # 未知异常：记录堆栈供排查，但不把细节返回给前端
+            logger.exception(
+                "任务执行出现未预期错误",
+                extra={
+                    "task_id": run_id,
+                    "event": "task_failed",
+                    "status": "error",
+                    "error_type": "internal_error",
+                },
+            )
+            yield _event(
+                run_id,
+                "task_failed",
+                status="error",
+                message="任务执行出现内部错误，请查看后端日志",
+                error_type="internal_error",
+            )
+            return
 
         status = final_state.get("task_status", "failed")
         if status != "completed":
@@ -237,7 +292,7 @@ class TaskService:
             "task_completed",
             status="completed",
             message="任务完成",
-            result=task_result(final_state),
+            result=task_result(final_state, max_retries=self._max_retries),
         )
 
 
@@ -268,15 +323,17 @@ def _retrying_event(
     result = validation.get("validation_result") or {}
     action = result.get("suggested_action")
     target = result.get("target") or "document"
-    retry_count = validation.get("retry_count", 0)
     issues = result.get("issues") or []
+    retry_counts = validation.get("retry_counts") or {}
+    attempts = retry_counts.get(target, 0)
+    exhausted = target != "document" and attempts >= max_retries
 
-    if retry_count >= max_retries:
-        message = f"重试已达上限（{max_retries} 次），转为安全结束并输出当前结果"
+    if exhausted:
+        message = f"{target} 已达重试上限（{max_retries} 次），跳过该章节并继续其他章节"
     elif action == "replan":
-        message = f"校验未通过，重新规划任务（第 {retry_count} 次重试）"
+        message = f"校验未通过，重新规划任务（第 {validation.get('retry_count', 0)} 次重规划）"
     else:
-        message = f"校验未通过，重写 {target}（第 {retry_count} 次重试）"
+        message = f"校验未通过，重写 {target}（第 {attempts} 次重试）"
 
     return _event(
         task_id,
@@ -286,5 +343,6 @@ def _retrying_event(
         step=target,
         suggested_action=action,
         issues=issues,
-        retry_count=retry_count,
+        retry_count=attempts,
+        exhausted=exhausted,
     )

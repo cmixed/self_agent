@@ -25,15 +25,29 @@ from collections.abc import Callable
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from app.agents.chapters import MAX_SECTIONS
 from app.agents.outline import make_outline_node
 from app.agents.planner import make_planner_node, make_route_after_planner
 from app.agents.researcher import make_researcher_node
-from app.agents.summarizer import summarizer_node
+from app.agents.summarizer import make_summarizer_node
 from app.agents.validator import make_route_after_validation, make_validator_node
 from app.agents.writer import make_writer_node
 from app.llm.base import LLMProvider
 from app.models.state import AgentState
 from app.rag.tools import RagTool
+
+
+def recursion_limit(max_retries: int) -> int:
+    """LangGraph 的最大超步数（安全兜底）。
+
+    图本身的循环都由「章节数上限 MAX_SECTIONS」与「重试预算」约束，这里给出一个
+    覆盖最坏情况的宽松上界，避免触发 LangGraph 默认值 25 而中断任务。
+    """
+    retries = max(0, max_retries)
+    per_pass = (
+        5 + 2 * MAX_SECTIONS * (1 + retries) + 2
+    )  # planner/researcher/outline + 各章 + 整篇校验
+    return (retries + 1) * per_pass + 10
 
 
 def build_graph(
@@ -51,9 +65,9 @@ def build_graph(
 
     graph.add_node("planner", make_planner_node(llm, max_retries=max_retries))
     graph.add_node("outline", make_outline_node(llm, max_retries=max_retries))
-    graph.add_node("writer", make_writer_node(llm))
+    graph.add_node("writer", make_writer_node(llm, max_retries=max_retries))
     graph.add_node("validator", make_validator_node(llm, max_retries=max_retries))
-    graph.add_node("summarizer", summarizer_node)
+    graph.add_node("summarizer", make_summarizer_node(max_retries=max_retries))
 
     routes: dict[str, str] = {"outline": "outline", "end": END}
     if rag_tool_provider is not None:
@@ -69,11 +83,16 @@ def build_graph(
     )
     graph.add_edge("outline", "writer")
     graph.add_edge("writer", "validator")
-    # 校验后：继续写 / 重写 / 重新规划 / 汇总（含重试上限的安全结束）
+    # 校验后：继续写 / 重写 / 进入整篇校验 / 重新规划 / 汇总（含安全结束）
     graph.add_conditional_edges(
         "validator",
         make_route_after_validation(max_retries=max_retries),
-        {"writer": "writer", "planner": "planner", "summarize": "summarizer"},
+        {
+            "writer": "writer",
+            "planner": "planner",
+            "validator": "validator",
+            "summarize": "summarizer",
+        },
     )
     graph.add_edge("summarizer", END)
 

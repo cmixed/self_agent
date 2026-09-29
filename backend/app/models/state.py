@@ -89,11 +89,17 @@ class AgentState(TypedDict, total=False):
     retrieved_documents: Annotated[list[RetrievedDocument], add]
     # --- 生成 ---
     outline: list[Section]
-    # 覆盖语义（writer 每次返回完整列表）：支持重写某一章与 replan 后重置
+    # 覆盖语义、与 outline 下标对齐：支持重写某一章、跳过失败章节与 replan 后重置
     sections: list[Section]
     draft: str
     # --- 验证与重试（Phase 4B）---
+    # 最近一次校验结果
     validation_result: ValidationResult | None
+    # 章节 -> 已失败次数（每章独立预算，上限 MAX_RETRIES）
+    retry_counts: dict[str, int]
+    # 章节 -> 最近一次校验结果（"document" 表示整篇校验）
+    chapter_validations: dict[str, ValidationResult]
+    # 全局 replan 次数（replan 是计划级操作，单独计数，避免无限循环）
     retry_count: int
     # --- 输出 ---
     final_answer: str
@@ -121,6 +127,8 @@ def initial_state(
         sections=[],
         draft="",
         validation_result=None,
+        retry_counts={},
+        chapter_validations={},
         retry_count=0,
         final_answer="",
         task_status="pending",

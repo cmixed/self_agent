@@ -58,6 +58,7 @@ def test_create_task_returns_plan_outline_and_answer() -> None:
         "chapter_1",
         "validate_chapter_1",
         "chapter_2",
+        "validate_chapter_2",
         "validate_document",
         "summarize",
     ]
@@ -66,6 +67,7 @@ def test_create_task_returns_plan_outline_and_answer() -> None:
     assert body["validation"]["passed"] is True
     assert body["validation"]["target"] == "document"
     assert body["retry_count"] == 0
+    assert body["failed_chapters"] == []
 
 
 def test_create_task_with_retrieval_returns_sources(tmp_path: Path) -> None:
@@ -86,6 +88,7 @@ def test_create_task_with_retrieval_returns_sources(tmp_path: Path) -> None:
         "chapter_1",
         "validate_chapter_1",
         "chapter_2",
+        "validate_chapter_2",
         "validate_document",
         "summarize",
     ]
@@ -104,8 +107,34 @@ def test_create_task_reports_validation_failure_and_retry(tmp_path: Path) -> Non
 
     assert response.status_code == 200
     body = response.json()
-    assert body["retry_count"] == 1
+    # 章节重试不占用 replan 预算
+    assert body["retry_count"] == 0
     assert body["validation"]["passed"] is True
+    assert body["failed_chapters"] == []
+
+
+def test_create_task_marks_failed_chapter_and_keeps_going(tmp_path: Path) -> None:
+    """每章独立预算：第 1 章达上限被标记，第 2 章仍继续产出。"""
+    provider = ScriptedProvider(
+        [PLAN_JSON, OUTLINE_JSON, "失败的第一章", validation_fail_json("retry_writer")]
+    )
+    with make_client(provider, max_retries=1) as client:
+        response = client.post("/api/tasks", json={"query": "写一篇 RAG 综述"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["failed_chapters"] == ["chapter_1"]
+    assert [result["step_id"] for result in body["step_results"]] == [
+        "plan",
+        "outline",
+        "chapter_1",
+        "validate_chapter_1",
+        "chapter_2",
+        "validate_chapter_2",
+        "validate_document",
+        "summarize",
+    ]
+    assert "未通过校验" in body["final_answer"]
 
 
 def test_create_task_rejects_empty_query() -> None:

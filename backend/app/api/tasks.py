@@ -29,7 +29,7 @@ async def create_task(
     service: TaskService = Depends(get_task_service),
 ) -> TaskResponse:
     state = await service.run(request.query, user_preferences=request.user_preferences)
-    return TaskResponse.model_validate(task_result(state))
+    return TaskResponse.model_validate(task_result(state, max_retries=service.max_retries))
 
 
 @router.post("/tasks/stream")

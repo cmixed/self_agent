@@ -18,7 +18,7 @@ from app.api.deps import get_task_service
 from app.main import create_app
 from app.services.task_service import TaskService
 
-# planner -> outline -> (writer -> validator) x2 -> summarizer
+# planner -> outline -> 每章 (writer -> validator) -> 整篇校验 -> summarizer
 _HAPPY_EVENTS = [
     "task_started",
     "planner_started",
@@ -31,6 +31,8 @@ _HAPPY_EVENTS = [
     "validator_completed",
     "writer_started",
     "writer_completed",
+    "validator_started",
+    "validator_completed",
     "validator_started",
     "validator_completed",
     "summarizer_started",
@@ -70,7 +72,11 @@ async def test_stream_emits_events_in_execution_order() -> None:
 
     # 校验事件带结果信息
     validations = [event for event in events if event["event"] == "validator_completed"]
-    assert [event["target"] for event in validations] == ["chapter_1", "document"]
+    assert [event["target"] for event in validations] == [
+        "chapter_1",
+        "chapter_2",
+        "document",
+    ]
     assert all(event["passed"] is True for event in validations)
 
     completed = events[-1]
@@ -91,25 +97,36 @@ async def test_stream_emits_retrying_event_on_failure() -> None:
     retrying = next(event for event in events if event["event"] == "retrying")
     assert retrying["step"] == "chapter_1"
     assert retrying["retry_count"] == 1
+    assert retrying["exhausted"] is False
     assert "重写" in retrying["message"]
 
-    # 重试后仍能完成，且记录了 retry_count
+    # 重试后仍能完成
     assert names[-1] == "task_completed"
-    assert events[-1]["result"]["retry_count"] == 1
-    assert events[-1]["result"]["validation"]["passed"] is True
+    result = events[-1]["result"]
+    assert result["validation"]["passed"] is True
+    assert result["failed_chapters"] == []
 
 
-async def test_stream_reports_retry_cap_message() -> None:
+async def test_stream_marks_exhausted_chapter_and_continues() -> None:
+    """每章独立预算：达上限后跳过该章，其余章节继续。"""
     provider = ScriptedProvider(
-        [PLAN_JSON, OUTLINE_JSON, "初稿", validation_fail_json("retry_writer")]
+        [PLAN_JSON, OUTLINE_JSON, "失败的第一章", validation_fail_json("retry_writer")]
     )
     service = TaskService(provider, max_retries=1)
 
     events = await collect(service, "写一篇 RAG 综述")
     retrying = next(event for event in events if event["event"] == "retrying")
 
+    assert retrying["exhausted"] is True
     assert "上限" in retrying["message"]
-    assert events[-1]["result"]["validation"]["passed"] is False
+    assert "跳过" in retrying["message"]
+
+    result = events[-1]["result"]
+    assert result["failed_chapters"] == ["chapter_1"]
+    # 第 2 章仍然继续并被写入
+    written = [event["step"] for event in events if event["event"] == "writer_completed"]
+    assert written == ["chapter_1", "chapter_2"]
+    assert "未通过校验" in result["final_answer"]
 
 
 async def test_stream_converts_error_to_task_failed() -> None:
