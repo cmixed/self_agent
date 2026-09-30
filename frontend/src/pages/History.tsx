@@ -20,8 +20,9 @@ import { useCallback, useEffect, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
 import ErrorNotice from '../components/ErrorNotice'
-import MarkdownView from '../components/MarkdownView'
+import MarkdownReader from '../components/MarkdownReader'
 import PageContainer from '../components/PageContainer'
+import StatusTag from '../components/StatusTag'
 import { ApiError, getTask, getTaskState, listTasks } from '../services/api'
 import type { TaskDetail, TaskState, TaskSummary } from '../types/api'
 import { downloadMarkdown } from '../utils/download'
@@ -31,17 +32,7 @@ const { Text } = Typography
 
 const PAGE_TITLE = '任务历史'
 const PAGE_DESCRIPTION = '查看历史任务的执行状态、来源引用、校验结论与最终结果。'
-const PAGE_MAX_WIDTH = 1120
-
-const STATUS_META: Record<string, { color: string; label: string }> = {
-  completed: { color: 'green', label: '已完成' },
-  running: { color: 'blue', label: '运行中' },
-  failed: { color: 'red', label: '失败' },
-  cancelled: { color: 'orange', label: '已取消' },
-}
-
-const statusMeta = (status: string) =>
-  STATUS_META[status] ?? { color: 'default', label: status }
+const PAGE_MAX_WIDTH = 1200
 
 export default function HistoryPage() {
   const { message } = App.useApp()
@@ -177,6 +168,7 @@ export default function HistoryPage() {
             rowKey="task_id"
             dataSource={visibleTasks}
             loading={loading}
+            scroll={{ x: 'max-content' }}
             pagination={visibleTasks.length > 10 ? { pageSize: 10, showSizeChanger: false } : false}
             columns={[
               {
@@ -195,10 +187,7 @@ export default function HistoryPage() {
                 dataIndex: 'status',
                 key: 'status',
                 width: 100,
-                render: (status: string) => {
-                  const meta = statusMeta(status)
-                  return <Tag color={meta.color}>{meta.label}</Tag>
-                },
+                render: (status: string) => <StatusTag status={status} />,
               },
               {
                 title: '未通过章节',
@@ -259,10 +248,10 @@ export default function HistoryPage() {
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="任务">{detail.query}</Descriptions.Item>
               <Descriptions.Item label="状态">
-                <Tag color={statusMeta(detail.status).color}>
-                  {statusMeta(detail.status).label}
-                </Tag>
-                {detail.error_type && <Tag color="red">{detail.error_type}</Tag>}
+                <Space size={6}>
+                  <StatusTag status={detail.status} />
+                  {detail.error_type && <Tag color="red">{detail.error_type}</Tag>}
+                </Space>
               </Descriptions.Item>
               <Descriptions.Item label="开始 / 结束">
                 {formatDateTime(detail.created_at)} → {formatDateTime(detail.finished_at)}
@@ -329,35 +318,11 @@ export default function HistoryPage() {
                             下载 .md
                           </Button>
                         </Space>
-                        <MarkdownView content={detail.final_answer} />
+                        <MarkdownReader content={detail.final_answer} sources={detail.sources} />
                       </Space>
                     ) : (
                       <EmptyState compact title="该任务没有产出正文" hint="可能被取消或失败" />
                     ),
-                  },
-                  {
-                    key: 'sources',
-                    label: `来源${detail.sources.length > 0 ? `（${detail.sources.length}）` : ''}`,
-                    children:
-                      detail.sources.length > 0 ? (
-                        <ol className="plain-list">
-                          {detail.sources.map((source) => (
-                            <li key={source.chunk_id}>
-                              <Text>
-                                [{source.index}] {source.filename}
-                                {source.page ? `（第 ${source.page} 页）` : ''}
-                              </Text>
-                              {typeof source.score === 'number' && (
-                                <Tag style={{ marginLeft: 8 }}>
-                                  相似度 {source.score.toFixed(3)}
-                                </Tag>
-                              )}
-                            </li>
-                          ))}
-                        </ol>
-                      ) : (
-                        <EmptyState compact title="该任务未使用知识库来源" hint="计划不需要检索，或知识库为空" />
-                      ),
                   },
                   {
                     key: 'validation',

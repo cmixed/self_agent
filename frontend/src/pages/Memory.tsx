@@ -34,7 +34,7 @@ const { Text, Paragraph } = Typography
 
 const PAGE_TITLE = '长期记忆'
 const PAGE_DESCRIPTION = '跨会话生效的偏好与记忆：任务运行时会自动注入，显式设置的值优先。'
-const PAGE_MAX_WIDTH = 1120
+const PAGE_MAX_WIDTH = 1200
 
 /** 常用偏好键（与后端 MemoryService 的提示保持一致） */
 const COMMON_KEYS = ['style', 'format', 'language', 'task_types']
@@ -164,6 +164,7 @@ export default function MemoryPage() {
             dataSource={preferences}
             pagination={false}
             size="small"
+            scroll={{ x: 'max-content' }}
             columns={[
               {
                 title: '键',
@@ -200,27 +201,19 @@ export default function MemoryPage() {
 
         <Form
           form={preferenceForm}
-          layout="inline"
+          layout="vertical"
           className="memory-form"
           onFinish={(values) => void handleSavePreference(values)}
         >
-          <Form.Item name="key" rules={[{ required: true, message: '请输入键' }]}>
-            <Input
-              id="preference-key"
-              name="key"
-              placeholder="键，如 style"
-              style={{ width: 180 }}
-            />
-          </Form.Item>
-          <Form.Item name="value" rules={[{ required: true, message: '请输入值' }]}>
-            <Input
-              id="preference-value"
-              name="value"
-              placeholder="值，如 偏好学术严谨"
-              style={{ width: 320 }}
-            />
-          </Form.Item>
-          <Form.Item>
+          <div className="memory-form__grid">
+            <Form.Item name="key" label="键" rules={[{ required: true, message: '请输入键' }]}>
+              <Input id="preference-key" name="key" placeholder="如 style" />
+            </Form.Item>
+            <Form.Item name="value" label="值" rules={[{ required: true, message: '请输入值' }]}>
+              <Input id="preference-value" name="value" placeholder="如 偏好学术严谨" />
+            </Form.Item>
+          </div>
+          <Form.Item className="memory-form__actions">
             <Space>
               <Button type="primary" htmlType="submit" icon={editingKey ? undefined : <PlusOutlined />}>
                 {editingKey ? `保存修改（${editingKey}）` : '保存偏好'}
@@ -304,27 +297,27 @@ export default function MemoryPage() {
 
         <Form
           form={memoryForm}
-          layout="inline"
+          layout="vertical"
           className="memory-form"
           initialValues={{ kind: 'fact' }}
           onFinish={(values) => void handleAddMemory(values)}
         >
-          <Form.Item name="kind" rules={[{ required: true, message: '请选择类型' }]}>
-            <Select
-              id="memory-kind"
-              style={{ width: 150 }}
-              options={MEMORY_KINDS.map((kind) => ({ label: kind, value: kind }))}
-            />
-          </Form.Item>
-          <Form.Item name="content" rules={[{ required: true, message: '请输入内容' }]}>
-            <Input
-              id="memory-content"
-              name="content"
-              placeholder="记忆内容，如：经常撰写技术综述"
-              style={{ width: 360 }}
-            />
-          </Form.Item>
-          <Form.Item>
+          <div className="memory-form__grid memory-form__grid--memory">
+            <Form.Item name="kind" label="类型" rules={[{ required: true, message: '请选择类型' }]}>
+              <Select
+                id="memory-kind"
+                options={MEMORY_KINDS.map((kind) => ({ label: kind, value: kind }))}
+              />
+            </Form.Item>
+            <Form.Item name="content" label="内容" rules={[{ required: true, message: '请输入内容' }]}>
+              <Input
+                id="memory-content"
+                name="content"
+                placeholder="记忆内容，如：经常撰写技术综述"
+              />
+            </Form.Item>
+          </div>
+          <Form.Item className="memory-form__actions">
             <Button type="primary" htmlType="submit" icon={<PlusOutlined />}>
               新增记忆
             </Button>

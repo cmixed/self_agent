@@ -10,12 +10,9 @@ import {
   App,
   Button,
   Card,
-  Col,
   Popconfirm,
-  Row,
   Space,
   Spin,
-  Statistic,
   Table,
   Tag,
   Typography,
@@ -27,6 +24,7 @@ import { useCallback, useEffect, useState } from 'react'
 import EmptyState from '../components/EmptyState'
 import ErrorNotice from '../components/ErrorNotice'
 import PageContainer from '../components/PageContainer'
+import StatStrip from '../components/StatStrip'
 import { ApiError, deleteDocument, listDocuments, uploadDocument } from '../services/api'
 import type { DocumentInfo } from '../types/api'
 import { documentKind } from '../utils/format'
@@ -36,7 +34,7 @@ const { Dragger } = Upload
 
 const PAGE_TITLE = '知识库'
 const PAGE_DESCRIPTION = '上传 PDF、TXT、Markdown 文档；Agent 检索这些资料并在正文中标注来源。'
-const PAGE_MAX_WIDTH = 1120
+const PAGE_MAX_WIDTH = 1200
 
 const KIND_META = {
   pdf: { icon: <FilePdfOutlined />, label: 'PDF', color: 'red' },
@@ -118,23 +116,16 @@ export default function KnowledgeBasePage() {
         </Button>
       }
     >
-      <Row gutter={[16, 16]}>
-        <Col xs={12} lg={8}>
-          <Card size="small">
-            <Statistic title="文档数" value={documents.length} loading={loading && documents.length === 0} />
-          </Card>
-        </Col>
-        <Col xs={12} lg={8}>
-          <Card size="small">
-            <Statistic title="文本块总数" value={totalChunks} loading={loading && documents.length === 0} />
-          </Card>
-        </Col>
-        <Col xs={12} lg={8}>
-          <Card size="small">
-            <Statistic title="平均块数 / 文档" value={averageChunks} loading={loading && documents.length === 0} />
-          </Card>
-        </Col>
-      </Row>
+      <StatStrip
+        items={[
+          { label: '文档', value: loading && documents.length === 0 ? '—' : documents.length },
+          { label: '文本块', value: loading && documents.length === 0 ? '—' : totalChunks },
+          {
+            label: '平均块 / 文档',
+            value: loading && documents.length === 0 ? '—' : averageChunks,
+          },
+        ]}
+      />
 
       <Card title="上传文档">
         <Dragger {...uploadProps}>
@@ -174,6 +165,7 @@ export default function KnowledgeBasePage() {
             rowKey="document_id"
             dataSource={documents}
             loading={loading}
+            scroll={{ x: 'max-content' }}
             pagination={documents.length > 10 ? { pageSize: 10, showSizeChanger: false } : false}
             columns={[
               {

@@ -651,13 +651,38 @@ html[data-theme='light'] body {
 /* --- 表单区（长期记忆） --------------------------------------------------- */
 .memory-form {
   margin-top: 16px;
-  row-gap: 8px;
+}
+
+.memory-form__grid {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.memory-form__grid--memory {
+  grid-template-columns: 180px minmax(0, 1fr);
+}
+
+.memory-form__grid .ant-form-item {
+  margin-bottom: 0;
+}
+
+.memory-form__actions {
+  margin-top: 16px;
+  margin-bottom: 0;
 }
 
 .memory-form-hint {
-  margin-top: 8px;
+  margin-top: 12px;
   margin-bottom: 0;
   font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .memory-form__grid,
+  .memory-form__grid--memory {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* --- 行内指标条 ----------------------------------------------------------- */
