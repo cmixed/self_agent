@@ -27,6 +27,9 @@ const EYEBROW = '工作台'
 const IDLE_TITLE = '让 Agent 基于你的资料完成一个复杂任务'
 const IDLE_DESC = 'Agent 会先规划任务、检索你的知识库，再分章节撰写并逐章自我校验。'
 
+/** 闲置态展示的执行流程（与运行时时间线一一对应） */
+const IDLE_PIPELINE = ['规划任务', '检索知识库', '生成大纲', '逐章撰写 ⇄ 校验', '整合结果']
+
 const TARGET_LABEL = (target: string) =>
   target === 'document' ? '整篇文档' : `章节 ${target.replace('chapter_', '')}`
 
@@ -340,7 +343,7 @@ export default function TaskPage() {
           />
 
           <div className="ws-compose__samples">
-            <Text type="secondary">示例任务（Agent 会自动规划并分步执行）</Text>
+            <Text type="secondary">示例任务</Text>
             <Space size={[8, 8]} wrap>
               {SAMPLE_TASKS.map((sample) => (
                 <Button key={sample} size="small" className="sample-chip" onClick={() => setQuery(sample)}>
@@ -367,6 +370,18 @@ export default function TaskPage() {
                 运行任务
               </Button>
             </Space>
+          </div>
+        </div>
+
+        <div className="ws-pipeline" aria-label="Agent 执行流程">
+          <span className="ws-pipeline__label">Agent 执行流程</span>
+          <div className="ws-pipeline__flow">
+            {IDLE_PIPELINE.map((step, index) => (
+              <span className="ws-pipeline__item" key={step}>
+                {index > 0 ? <ArrowRightOutlined className="ws-pipeline__arrow" /> : null}
+                <span className="ws-pipeline__step">{step}</span>
+              </span>
+            ))}
           </div>
         </div>
 

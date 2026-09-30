@@ -783,6 +783,48 @@ html[data-theme='light'] body {
   font-size: 12px;
 }
 
+/* 闲置态：执行流程预览（静态，与运行时时间线呼应） */
+.ws-pipeline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border: 1px dashed var(--ant-color-border);
+  border-radius: var(--ws-radius-lg);
+}
+
+.ws-pipeline__label {
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary);
+}
+
+.ws-pipeline__flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ws-pipeline__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ws-pipeline__arrow {
+  font-size: 11px;
+  color: var(--ant-color-text-quaternary);
+}
+
+.ws-pipeline__step {
+  font-size: 13px;
+  color: var(--ant-color-text-secondary);
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--ant-color-fill-tertiary);
+}
+
 .ws-idle-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
