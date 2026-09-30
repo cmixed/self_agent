@@ -64,7 +64,22 @@ cp .env.example .env
 
 > `.env` 已被 `.gitignore` 忽略，禁止提交。API Key 只从环境变量读取。
 
-运行数据默认写入 `data/`（已在 `.gitignore` 中忽略）：
+### 数据存储（重要）
+
+运行数据默认写入 `data/`，**全部已在 `.gitignore` 中忽略**（不会提交）：
+
+| 位置 | 内容 |
+| --- | --- |
+| `data/documents/` | 上传的原始文件（`<document_id>.<ext>`） |
+| `data/chroma/` | ChromaDB 向量库（集合 `personal_kb`） |
+| `data/sqlite/app.db` | 任务记录、用户偏好、长期记忆 |
+| `data/sqlite/checkpoints.db` | LangGraph Checkpoint（短期记忆） |
+
+> ⚠️ **删除 `data/` 等于清空知识库与全部任务记录。**
+> `git clean -xfd` 也会删除它（因为它在 `.gitignore` 中）。
+> 答辩/演示前建议备份：`cp -r data data.bak`
+
+其余说明：
 - `data/sqlite/app.db`：用户、偏好、任务记录与长期记忆
 - `data/documents/`、`data/chroma/`：上传的文档与向量库
 - 无复杂用户系统（§31）：默认用户 `DEFAULT_USER_ID=local-user`，可用 `X-User-Id` 请求头覆盖

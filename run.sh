@@ -41,6 +41,18 @@ BACKEND_TAIL_PID=""
 FRONTEND_TAIL_PID=""
 CLEANED=0
 
+DATA_DIR="$ROOT_DIR/data"
+
+# 数据目录状态：让「知识库还在不在」一眼可见
+data_hint() {
+  local docs=0 size="尚未创建"
+  if [[ -d "$DATA_DIR" ]]; then
+    size="$(du -sh "$DATA_DIR" 2>/dev/null | cut -f1 || echo '?')"
+    docs="$(find "$DATA_DIR/documents" -maxdepth 1 -type f 2>/dev/null | wc -l || echo 0)"
+  fi
+  printf 'data/（%s，已上传文件 %s 个）— 删除该目录会清空知识库与任务记录' "$size" "$docs"
+}
+
 info()  { printf '\033[1;34m[run]\033[0m %s\n' "$*"; }
 warn()  { printf '\033[1;33m[run]\033[0m %s\n' "$*"; }
 error() { printf '\033[1;31m[run]\033[0m %s\n' "$*" >&2; }
@@ -346,6 +358,7 @@ cat <<EOF
 ============================================================
   前端   http://localhost:$FRONTEND_ACTUAL_PORT
   后端   http://127.0.0.1:$BACKEND_ACTUAL_PORT   （接口文档 /docs）
+  数据   $(data_hint)
   日志   logs/backend.log · logs/frontend.log
   退出   Ctrl+C（会同时关闭前后端并释放端口）
 ============================================================
