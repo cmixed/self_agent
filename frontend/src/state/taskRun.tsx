@@ -45,8 +45,8 @@ const MAX_CHAPTER_NOTES_PER_CHAPTER = 3
 
 export const SAMPLE_TASKS = [
   '根据我的资料写一篇 RAG 技术综述',
-  '把我的资料整理成一份结构化的阅读笔记',
-  '总结我资料中的主要观点与结论',
+  '调研我资料里的几种技术方案，输出对比报告并给出选型建议',
+  '整理我的资料，生成一份带目录与来源引用的学习笔记',
 ]
 
 interface ChapterState {

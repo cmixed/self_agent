@@ -755,9 +755,9 @@ html[data-theme='light'] body {
 
 .ws-compose__samples {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .sample-chip {

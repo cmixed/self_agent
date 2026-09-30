@@ -340,7 +340,7 @@ export default function TaskPage() {
           />
 
           <div className="ws-compose__samples">
-            <Text type="secondary">示例</Text>
+            <Text type="secondary">示例任务（Agent 会自动规划并分步执行）</Text>
             <Space size={[8, 8]} wrap>
               {SAMPLE_TASKS.map((sample) => (
                 <Button key={sample} size="small" className="sample-chip" onClick={() => setQuery(sample)}>
