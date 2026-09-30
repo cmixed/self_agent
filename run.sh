@@ -27,6 +27,10 @@ FRONTEND_LOG="$LOG_DIR/frontend.log"
 
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+# 实际监听端口：某些环境（如 VS Code Remote-WSL）会把请求的端口重映射，
+# 因此启动后以进程自己报告的端口为准。
+BACKEND_ACTUAL_PORT=""
+FRONTEND_ACTUAL_PORT=""
 QUIET_BACKEND="${QUIET_BACKEND:-0}"
 
 INSTALL=0
@@ -85,8 +89,8 @@ cleanup() {
   wait 2>/dev/null || true
 
   local held=""
-  if port_in_use "$BACKEND_PORT"; then held="$held $BACKEND_PORT"; fi
-  if port_in_use "$FRONTEND_PORT"; then held="$held $FRONTEND_PORT"; fi
+  if port_in_use "${BACKEND_ACTUAL_PORT:-$BACKEND_PORT}"; then held="$held ${BACKEND_ACTUAL_PORT:-$BACKEND_PORT}"; fi
+  if port_in_use "${FRONTEND_ACTUAL_PORT:-$FRONTEND_PORT}"; then held="$held ${FRONTEND_ACTUAL_PORT:-$FRONTEND_PORT}"; fi
   if [[ -n "$held" ]]; then
     warn "以下端口仍被占用：$held（可用 ss -ltnp 查看是谁）"
   else
@@ -213,6 +217,41 @@ check_ports() {
 
 dump_log_tail() { tail -n 25 "$1" >&2 2>/dev/null || true; }
 
+# 探测某个端口是否「请求值 == 实际绑定值」。
+# 某些环境（VS Code Remote-WSL / 端口转发）会悄悄把绑定重映射到随机端口，
+# 用与 Vite 相同的调用方式（host=localhost）验证，避免拿到不稳定的 URL。
+probe_port() {
+  node -e '
+const net = require("net")
+const port = Number(process.argv[1])
+const server = net.createServer()
+server.on("error", () => process.exit(1))
+server.listen({ port, host: "localhost" }, () => {
+  const actual = server.address()
+  server.close(() => process.exit(actual && actual.port === port ? 0 : 1))
+})
+' "$1" 2>/dev/null
+}
+
+# 从期望端口开始逐个探测，返回一个可稳定使用的端口
+pick_port() {
+  local port="$1" tries="${2:-40}" i=0
+  while (( i < tries )); do
+    if probe_port "$port"; then echo "$port"; return 0; fi
+    i=$((i + 1)); port=$((port + 1))
+  done
+  echo "$1"
+}
+
+# 从进程日志里解析它实际监听的端口（不假定配置值）
+parse_port_from_log() {
+  # 注意：无匹配时必须返回 0，否则 set -e 会让脚本直接退出
+  local file="$1" pattern="$2"
+  { grep -a -oE "$pattern" "$file" 2>/dev/null || true; } \
+    | { grep -oE '[0-9]+$' || true; } \
+    | head -1 || true
+}
+
 # --- 启动 -------------------------------------------------------------------
 start_backend() {
   info "启动后端（:$BACKEND_PORT）…"
@@ -220,15 +259,29 @@ start_backend() {
     >"$BACKEND_LOG" 2>&1 &
   BACKEND_PID=$!
 
-  local waited=0
+  BACKEND_ACTUAL_PORT="$BACKEND_PORT"
+  local waited=0 actual=""
   while (( waited < 120 )); do
-    if curl -fsS "http://127.0.0.1:$BACKEND_PORT/api/health" >/dev/null 2>&1; then return 0; fi
+    actual="$(parse_port_from_log "$BACKEND_LOG" 'https?://[0-9.]+:[0-9]+')"
+    if [[ -n "$actual" ]]; then
+      BACKEND_ACTUAL_PORT="$actual"
+      if [[ "$actual" != "$BACKEND_PORT" ]]; then
+        warn "后端实际监听端口是 $actual（请求的 $BACKEND_PORT 被环境重映射）"
+      fi
+      break
+    fi
     if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
       error "后端启动失败，日志末尾："; dump_log_tail "$BACKEND_LOG"; return 1
     fi
     sleep 0.5; waited=$((waited + 1))
   done
-  error "等待后端就绪超时（120s），日志末尾："; dump_log_tail "$BACKEND_LOG"; return 1
+
+  waited=0
+  while (( waited < 60 )); do
+    if curl -fsS "http://127.0.0.1:$BACKEND_ACTUAL_PORT/api/health" >/dev/null 2>&1; then return 0; fi
+    sleep 0.5; waited=$((waited + 1))
+  done
+  error "等待后端就绪超时，日志末尾："; dump_log_tail "$BACKEND_LOG"; return 1
 }
 
 start_frontend() {
@@ -237,21 +290,46 @@ start_frontend() {
     >"$FRONTEND_LOG" 2>&1 &
   FRONTEND_PID=$!
 
-  local waited=0
+  FRONTEND_ACTUAL_PORT="$FRONTEND_PORT"
+  local waited=0 actual=""
   while (( waited < 90 )); do
-    if curl -fsS "http://127.0.0.1:$FRONTEND_PORT/" >/dev/null 2>&1; then return 0; fi
+    actual="$(parse_port_from_log "$FRONTEND_LOG" 'https?://(localhost|127\.0\.0\.1|\[::1\]):[0-9]+')"
+    if [[ -n "$actual" ]]; then
+      FRONTEND_ACTUAL_PORT="$actual"
+      if [[ "$actual" != "$FRONTEND_PORT" ]]; then
+        warn "前端实际监听端口是 $actual（请求的 $FRONTEND_PORT 被环境重映射，例如 VS Code Remote-WSL）"
+      fi
+      break
+    fi
     if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
       error "前端启动失败，日志末尾："; dump_log_tail "$FRONTEND_LOG"; return 1
     fi
     sleep 0.5; waited=$((waited + 1))
   done
-  error "等待前端就绪超时（90s），日志末尾："; dump_log_tail "$FRONTEND_LOG"; return 1
+
+  if [[ -z "$actual" ]]; then
+    error "等待前端启动超时（90s），日志末尾："; dump_log_tail "$FRONTEND_LOG"; return 1
+  fi
+
+  waited=0
+  while (( waited < 60 )); do
+    if curl -fsS "http://127.0.0.1:$FRONTEND_ACTUAL_PORT/" >/dev/null 2>&1; then return 0; fi
+    sleep 0.5; waited=$((waited + 1))
+  done
+  error "前端进程已启动但地址无法访问（:$FRONTEND_ACTUAL_PORT），日志末尾："; dump_log_tail "$FRONTEND_LOG"; return 1
 }
 
 # --- 主流程 -----------------------------------------------------------------
 info "项目根目录：$ROOT_DIR"
 ensure_env
 maybe_install
+# 环境可能重映射端口：先挑一个「请求=实际」的端口，保证 URL 稳定
+PICKED_FRONTEND_PORT="$(pick_port "$FRONTEND_PORT")"
+if [[ "$PICKED_FRONTEND_PORT" != "$FRONTEND_PORT" ]]; then
+  warn "端口 $FRONTEND_PORT 在当前环境不可用/会被重映射，改用 $PICKED_FRONTEND_PORT"
+  FRONTEND_PORT="$PICKED_FRONTEND_PORT"
+fi
+
 check_ports || exit 1
 
 trap cleanup EXIT INT TERM HUP
@@ -266,8 +344,8 @@ start_frontend
 cat <<EOF
 
 ============================================================
-  前端   http://localhost:$FRONTEND_PORT
-  后端   http://127.0.0.1:$BACKEND_PORT   （接口文档 /docs）
+  前端   http://localhost:$FRONTEND_ACTUAL_PORT
+  后端   http://127.0.0.1:$BACKEND_ACTUAL_PORT   （接口文档 /docs）
   日志   logs/backend.log · logs/frontend.log
   退出   Ctrl+C（会同时关闭前后端并释放端口）
 ============================================================
