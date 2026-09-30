@@ -783,44 +783,6 @@ html[data-theme='dark'] body {
   color: var(--ant-color-text-tertiary);
 }
 
-/* --- 状态标签（圆点 + 文案） --------------------------------------------- */
-.status-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--ant-color-text-secondary);
-  white-space: nowrap;
-}
-
-.status-tag__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  flex: 0 0 auto;
-}
-
-.status-tag--success {
-  color: var(--ant-color-success);
-}
-
-.status-tag--processing {
-  color: var(--ant-color-primary);
-}
-
-.status-tag--error {
-  color: var(--ant-color-error);
-}
-
-.status-tag--warning {
-  color: var(--ant-color-warning);
-}
-
-.status-tag--default {
-  color: var(--ant-color-text-tertiary);
-}
-
 /* --- 区块小标题 ----------------------------------------------------------- */
 .section {
   display: flex;

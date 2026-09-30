@@ -172,6 +172,10 @@ export default function HistoryPage() {
             loading={loading}
             scroll={{ x: 'max-content' }}
             pagination={visibleTasks.length > 10 ? { pageSize: 10, showSizeChanger: false } : false}
+            onRow={(record) => ({
+              onClick: () => void openDetail(record.task_id),
+              style: { cursor: 'pointer' },
+            })}
             columns={[
               {
                 title: '任务',
@@ -227,7 +231,13 @@ export default function HistoryPage() {
                 key: 'action',
                 width: 80,
                 render: (_, record) => (
-                  <Button type="link" onClick={() => void openDetail(record.task_id)}>
+                  <Button
+                    type="link"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void openDetail(record.task_id)
+                    }}
+                  >
                     详情
                   </Button>
                 ),

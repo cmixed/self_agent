@@ -1,3 +1,5 @@
+import { Badge } from 'antd'
+
 type Tone = 'success' | 'processing' | 'error' | 'warning' | 'default'
 
 const STATUS_META: Record<string, { tone: Tone; label: string }> = {
@@ -8,14 +10,10 @@ const STATUS_META: Record<string, { tone: Tone; label: string }> = {
 }
 
 /**
- * 统一任务状态标签：小圆点 + 文案（比彩色 Tag 更克制，适合工作台）。
+ * 统一任务状态：antd Badge（圆点 + 文案）。
+ * 比彩色 Tag 更克制，颜色走 token（success/processing/error/warning）。
  */
 export default function StatusTag({ status }: { status: string }) {
   const meta = STATUS_META[status] ?? { tone: 'default' as Tone, label: status }
-  return (
-    <span className={`status-tag status-tag--${meta.tone}`}>
-      <i className="status-tag__dot" aria-hidden="true" />
-      {meta.label}
-    </span>
-  )
+  return <Badge status={meta.tone} text={meta.label} />
 }
