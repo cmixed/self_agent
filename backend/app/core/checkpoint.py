@@ -13,7 +13,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import aiosqlite
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+# AgentState.messages 里是自定义 Pydantic 类型 ChatMessage；checkpoint 反序列化时
+# 需要显式登记，否则 LangGraph 会告警（未来版本会直接阻止）。只登记我们自己的类型，
+# 不放开其他自定义类型，为未来的严格模式做好准备。
+_CHECKPOINT_SERDE = JsonPlusSerializer(
+    allowed_msgpack_modules=[("app.llm.base", "ChatMessage")],
+)
 
 
 class CheckpointStore:
@@ -35,7 +43,7 @@ class CheckpointStore:
     async def start(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = await aiosqlite.connect(self._path)
-        self._saver = AsyncSqliteSaver(self._connection)
+        self._saver = AsyncSqliteSaver(self._connection, serde=_CHECKPOINT_SERDE)
         await self._saver.setup()
 
     async def close(self) -> None:
