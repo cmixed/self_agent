@@ -246,17 +246,11 @@ html[data-theme='dark'] body {
   border-bottom: 1px solid var(--ant-color-border);
 }
 
-.app-header-title {
-  font-size: var(--ws-font-body);
-  font-weight: 600;
-  color: var(--ant-color-text);
-}
-
 .app-header-actions {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ws-space-2);
 }
 
 .app-content {

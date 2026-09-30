@@ -86,8 +86,6 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
       : '后端正常，但尚未配置 DEEPSEEK_API_KEY'
     : '无法连接后端（请确认 FastAPI 已启动）'
 
-  const currentLabel = PAGE_META.find((item) => item.key === page)?.label ?? ''
-
   const menuItems = PAGE_META.map((item) => ({
     key: item.key,
     label: item.label,
@@ -186,8 +184,6 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
               onClick={() => setCollapsed((prev) => !prev)}
             />
           )}
-          <span className="app-header-title">{currentLabel}</span>
-
           <div className="app-header-actions">
             {running ? (
               <Tooltip title="任务正在后台执行，点击返回工作台">
