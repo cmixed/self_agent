@@ -1,10 +1,14 @@
 import {
   ArrowRightOutlined,
   BulbOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
   DatabaseOutlined,
   DownloadOutlined,
   EditOutlined,
   FileTextOutlined,
+  LoadingOutlined,
+  ReloadOutlined,
   SafetyCertificateOutlined,
   StopOutlined,
   ThunderboltOutlined,
@@ -12,6 +16,7 @@ import {
 } from '@ant-design/icons'
 import { Alert, Button, Card, Input, Result, Space, Tabs, Tag, Tooltip, Typography } from 'antd'
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import AgentProgress from '../components/AgentProgress'
 import type { MacroStage } from '../components/AgentProgress'
@@ -19,6 +24,7 @@ import EmptyState from '../components/EmptyState'
 import MarkdownReader from '../components/MarkdownReader'
 import PageContainer from '../components/PageContainer'
 import Section from '../components/Section'
+import SourceList from '../components/SourceList'
 import StatStrip from '../components/StatStrip'
 import StatusTag from '../components/StatusTag'
 import { listDocuments, listTasks } from '../services/api'
@@ -34,14 +40,24 @@ const EYEBROW = '工作台'
 const IDLE_TITLE = '让 Agent 基于你的资料完成一个复杂任务'
 const IDLE_DESC = 'Agent 会规划任务、检索你的知识库，再分章节撰写并进行自我校验。'
 
-/** 闲置态展示的执行流程（与运行时时间线一一对应，未开始=tertiary） */
-const IDLE_PIPELINE = [
-  { label: '规划任务', icon: <BulbOutlined /> },
-  { label: '检索知识库', icon: <DatabaseOutlined /> },
-  { label: '生成大纲', icon: <UnorderedListOutlined /> },
-  { label: '逐章撰写', icon: <EditOutlined /> },
-  { label: '校验质量', icon: <SafetyCertificateOutlined /> },
-  { label: '整合结果', icon: <FileTextOutlined /> },
+/** 执行阶段的图标（与真实拓扑的 6 个节点一一对应） */
+const STAGE_ICONS: Record<string, ReactNode> = {
+  planner: <BulbOutlined />,
+  researcher: <DatabaseOutlined />,
+  outline: <UnorderedListOutlined />,
+  writer: <EditOutlined />,
+  validator: <SafetyCertificateOutlined />,
+  summarizer: <FileTextOutlined />,
+}
+
+/** 闲置态展示的执行流程（未开始=tertiary） */
+const PIPELINE_STEPS = [
+  { key: 'planner', label: '规划任务' },
+  { key: 'researcher', label: '检索知识库' },
+  { key: 'outline', label: '生成大纲' },
+  { key: 'writer', label: '逐章撰写' },
+  { key: 'validator', label: '校验质量' },
+  { key: 'summarizer', label: '整合结果' },
 ]
 
 const TARGET_LABEL = (target: string) =>
@@ -202,6 +218,62 @@ export default function TaskPage() {
           ? 'completed'
           : 'running'
 
+  // --- 当前步骤：全部来自真实运行状态，不涉及模型推理过程 ---
+  const activeStage = macroStages.find((stage) => stage.status === 'process')
+  const lastLog = log.length > 0 ? log[log.length - 1] : null
+
+  const currentFacts: string[] = []
+  if (activeStage?.key === 'planner' && plan?.goal) currentFacts.push(plan.goal)
+  if (activeStage?.key === 'researcher' && retrievedCount !== null) {
+    currentFacts.push(`命中 ${retrievedCount} 个文本块`)
+  }
+  if (activeStage?.key === 'outline' && outline.length > 0) {
+    currentFacts.push(`共 ${outline.length} 章`)
+  }
+  if (activeStage?.key === 'writer' && outline.length > 0) {
+    currentFacts.push(`已写 ${writtenChapters}/${outline.length} 章`)
+    const writing = chapterList.find((chapter) => chapter.writing)
+    if (writing) currentFacts.push(`正在生成第 ${writing.index} 章`)
+  }
+  if (activeStage?.key === 'validator') {
+    currentFacts.push(
+      `通过 ${passedCount} 章${failedCount > 0 ? ` · 未通过 ${failedCount} 章` : ''}`,
+    )
+  }
+
+  const currentTitle =
+    activeStage?.title ??
+    (error ? '执行失败' : aborted ? '已终止' : finalAnswer !== null ? '已完成' : '准备中')
+  const currentMessage =
+    lastLog?.message ?? (activeStage ? `${activeStage.title}…` : running ? '正在启动…' : '')
+  const currentIcon = error ? (
+    <CloseCircleOutlined />
+  ) : activeStage ? (
+    STAGE_ICONS[activeStage.key]
+  ) : finalAnswer !== null ? (
+    <CheckCircleOutlined />
+  ) : (
+    <StopOutlined />
+  )
+
+  // --- 检索到的资料：按文档聚合（真实来源，按 chunk 去重计数） ---
+  const sourceDocs = (() => {
+    const grouped = new Map<string, { document_id: string; filename: string; chunks: number }>()
+    for (const source of sources) {
+      const existing = grouped.get(source.document_id)
+      if (existing) existing.chunks += 1
+      else
+        grouped.set(source.document_id, {
+          document_id: source.document_id,
+          filename: source.filename,
+          chunks: 1,
+        })
+    }
+    return Array.from(grouped.values())
+  })()
+
+  const citationCount = finalAnswer ? (finalAnswer.match(/\[\d+\]/g)?.length ?? 0) : 0
+
   const outputTabs = [
     {
       key: 'plan',
@@ -308,32 +380,6 @@ export default function TaskPage() {
         <EmptyState compact title="尚未执行校验" />
       ),
     },
-    {
-      key: 'sources',
-      label: '来源',
-      children:
-        sources.length > 0 ? (
-          <ol className="plain-list">
-            {sources.map((source) => (
-              <li key={source.chunk_id}>
-                <Text>
-                  [{source.index}] {source.filename}
-                  {source.page ? `（第 ${source.page} 页）` : ''}
-                </Text>
-                {typeof source.score === 'number' ? (
-                  <Tag className="ws-source__score">相似度 {source.score.toFixed(3)}</Tag>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <EmptyState
-            compact
-            title="本次任务未使用知识库来源"
-            hint="计划不需要检索，或知识库为空"
-          />
-        ),
-    },
   ]
 
   if (!hasStarted) {
@@ -394,11 +440,11 @@ export default function TaskPage() {
 
         <div className="ws-pipeline">
           <div className="ws-pipeline__flow">
-            {IDLE_PIPELINE.map((step, index) => (
-              <span className="ws-pipeline__item" key={step.label}>
+            {PIPELINE_STEPS.map((step, index) => (
+              <span className="ws-pipeline__item" key={step.key}>
                 {index > 0 ? <ArrowRightOutlined className="ws-pipeline__arrow" /> : null}
                 <span className="ws-pipeline__step">
-                  <span className="ws-pipeline__icon">{step.icon}</span>
+                  <span className="ws-pipeline__icon">{STAGE_ICONS[step.key]}</span>
                   {step.label}
                 </span>
               </span>
@@ -490,7 +536,7 @@ export default function TaskPage() {
       <div className="ws-grid">
         <div className="ws-grid__main">
           <Card
-            title="执行主线"
+            title="执行阶段"
             extra={
               taskId ? (
                 <Text type="secondary" copyable={{ text: taskId }}>
@@ -511,6 +557,34 @@ export default function TaskPage() {
         </div>
 
         <div className="ws-grid__side">
+          <Card title="当前步骤" extra={running ? <Text type="secondary">进行中</Text> : null}>
+            <div className={`current-step${activeStage && running ? ' is-active' : ''}`}>
+              <span className="current-step__icon">{currentIcon}</span>
+              <div className="current-step__body">
+                <div className="current-step__title">
+                  {currentTitle}
+                  {activeStage && running ? (
+                    <LoadingOutlined className="current-step__spin" />
+                  ) : null}
+                </div>
+                {currentMessage ? <p className="current-step__message">{currentMessage}</p> : null}
+                {currentFacts.length > 0 ? (
+                  <ul className="current-step__facts">
+                    {currentFacts.map((fact) => (
+                      <li key={fact}>{fact}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            </div>
+          </Card>
+
+          {sourceDocs.length > 0 ? (
+            <Card title={`检索到的资料（${sourceDocs.length}）`}>
+              <SourceList docs={sourceDocs} />
+            </Card>
+          ) : null}
+
           <Card title="产出" extra={<Text type="secondary">{running ? '实时' : '已完成'}</Text>}>
             <Tabs size="small" activeKey={outputTab} onChange={setOutputTab} items={outputTabs} />
           </Card>
@@ -545,7 +619,7 @@ export default function TaskPage() {
       {finalAnswer !== null ? (
         <div ref={resultRef}>
           <Card
-            title="最终结果"
+            title="生成结果"
             extra={
               <Space>
                 <Tooltip title="复制 Markdown 原文">
@@ -555,7 +629,7 @@ export default function TaskPage() {
                 </Tooltip>
                 <Tooltip title="下载 Markdown 文件到本地">
                   <Button size="small" icon={<DownloadOutlined />} onClick={download}>
-                    下载 .md
+                    下载
                   </Button>
                 </Tooltip>
                 <Tooltip title="打印 / 导出 PDF">
@@ -563,10 +637,39 @@ export default function TaskPage() {
                     打印
                   </Button>
                 </Tooltip>
+                <Tooltip title="用同一任务重新生成">
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    disabled={running}
+                    onClick={handleStart}
+                  >
+                    重新生成
+                  </Button>
+                </Tooltip>
               </Space>
             }
           >
-            <MarkdownReader content={finalAnswer} sources={sources} />
+            <StatStrip
+              items={[
+                { label: '来源文档', value: sourceDocs.length },
+                { label: '正文引用', value: citationCount },
+                { label: '检索文本块', value: retrievedCount ?? 0 },
+                {
+                  label: '质量校验',
+                  value: validation ? (
+                    <span className={validation.passed ? 'ws-tone-ok' : 'ws-tone-bad'}>
+                      {validation.passed ? '通过' : '未通过'}
+                    </span>
+                  ) : (
+                    '—'
+                  ),
+                },
+              ]}
+            />
+            <div className="result-body">
+              <MarkdownReader content={finalAnswer} sources={sources} />
+            </div>
           </Card>
         </div>
       ) : null}
