@@ -3,10 +3,12 @@ import {
   DatabaseOutlined,
   HistoryOutlined,
   MenuFoldOutlined,
+  MenuOutlined,
   MenuUnfoldOutlined,
   MoonOutlined,
   ReloadOutlined,
   RocketOutlined,
+  StopOutlined,
   SunOutlined,
 } from '@ant-design/icons'
 import {
@@ -14,10 +16,9 @@ import {
   Badge,
   Button,
   ConfigProvider,
+  Drawer,
   Layout,
   Menu,
-  Space,
-  Switch,
   Tooltip,
 } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
@@ -26,6 +27,7 @@ import { useState } from 'react'
 
 import ErrorBoundary from './components/ErrorBoundary'
 import { useHealth } from './hooks/useHealth'
+import { useIsNarrow } from './hooks/useIsNarrow'
 import HistoryPage from './pages/History'
 import KnowledgeBasePage from './pages/KnowledgeBase'
 import MemoryPage from './pages/Memory'
@@ -37,47 +39,35 @@ import { useUiPreferences } from './theme/useUiPreferences'
 const { Content, Sider } = Layout
 
 const PAGE_META: Array<{ key: string; label: string; icon: ReactNode }> = [
-  { key: 'task', label: '任务', icon: <RocketOutlined /> },
+  { key: 'workspace', label: '工作台', icon: <RocketOutlined /> },
   { key: 'knowledge', label: '知识库', icon: <DatabaseOutlined /> },
   { key: 'history', label: '任务历史', icon: <HistoryOutlined /> },
   { key: 'memory', label: '长期记忆', icon: <BulbOutlined /> },
 ]
 
 export default function App() {
-  const { mode, toggleMode, mica, toggleMica } = useUiPreferences()
+  const { mode, toggleMode } = useUiPreferences()
 
   return (
     <ConfigProvider locale={zhCN} theme={buildThemeConfig(mode)}>
       <AntApp>
         {/* 任务运行状态提升到 App 层：切换页面不丢进度，任务继续在后台执行 */}
         <TaskRunProvider>
-          <AppShell
-            mode={mode}
-            toggleMode={toggleMode}
-            mica={mica}
-            toggleMica={toggleMica}
-          />
+          <AppShell mode={mode} toggleMode={toggleMode} />
         </TaskRunProvider>
       </AntApp>
     </ConfigProvider>
   )
 }
 
-function AppShell({
-  mode,
-  toggleMode,
-  mica,
-  toggleMica,
-}: {
-  mode: 'dark' | 'light'
-  toggleMode: () => void
-  mica: boolean
-  toggleMica: () => void
-}) {
-  const [page, setPage] = useState('task')
+function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: () => void }) {
+  const [page, setPage] = useState('workspace')
   const [collapsed, setCollapsed] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const narrow = useIsNarrow()
+
   const { health, loaded, reload } = useHealth()
-  const { running } = useTaskRun()
+  const { running, abort } = useTaskRun()
 
   const menuTheme = mode === 'dark' ? 'dark' : 'light'
   const healthy = health?.status === 'ok'
@@ -89,12 +79,14 @@ function AppShell({
       : '后端正常，但尚未配置 DEEPSEEK_API_KEY'
     : '无法连接后端（请确认 FastAPI 已启动）'
 
+  const currentLabel = PAGE_META.find((item) => item.key === page)?.label ?? ''
+
   const menuItems = PAGE_META.map((item) => ({
     key: item.key,
     label: item.label,
     // 任务运行中时在图标上显示小圆点（折叠状态下也可见）
     icon:
-      item.key === 'task' && running ? (
+      item.key === 'workspace' && running ? (
         <Badge dot offset={[2, -2]}>
           {item.icon}
         </Badge>
@@ -103,110 +95,129 @@ function AppShell({
       ),
   }))
 
-  return (
-    <>
-      {/* 静态柔和底衬：为 Mica 面板提供可模糊的内容（无动画） */}
-      <div className="app-backdrop" aria-hidden="true" />
+  const handleNav = (key: string) => {
+    setPage(key)
+    setDrawerOpen(false)
+  }
 
-      <Layout className="app-shell">
+  const nav = (
+    <>
+      <div className="brand">
+        <div className="brand-logo">AI</div>
+        <div className="brand-text">
+          <div className="brand-name">{BRAND_NAME}</div>
+          <div className="brand-subtitle">{BRAND_SUBTITLE}</div>
+        </div>
+      </div>
+      <Menu
+        className="app-menu"
+        theme={menuTheme}
+        mode="inline"
+        selectedKeys={[page]}
+        items={menuItems}
+        onClick={(event) => handleNav(event.key)}
+      />
+      <div className="sider-footer">
+        <Tooltip title={healthDetail} placement="right">
+          <div className="health-row">
+            <Badge status={healthColor} />
+            <span className="health-text">{healthText}</span>
+            <Button
+              type="text"
+              size="small"
+              aria-label="重新检查后端状态"
+              icon={<ReloadOutlined />}
+              onClick={reload}
+            />
+          </div>
+        </Tooltip>
+        <div className="sider-version">{APP_VERSION}</div>
+      </div>
+    </>
+  )
+
+  return (
+    <Layout className="app-shell">
+      {narrow ? (
+        <Drawer
+          placement="left"
+          width={248}
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          closable={false}
+          styles={{ body: { padding: 0 } }}
+        >
+          <div className="app-sider app-sider--drawer">{nav}</div>
+        </Drawer>
+      ) : (
         <Sider
-          className="app-sider surface-mica"
+          className="app-sider"
           theme={menuTheme}
-          width={232}
-          collapsedWidth={72}
+          width={236}
+          collapsedWidth={64}
           collapsed={collapsed}
           trigger={null}
-          breakpoint="lg"
-          onBreakpoint={(broken) => setCollapsed(broken)}
         >
-          <div className="brand">
-            <div className="brand-logo">AI</div>
-            {!collapsed && (
-              <div className="brand-text">
-                <div className="brand-name">{BRAND_NAME}</div>
-                <div className="brand-subtitle">{BRAND_SUBTITLE}</div>
-              </div>
-            )}
-          </div>
-
-          <Menu
-            className="app-menu"
-            theme={menuTheme}
-            mode="inline"
-            selectedKeys={[page]}
-            items={menuItems}
-            onClick={(event) => setPage(event.key)}
-          />
-
-          <div className="sider-footer">
-            <Tooltip title={healthDetail} placement="right">
-              <div className="health-row">
-                <Badge status={healthColor} />
-                {!collapsed && <span className="health-text">{healthText}</span>}
-              </div>
-            </Tooltip>
-
-            <Space size={4} className="sider-actions">
-              <Tooltip title={mode === 'dark' ? '切换到浅色' : '切换到深色'} placement="top">
-                <Button
-                  type="text"
-                  size="small"
-                  aria-label="切换主题"
-                  icon={mode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
-                  onClick={toggleMode}
-                />
-              </Tooltip>
-              {!collapsed && (
-                <Tooltip title="毛玻璃（Mica）效果" placement="top">
-                  <span className="mica-switch">
-                    <Switch size="small" checked={mica} onChange={toggleMica} />
-                    <span className="mica-label">毛玻璃</span>
-                  </span>
-                </Tooltip>
-              )}
-              <Tooltip title="重新检查后端状态" placement="top">
-                <Button
-                  type="text"
-                  size="small"
-                  aria-label="刷新后端状态"
-                  icon={<ReloadOutlined />}
-                  onClick={reload}
-                />
-              </Tooltip>
-            </Space>
-
-            {!collapsed && <div className="sider-version">{APP_VERSION}</div>}
-          </div>
+          {nav}
         </Sider>
+      )}
 
-        <Layout>
-          <div className="app-header surface-mica">
+      <Layout>
+        <div className="app-header">
+          {narrow ? (
+            <Button
+              type="text"
+              aria-label="打开导航"
+              icon={<MenuOutlined />}
+              onClick={() => setDrawerOpen(true)}
+            />
+          ) : (
             <Button
               type="text"
               aria-label={collapsed ? '展开侧边栏' : '折叠侧边栏'}
               icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
               onClick={() => setCollapsed((prev) => !prev)}
             />
-            <span className="app-header-title">
-              {PAGE_META.find((item) => item.key === page)?.label ?? ''}
-            </span>
+          )}
+          <span className="app-header-title">{currentLabel}</span>
+
+          <div className="app-header-actions">
             {running && (
               <span className="app-header-running">
-                <Badge status="processing" /> 任务运行中
+                <Badge status="processing" /> 任务执行中
               </span>
             )}
+            {running && page !== 'workspace' && (
+              <Button size="small" type="primary" onClick={() => handleNav('workspace')}>
+                查看进度
+              </Button>
+            )}
+            {running && (
+              <Button size="small" danger icon={<StopOutlined />} onClick={abort}>
+                终止
+              </Button>
+            )}
+            <Tooltip title={mode === 'dark' ? '切换到浅色' : '切换到深色'}>
+              <Button
+                type="text"
+                size="small"
+                aria-label="切换主题"
+                icon={mode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+                onClick={toggleMode}
+              />
+            </Tooltip>
           </div>
+        </div>
 
-          <Content className="app-content">
-            <ErrorBoundary>
-              {page === 'task' && <TaskPage />}
-              {page === 'knowledge' && <KnowledgeBasePage />}
-              {page === 'history' && <HistoryPage />}
-              {page === 'memory' && <MemoryPage />}
-            </ErrorBoundary>
-          </Content>
-        </Layout>
+        <Content className="app-content">
+          <ErrorBoundary>
+            {page === 'workspace' && <TaskPage />}
+            {page === 'knowledge' && <KnowledgeBasePage />}
+            {page === 'history' && <HistoryPage />}
+            {page === 'memory' && <MemoryPage />}
+          </ErrorBoundary>
+        </Content>
       </Layout>
-    </>
+    </Layout>
   )
 }

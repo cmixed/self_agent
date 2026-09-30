@@ -1,7 +1,7 @@
 /* =============================================================================
    全局样式
+   - 统一实色分层：无毛玻璃、无渐变；层级靠边框与表面色阶
    - 组件颜色统一走 antd CSS 变量（--ant-*），随深浅主题自动切换
-   - Mica（毛玻璃）只用于高层级面板：侧栏 / 页头；正文卡片保持实心以保证对比度
    ============================================================================= */
 
 html,
@@ -14,94 +14,22 @@ body,
 body {
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  /* React 挂载前与视口边缘的底色 */
-  background: #f5f7fa;
+  /* React 挂载前的底色（默认深色），挂载后由 antd 容器色接管 */
+  background: #0b0d0c;
 }
 
-html[data-theme='dark'] body {
-  background: #101216;
+html[data-theme='light'] body {
+  background: #f5f6f5;
 }
 
-/* --- 自定义变量（按主题切换） --------------------------------------------- */
+/* --- 语义尺度（统一实色分层：无毛玻璃、无渐变） --------------------------- */
 :root {
-  --mica-blur: 22px;
-  --mica-alpha: 0.72;
-}
-
-:root[data-theme='light'] {
-  --mica-bg: rgba(255, 255, 255, var(--mica-alpha));
-  --mica-border: rgba(15, 23, 42, 0.08);
-}
-
-:root[data-theme='dark'] {
-  --mica-bg: rgba(22, 24, 29, var(--mica-alpha));
-  --mica-border: rgba(255, 255, 255, 0.1);
-}
-
-/* --- Mica 面板 ------------------------------------------------------------- */
-.surface-mica {
-  background: var(--mica-bg);
-  backdrop-filter: blur(var(--mica-blur)) saturate(150%);
-  -webkit-backdrop-filter: blur(var(--mica-blur)) saturate(150%);
-}
-
-/* 关闭毛玻璃时退化为实心（答辩现场提升对比度用） */
-:root[data-mica='off'] .surface-mica {
-  background: var(--ant-color-bg-container);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-/* 浏览器不支持 backdrop-filter 时同样退化 */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .surface-mica {
-    background: var(--ant-color-bg-container);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-}
-
-/* --- 静态底衬（无动画，仅让毛玻璃有内容可糊） ----------------------------- */
-.app-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.app-backdrop::before,
-.app-backdrop::after {
-  content: '';
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(90px);
-}
-
-.app-backdrop::before {
-  width: 520px;
-  height: 520px;
-  left: -140px;
-  top: -160px;
-  background: #2563eb;
-  opacity: 0.28;
-}
-
-.app-backdrop::after {
-  width: 460px;
-  height: 460px;
-  right: -160px;
-  bottom: -180px;
-  background: #7c3aed;
-  opacity: 0.22;
-}
-
-html[data-theme='dark'] .app-backdrop::before {
-  opacity: 0.2;
-}
-
-html[data-theme='dark'] .app-backdrop::after {
-  opacity: 0.16;
+  --ws-radius-sm: 6px;
+  --ws-radius: 8px;
+  --ws-radius-lg: 12px;
+  --ws-gap: 16px;
+  --ws-page-pad: 24px;
+  --ws-content-max: 1200px;
 }
 
 /* --- 布局外壳 ------------------------------------------------------------- */
@@ -116,7 +44,8 @@ html[data-theme='dark'] .app-backdrop::after {
   position: sticky;
   top: 0;
   height: 100vh;
-  border-right: 1px solid var(--mica-border);
+  background: var(--ant-color-bg-container);
+  border-right: 1px solid var(--ant-color-border-secondary);
 }
 
 .app-sider .ant-layout-sider-children {
@@ -137,10 +66,11 @@ html[data-theme='dark'] .app-backdrop::after {
   height: 34px;
   flex: 0 0 34px;
   border-radius: 9px;
-  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  background: var(--ant-color-primary);
   color: #fff;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 13px;
+  letter-spacing: 0.5px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -163,16 +93,27 @@ html[data-theme='dark'] .app-backdrop::after {
   white-space: nowrap;
 }
 
-/* 菜单容器透明，让 Mica 面板透出来（提高选择器权重以覆盖 antd 默认底色） */
+/* 菜单容器透明，交给侧栏实色背景（提高选择器权重以覆盖 antd 默认底色） */
 .app-sider .app-menu.ant-menu {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   background: transparent;
   border-inline-end: none;
 }
 
+/* 窄屏抽屉内的侧栏：高度自适应，去掉桌面 sticky */
+.app-sider--drawer {
+  position: static;
+  height: 100%;
+  border-right: none;
+  display: flex;
+  flex-direction: column;
+}
+
 .sider-footer {
   padding: 12px;
-  border-top: 1px solid var(--mica-border);
+  border-top: 1px solid var(--ant-color-border-secondary);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -185,22 +126,6 @@ html[data-theme='dark'] .app-backdrop::after {
 }
 
 .health-text {
-  font-size: 12px;
-  color: var(--ant-color-text-secondary);
-}
-
-.sider-actions {
-  display: flex;
-  align-items: center;
-}
-
-.mica-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.mica-label {
   font-size: 12px;
   color: var(--ant-color-text-secondary);
 }
@@ -219,7 +144,8 @@ html[data-theme='dark'] .app-backdrop::after {
   align-items: center;
   gap: 8px;
   padding: 0 16px;
-  border-bottom: 1px solid var(--mica-border);
+  background: var(--ant-color-bg-container);
+  border-bottom: 1px solid var(--ant-color-border-secondary);
 }
 
 .app-header-title {
@@ -228,13 +154,22 @@ html[data-theme='dark'] .app-backdrop::after {
   color: var(--ant-color-text);
 }
 
+.app-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .app-content {
   padding: 24px;
   background: transparent;
 }
 
 .app-header-running {
-  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   color: var(--ant-color-text-secondary);
 }
@@ -679,8 +614,7 @@ html[data-theme='dark'] .app-backdrop::after {
 /* --- 打印（答辩导出 PDF 用） ---------------------------------------------- */
 @media print {
   .app-sider,
-  .app-header,
-  .app-backdrop {
+  .app-header {
     display: none !important;
   }
 
