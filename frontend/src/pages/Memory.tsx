@@ -30,7 +30,7 @@ import {
 import type { MemoryProfile, MemoryRecord } from '../types/api'
 import { formatDateTime } from '../utils/format'
 
-const { Text, Paragraph } = Typography
+const { Text } = Typography
 
 const PAGE_TITLE = '长期记忆'
 const PAGE_DESCRIPTION = '跨会话生效的偏好与记忆：任务运行时会自动注入，显式设置的值优先。'
@@ -186,6 +186,7 @@ export default function MemoryPage() {
                     </Button>
                     <Popconfirm
                       title={`删除偏好 ${record.key}？`}
+                      description="删除后任务将不再使用该偏好。"
                       onConfirm={() => void handleDeletePreference(record.key)}
                     >
                       <Button danger type="link">
@@ -232,18 +233,21 @@ export default function MemoryPage() {
           </Form.Item>
         </Form>
 
-        <Paragraph type="secondary" className="memory-form-hint">
-          快捷填入常用键：
-          {COMMON_KEYS.map((key) => (
-            <Tag
-              key={key}
-              className="sample-tag"
-              onClick={() => preferenceForm.setFieldsValue({ key })}
-            >
-              {key}
-            </Tag>
-          ))}
-        </Paragraph>
+        <div className="memory-form-hint">
+          <Text type="secondary">快捷填入常用键：</Text>
+          <Space size={[8, 8]} wrap>
+            {COMMON_KEYS.map((key) => (
+              <Button
+                key={key}
+                size="small"
+                className="sample-chip"
+                onClick={() => preferenceForm.setFieldsValue({ key })}
+              >
+                {key}
+              </Button>
+            ))}
+          </Space>
+        </div>
       </Card>
 
       <Card title={`记忆（${memories.length}）`}>
@@ -267,6 +271,7 @@ export default function MemoryPage() {
                   <Popconfirm
                     key="delete"
                     title="删除该记忆？"
+                    description="删除后不可恢复。"
                     onConfirm={() => void handleDeleteMemory(item.memory_id)}
                   >
                     <Button danger type="link">
