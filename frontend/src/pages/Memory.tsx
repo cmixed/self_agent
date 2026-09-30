@@ -32,8 +32,9 @@ import { formatDateTime } from '../utils/format'
 
 const { Text } = Typography
 
-const PAGE_TITLE = '长期记忆'
-const PAGE_DESCRIPTION = '跨会话生效的偏好与记忆：任务运行时会自动注入，显式设置的值优先。'
+const PAGE_EYEBROW = '长期记忆'
+const PAGE_TITLE = '管理跨任务保留的偏好与信息'
+const PAGE_DESCRIPTION = 'Agent 会在后续任务中遵循这些偏好，并从中积累长期记忆。'
 const PAGE_MAX_WIDTH = 1200
 
 /** 常用偏好键（与后端 MemoryService 的提示保持一致） */
@@ -135,6 +136,7 @@ export default function MemoryPage() {
 
   return (
     <PageContainer
+      eyebrow={PAGE_EYEBROW}
       title={PAGE_TITLE}
       description={PAGE_DESCRIPTION}
       maxWidth={PAGE_MAX_WIDTH}

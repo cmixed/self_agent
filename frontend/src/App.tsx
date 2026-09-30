@@ -8,7 +8,6 @@ import {
   MoonOutlined,
   ReloadOutlined,
   RocketOutlined,
-  StopOutlined,
   SunOutlined,
 } from '@ant-design/icons'
 import {
@@ -71,7 +70,7 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
   const narrow = useIsNarrow()
 
   const { health, loaded, reload } = useHealth()
-  const { running, abort } = useTaskRun()
+  const { running } = useTaskRun()
 
   const menuTheme = mode === 'dark' ? 'dark' : 'light'
   const healthy = health?.status === 'ok'
@@ -190,21 +189,20 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
           <span className="app-header-title">{currentLabel}</span>
 
           <div className="app-header-actions">
-            {running && (
-              <span className="app-header-running">
-                <Badge status="processing" /> 任务执行中
-              </span>
-            )}
-            {running && page !== 'workspace' && (
-              <Button size="small" type="primary" onClick={() => handleNav('workspace')}>
-                查看进度
-              </Button>
-            )}
-            {running && (
-              <Button size="small" danger icon={<StopOutlined />} onClick={abort}>
-                终止
-              </Button>
-            )}
+            {running ? (
+              <Tooltip title="任务正在后台执行，点击返回工作台">
+                <Button
+                  type="text"
+                  size="small"
+                  className="app-header-run"
+                  aria-label="任务执行中，返回工作台"
+                  onClick={() => handleNav('workspace')}
+                >
+                  <Badge status="processing" />
+                  <span className="app-header-run__text">执行中</span>
+                </Button>
+              </Tooltip>
+            ) : null}
             <Tooltip title={mode === 'dark' ? '切换到浅色' : '切换到深色'}>
               <Button
                 type="text"

@@ -32,8 +32,9 @@ import { documentKind } from '../utils/format'
 const { Text, Paragraph } = Typography
 const { Dragger } = Upload
 
-const PAGE_TITLE = '知识库'
-const PAGE_DESCRIPTION = '上传 PDF、TXT、Markdown 文档；Agent 检索这些资料并在正文中标注来源。'
+const PAGE_EYEBROW = '知识库'
+const PAGE_TITLE = '上传资料，构建你的个人知识库'
+const PAGE_DESCRIPTION = '支持 PDF / TXT / Markdown；上传后自动解析、分块并写入向量库。'
 const PAGE_MAX_WIDTH = 1200
 
 const KIND_META = {
@@ -107,6 +108,7 @@ export default function KnowledgeBasePage() {
 
   return (
     <PageContainer
+      eyebrow={PAGE_EYEBROW}
       title={PAGE_TITLE}
       description={PAGE_DESCRIPTION}
       maxWidth={PAGE_MAX_WIDTH}

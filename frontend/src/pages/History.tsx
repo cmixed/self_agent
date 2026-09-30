@@ -30,8 +30,9 @@ import { formatDateTime, formatDuration, taskDurationSeconds } from '../utils/fo
 
 const { Text } = Typography
 
-const PAGE_TITLE = '任务历史'
-const PAGE_DESCRIPTION = '查看历史任务的执行状态、来源引用、校验结论与最终结果。'
+const PAGE_EYEBROW = '任务历史'
+const PAGE_TITLE = '查看过去任务的执行状态与结果'
+const PAGE_DESCRIPTION = '支持按状态筛选；点击任务可查看正文、来源与校验结论。'
 const PAGE_MAX_WIDTH = 1200
 
 export default function HistoryPage() {
@@ -117,6 +118,7 @@ export default function HistoryPage() {
 
   return (
     <PageContainer
+      eyebrow={PAGE_EYEBROW}
       title={PAGE_TITLE}
       description={PAGE_DESCRIPTION}
       maxWidth={PAGE_MAX_WIDTH}

@@ -50,7 +50,7 @@ html[data-theme='dark'] body {
   --ws-font-body: 14px;
   --ws-font-card-title: 14px;
   --ws-font-section: 16px;
-  --ws-font-page: 20px;
+  --ws-font-page: 24px;
   --ws-lh-body: 1.6;
   --ws-lh-reading: 1.75;
 
@@ -61,6 +61,8 @@ html[data-theme='dark'] body {
   --ws-content-max: 1200px;
   --ws-page-pad: 24px;
   --ws-gap: 16px;
+  --ws-content-pad-x: 32px;
+  --ws-content-pad-y: 24px;
 
   /* 层级 */
   --ws-z-sticky: 10;
@@ -113,7 +115,8 @@ html[data-theme='dark'] body {
   top: 0;
   height: 100vh;
   background: var(--ant-color-bg-container);
-  border-right: 1px solid var(--ant-color-border-secondary);
+  border-right: 1px solid var(--ant-color-border);
+  box-shadow: none;
 }
 
 .app-sider .ant-layout-sider-children {
@@ -125,8 +128,8 @@ html[data-theme='dark'] body {
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 18px 16px 14px;
+  gap: var(--ws-space-3);
+  padding: var(--ws-space-4) var(--ws-space-4) var(--ws-space-3);
 }
 
 .brand-logo {
@@ -149,14 +152,16 @@ html[data-theme='dark'] body {
 }
 
 .brand-name {
-  font-size: 14px;
+  font-size: var(--ws-font-body);
   font-weight: 600;
+  line-height: 1.3;
   color: var(--ant-color-text);
   white-space: nowrap;
 }
 
 .brand-subtitle {
-  font-size: 12px;
+  font-size: var(--ws-font-caption);
+  line-height: 1.4;
   color: var(--ant-color-text-tertiary);
   white-space: nowrap;
 }
@@ -170,9 +175,9 @@ html[data-theme='dark'] body {
   border-inline-end: none;
 }
 
-/* 选中项：仙茶绿低饱和底色 + 左侧主色指示条（用 inset 阴影，避免与 antd 的 ::before 冲突） */
+/* 选中项：仙茶绿浅底 + 左侧 3px 品牌色竖线（克制，不做重色块，不用阴影） */
 .app-sider .app-menu.ant-menu .ant-menu-item-selected {
-  box-shadow: inset 2px 0 0 0 var(--ant-color-primary);
+  box-shadow: inset 3px 0 0 0 var(--ant-color-primary);
 }
 
 /* 窄屏抽屉内的侧栏：高度自适应，去掉桌面 sticky */
@@ -186,7 +191,7 @@ html[data-theme='dark'] body {
 
 .sider-footer {
   padding: var(--ws-space-3);
-  border-top: 1px solid var(--ant-color-border-secondary);
+  border-top: 1px solid var(--ant-color-border);
   display: flex;
   flex-direction: column;
   gap: var(--ws-space-3);
@@ -199,12 +204,12 @@ html[data-theme='dark'] body {
 }
 
 .health-text {
-  font-size: 12px;
+  font-size: var(--ws-font-caption);
   color: var(--ant-color-text-secondary);
 }
 
 .sider-version {
-  font-size: 11px;
+  font-size: var(--ws-font-caption);
   color: var(--ant-color-text-quaternary);
 }
 
@@ -238,11 +243,11 @@ html[data-theme='dark'] body {
   gap: var(--ws-space-2);
   padding: 0 var(--ws-space-4);
   background: var(--ant-color-bg-container);
-  border-bottom: 1px solid var(--ant-color-border-secondary);
+  border-bottom: 1px solid var(--ant-color-border);
 }
 
 .app-header-title {
-  font-size: 14px;
+  font-size: var(--ws-font-body);
   font-weight: 600;
   color: var(--ant-color-text);
 }
@@ -255,16 +260,25 @@ html[data-theme='dark'] body {
 }
 
 .app-content {
-  padding: var(--ws-page-pad);
+  padding: var(--ws-content-pad-y) var(--ws-content-pad-x);
   background: transparent;
 }
 
-.app-header-running {
+/* Card 外框统一使用 token.border（antd 默认用更淡的 border-secondary） */
+.ant-card {
+  border-color: var(--ant-color-border);
+}
+
+.app-header-run {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: var(--ws-space-1);
+  font-size: var(--ws-font-secondary);
   color: var(--ant-color-text-secondary);
+}
+
+.app-header-run__text {
+  margin-left: 2px;
 }
 
 /* --- 页面容器 ------------------------------------------------------------- */
@@ -1127,9 +1141,16 @@ html[data-theme='dark'] body {
 }
 
 /* --- 响应式 --------------------------------------------------------------- */
+/* 桌面：左右 32px；中等屏：20px；窄屏：16px */
+@media (max-width: 1199px) {
+  .app-content {
+    padding-inline: var(--ws-space-5);
+  }
+}
+
 @media (max-width: 768px) {
   .app-content {
-    padding: 16px;
+    padding: var(--ws-space-4);
   }
 
   .ws-step__badge {
@@ -1151,7 +1172,7 @@ html[data-theme='dark'] body {
 }
 
 @media (max-width: 640px) {
-  .app-header-running {
+  .app-header-run__text {
     display: none;
   }
 }

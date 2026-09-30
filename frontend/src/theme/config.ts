@@ -39,6 +39,7 @@ export const SURFACE = {
     layout: '#f0e9df',
     container: '#ffffff',
     elevated: '#ffffff',
+    secondary: '#faf8f2',
     border: '#e6ddcd',
     borderSecondary: '#efe8db',
     fill: '#f6f1e8',
@@ -52,7 +53,8 @@ export const SURFACE = {
     layout: '#101311',
     container: '#171a18',
     elevated: '#1d211e',
-    border: '#2a302b',
+    secondary: '#1d211e',
+    border: '#2a302c',
     borderSecondary: '#212620',
     fill: '#1d211e',
     tableHeader: '#1b1f1c',
@@ -72,12 +74,12 @@ export const STATUS = {
   light: {
     success: '#3f6b4a',
     warning: '#8a6a2f',
-    error: '#a04942',
+    error: '#aa4942',
     info: '#475349',
   },
   dark: {
     success: '#8fb99a',
-    warning: '#cbb173',
+    warning: '#ccb173',
     error: '#d99b94',
     info: '#a7b3a7',
   },
@@ -124,6 +126,8 @@ export function buildThemeConfig(mode: ThemeMode): ThemeConfig {
       colorBorder: s.border,
       colorBorderSecondary: s.borderSecondary,
       colorFillTertiary: s.fill,
+      // 次级表面（Secondary Surface）：用于次级底/条带，随主题切换
+      colorFillQuaternary: s.secondary,
 
       // --- 文字 ---
       colorText: s.text,

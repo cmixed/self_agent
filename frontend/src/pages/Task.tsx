@@ -25,7 +25,7 @@ const { TextArea } = Input
 
 const EYEBROW = '工作台'
 const IDLE_TITLE = '让 Agent 基于你的资料完成一个复杂任务'
-const IDLE_DESC = 'Agent 会先规划任务、检索你的知识库，再分章节撰写并逐章自我校验。'
+const IDLE_DESC = 'Agent 会规划任务、检索你的知识库，再分章节撰写并进行自我校验。'
 
 /** 闲置态展示的执行流程（与运行时时间线一一对应） */
 const IDLE_PIPELINE = ['规划任务', '检索知识库', '生成大纲', '逐章撰写 ⇄ 校验', '整合结果']
