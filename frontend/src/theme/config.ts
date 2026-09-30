@@ -38,13 +38,13 @@ const SURFACE = {
     tableHeader: '#161a18',
   },
   light: {
-    layout: '#f5f6f5',
-    container: '#ffffff',
-    elevated: '#ffffff',
-    border: '#e3e6e4',
-    borderSecondary: '#eceeec',
-    fill: '#f2f4f3',
-    tableHeader: '#f5f6f5',
+    layout: '#f0e9df',
+    container: '#fbf8f2',
+    elevated: '#fffdfa',
+    border: '#e2d9c9',
+    borderSecondary: '#eae2d3',
+    fill: '#f4eee3',
+    tableHeader: '#f6f1e6',
   },
 } as const
 

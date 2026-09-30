@@ -19,7 +19,7 @@ body {
 }
 
 html[data-theme='light'] body {
-  background: #f5f6f5;
+  background: #f0e9df;
 }
 
 /* --- 语义尺度（统一实色分层：无毛玻璃、无渐变） --------------------------- */
@@ -260,6 +260,7 @@ html[data-theme='light'] body {
   margin: 20px 0 12px;
   font-weight: 600;
   line-height: 1.35;
+  scroll-margin-top: 72px;
 }
 
 .markdown-body h1 {
@@ -878,6 +879,130 @@ html[data-theme='light'] body {
   }
 }
 
+/* --- Markdown 阅读器 ------------------------------------------------------ */
+.md-reader {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+
+.md-reader.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.md-reader__toc {
+  position: sticky;
+  top: 72px;
+  align-self: start;
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+}
+
+.md-reader__toc-head {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--ant-color-text-tertiary);
+  margin-bottom: 8px;
+}
+
+.md-reader__toc ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 1px solid var(--ant-color-border-secondary);
+}
+
+.md-reader__toc-item button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 5px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ant-color-text-secondary);
+  border-left: 2px solid transparent;
+  margin-left: -1px;
+  transition:
+    color 150ms ease,
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.md-reader__toc-item button:hover {
+  color: var(--ant-color-text);
+  background: var(--ant-color-fill-tertiary);
+}
+
+.md-reader__toc-item.is-l2 button {
+  padding-left: 20px;
+}
+
+.md-reader__toc-item.is-l3 button {
+  padding-left: 32px;
+  font-size: 12px;
+}
+
+.md-reader__toc-item.is-active button {
+  color: var(--ant-color-primary);
+  border-left-color: var(--ant-color-primary);
+  font-weight: 500;
+}
+
+.md-reader__main {
+  min-width: 0;
+}
+
+.md-reader__refs {
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ant-color-border-secondary);
+}
+
+.md-reader__refs-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.md-reader__refs ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.md-reader__refs li {
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--ant-color-text-secondary);
+  scroll-margin-top: 72px;
+}
+
+.md-reader__ref-index {
+  color: var(--ant-color-text-tertiary);
+  margin-right: 6px;
+}
+
+.md-reader__ref-score {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary);
+}
+
+@media (max-width: 1024px) {
+  .md-reader {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .md-reader__toc {
+    display: none;
+  }
+}
+
 /* --- 响应式 --------------------------------------------------------------- */
 @media (max-width: 768px) {
   .app-content {
@@ -916,5 +1041,17 @@ html[data-theme='light'] body {
 
   .app-content {
     padding: 0;
+  }
+
+  .md-reader {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .md-reader__toc {
+    display: none !important;
+  }
+
+  .markdown-body {
+    max-width: none;
   }
 }

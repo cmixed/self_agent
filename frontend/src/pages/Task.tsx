@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import AgentProgress from '../components/AgentProgress'
 import type { MacroStage } from '../components/AgentProgress'
 import EmptyState from '../components/EmptyState'
-import MarkdownView from '../components/MarkdownView'
+import MarkdownReader from '../components/MarkdownReader'
 import PageContainer from '../components/PageContainer'
 import StatStrip from '../components/StatStrip'
 import StatusTag from '../components/StatusTag'
@@ -522,10 +522,15 @@ export default function TaskPage() {
                     下载 .md
                   </Button>
                 </Tooltip>
+                <Tooltip title="打印 / 导出 PDF">
+                  <Button size="small" onClick={() => window.print()}>
+                    打印
+                  </Button>
+                </Tooltip>
               </Space>
             }
           >
-            <MarkdownView content={finalAnswer} />
+            <MarkdownReader content={finalAnswer} sources={sources} />
           </Card>
         </div>
       ) : null}
