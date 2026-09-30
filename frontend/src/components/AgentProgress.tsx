@@ -1,9 +1,8 @@
 import {
-  CheckCircleFilled,
-  ClockCircleOutlined,
-  CloseCircleFilled,
+  CheckOutlined,
+  CloseOutlined,
   LoadingOutlined,
-  MinusCircleOutlined,
+  MinusOutlined,
   RedoOutlined,
 } from '@ant-design/icons'
 import { Collapse, Progress, Tag, Tooltip, Typography } from 'antd'
@@ -38,7 +37,7 @@ export interface MacroStage {
   skipped?: boolean
   /** 进度条（大纲/章节阶段用） */
   progress?: { done: number; total: number }
-  /** 仅「逐章撰写与校验」阶段使用 */
+  /** 仅「逐章撰写」阶段使用 */
   chapters?: ChapterView[]
 }
 
@@ -49,16 +48,16 @@ export interface LogEntry {
   tone: 'info' | 'warn' | 'error'
 }
 
-function StatusIcon({ status }: { status: StageStatus }) {
+function StageIcon({ status }: { status: StageStatus }) {
   switch (status) {
     case 'finish':
-      return <CheckCircleFilled className="stage-icon stage-icon--finish" />
+      return <CheckOutlined />
     case 'process':
-      return <LoadingOutlined className="stage-icon stage-icon--process" />
+      return <LoadingOutlined />
     case 'error':
-      return <CloseCircleFilled className="stage-icon stage-icon--error" />
+      return <CloseOutlined />
     default:
-      return <ClockCircleOutlined className="stage-icon stage-icon--wait" />
+      return null
   }
 }
 
@@ -92,11 +91,69 @@ function ChapterRow({ chapter }: { chapter: ChapterView }) {
   )
 }
 
+function TimelineStep({ stage }: { stage: MacroStage }) {
+  const status: StageStatus | 'skipped' = stage.skipped ? 'skipped' : stage.status
+
+  return (
+    <li className={`ws-step is-${status}`}>
+      <div className="ws-step__rail">
+        {stage.skipped ? (
+          <Tooltip title="计划不需要知识库检索，已跳过">
+            <span className="ws-step__dot">
+              <MinusOutlined />
+            </span>
+          </Tooltip>
+        ) : (
+          <span className="ws-step__dot">
+            <StageIcon status={stage.status} />
+          </span>
+        )}
+      </div>
+
+      <div className="ws-step__body">
+        <div className="ws-step__head">
+          <span className="ws-step__title">{stage.title}</span>
+          {stage.note ? <span className="ws-step__note">{stage.note}</span> : null}
+          {stage.badge ? <span className="ws-step__badge">{stage.badge}</span> : null}
+        </div>
+
+        {stage.progress && stage.progress.total > 0 ? (
+          <Progress
+            className="ws-step__progress"
+            percent={Math.round((stage.progress.done / stage.progress.total) * 100)}
+            size="small"
+            showInfo={false}
+            status={stage.status === 'error' ? 'exception' : 'normal'}
+          />
+        ) : null}
+
+        {stage.chapters?.length ? (
+          <ul className="chapter-list">
+            {stage.chapters.map((chapter) => (
+              <ChapterRow key={chapter.index} chapter={chapter} />
+            ))}
+          </ul>
+        ) : null}
+
+        {stage.notes?.length ? (
+          <ul className="ws-notes">
+            {stage.notes.map((note, index) => (
+              <li key={`${stage.key}-${index}`}>
+                <Text type="warning">{note}</Text>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </li>
+  )
+}
+
 /**
- * Agent 执行进度。
+ * Agent 执行主线。
  *
  * 按真实拓扑组织，而不是线性阶段列表：
- *   规划 → 检索 → 大纲 →「逐章撰写 ⇄ 校验」(章节级展开) → 整合
+ *   分析任务 → 检索知识库 → 生成大纲 → 逐章撰写 ⇄ 校验 → 整合结果
  * 校验失败会重写同一章、replan 会整轮回到规划，因此额外提供「轮次」与结构化执行日志。
  * 只展示结构化事件，不展示模型推理过程。
  */
@@ -115,17 +172,15 @@ export default function AgentProgress({
   round: number
   log: LogEntry[]
 }) {
-  const doneCount = stages.filter(
-    (item) => item.status === 'finish' || item.skipped,
-  ).length
+  const doneCount = stages.filter((item) => item.status === 'finish' || item.skipped).length
 
   return (
-    <div className="stage-list">
-      <div className="stage-list-head">
+    <div className="ws-progress">
+      <div className="ws-progress__head">
         <Text type="secondary">
           {hasStarted ? `已完成 ${doneCount}/${stages.length} 个阶段` : '尚未运行'}
         </Text>
-        <span>
+        <span className="ws-progress__meta">
           {round > 1 ? <Tag color="volcano">第 {round} 轮（重新规划后）</Tag> : null}
           {running && elapsedSeconds > 0 ? (
             <Text type="secondary">已用时 {elapsedSeconds}s</Text>
@@ -133,66 +188,10 @@ export default function AgentProgress({
         </span>
       </div>
 
-      <ol className="stage-items">
-        {stages.map((stage) => {
-          const isCurrent = !stage.skipped && stage.status === 'process'
-          return (
-            <li
-              key={stage.key}
-              className={`stage-item${isCurrent ? ' is-current' : ''}${
-                stage.skipped ? ' is-skipped' : ''
-              }`}
-            >
-              <span className="stage-marker">
-                {stage.skipped ? (
-                  <Tooltip title="计划不需要知识库检索，已跳过">
-                    <MinusCircleOutlined className="stage-icon stage-icon--skip" />
-                  </Tooltip>
-                ) : (
-                  <StatusIcon status={stage.status} />
-                )}
-              </span>
-
-              <div className="stage-body">
-                <div className="stage-row">
-                  <Text strong={isCurrent} type={stage.skipped ? 'secondary' : undefined}>
-                    {stage.title}
-                  </Text>
-                  {stage.note ? <Text type="secondary">{stage.note}</Text> : null}
-                  <span className="stage-badge">{stage.badge}</span>
-                </div>
-
-                {stage.progress && stage.progress.total > 0 ? (
-                  <Progress
-                    className="stage-progress"
-                    percent={Math.round((stage.progress.done / stage.progress.total) * 100)}
-                    size="small"
-                    showInfo={false}
-                    status={stage.status === 'error' ? 'exception' : 'normal'}
-                  />
-                ) : null}
-
-                {stage.chapters?.length ? (
-                  <ul className="chapter-list">
-                    {stage.chapters.map((chapter) => (
-                      <ChapterRow key={chapter.index} chapter={chapter} />
-                    ))}
-                  </ul>
-                ) : null}
-
-                {stage.notes?.length ? (
-                  <ul className="stage-notes">
-                    {stage.notes.map((note, index) => (
-                      <li key={`${stage.key}-${index}`}>
-                        <Text type="warning">{note}</Text>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            </li>
-          )
-        })}
+      <ol className="ws-timeline">
+        {stages.map((stage) => (
+          <TimelineStep key={stage.key} stage={stage} />
+        ))}
       </ol>
 
       {log.length > 0 ? (

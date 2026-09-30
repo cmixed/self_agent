@@ -135,6 +135,26 @@ html[data-theme='light'] body {
   color: var(--ant-color-text-quaternary);
 }
 
+/* 折叠态：只留图标，避免 64px 宽度内文字溢出 */
+.app-sider.ant-layout-sider-collapsed .brand {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.app-sider.ant-layout-sider-collapsed .brand-text,
+.app-sider.ant-layout-sider-collapsed .health-text,
+.app-sider.ant-layout-sider-collapsed .sider-version {
+  display: none;
+}
+
+.app-sider.ant-layout-sider-collapsed .health-row {
+  justify-content: center;
+}
+
+.app-sider.ant-layout-sider-collapsed .health-row .ant-btn {
+  display: none;
+}
+
 .app-header {
   position: sticky;
   top: 0;
@@ -344,116 +364,161 @@ html[data-theme='light'] body {
   background: var(--ant-color-primary-bg);
 }
 
-/* --- Agent 执行进度列表 ---------------------------------------------------- */
-.stage-list-head {
+/* --- Agent 执行主线（垂直时间线） ------------------------------------------ */
+.ws-progress__head {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
 }
 
-.stage-items {
+.ws-progress__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ws-progress__meta .ant-tag {
+  margin-inline-end: 0;
+}
+
+.ws-timeline {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.stage-item {
+.ws-step {
   position: relative;
   display: flex;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  gap: 14px;
+  padding-bottom: 16px;
 }
 
-.stage-item + .stage-item {
-  margin-top: 2px;
+.ws-step:last-child {
+  padding-bottom: 0;
 }
 
-.stage-item.is-current {
-  background: var(--ant-color-primary-bg);
-}
-
-.stage-item.is-current::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 8px;
-  bottom: 8px;
-  width: 3px;
-  border-radius: 3px;
-  background: var(--ant-color-primary);
-}
-
-.stage-item.is-skipped {
-  opacity: 0.6;
-}
-
-/* 阶段之间的极细连接线（对齐图标中心），让 6 个阶段读起来像一条流水线 */
-.stage-item:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  left: 21px;
-  top: 34px;
-  bottom: -2px;
-  width: 1px;
-  background: var(--ant-color-split);
-}
-
-.stage-marker {
-  width: 20px;
+.ws-step__rail {
+  position: relative;
+  flex: 0 0 24px;
   display: flex;
-  align-items: flex-start;
   justify-content: center;
-  padding-top: 2px;
 }
 
-.stage-icon {
-  font-size: 16px;
+/* 连接线：贯穿整个阶段高度并在底部外延 16px，与下一段的圆点相接 */
+.ws-step__rail::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: -16px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--ant-color-border-secondary);
+  border-radius: 2px;
 }
 
-.stage-icon--finish {
+.ws-step:last-child .ws-step__rail::before {
+  display: none;
+}
+
+.ws-step__dot {
+  position: relative;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  background: var(--ant-color-bg-container);
+  border: 1.5px solid var(--ant-color-border);
+  color: var(--ant-color-text-quaternary);
+  transition:
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.ws-step.is-finish .ws-step__dot {
+  border-color: var(--ant-color-success);
   color: var(--ant-color-success);
 }
 
-.stage-icon--process {
+.ws-step.is-process .ws-step__dot {
+  border-color: var(--ant-color-primary);
   color: var(--ant-color-primary);
 }
 
-.stage-icon--error {
+.ws-step.is-error .ws-step__dot {
+  border-color: var(--ant-color-error);
   color: var(--ant-color-error);
 }
 
-.stage-icon--wait,
-.stage-icon--skip {
-  color: var(--ant-color-text-quaternary);
+.ws-step.is-skipped {
+  opacity: 0.62;
 }
 
-.stage-body {
+.ws-step__body {
   flex: 1;
   min-width: 0;
+  padding-top: 1px;
 }
 
-.stage-row {
+.ws-step__head {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  min-height: 24px;
 }
 
-.stage-badge {
+.ws-step__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ant-color-text);
+}
+
+.ws-step.is-wait .ws-step__title {
+  font-weight: 500;
+  color: var(--ant-color-text-secondary);
+}
+
+.ws-step.is-process .ws-step__title {
+  color: var(--ant-color-primary);
+}
+
+.ws-step__note {
+  font-size: 13px;
+  color: var(--ant-color-text-tertiary);
+}
+
+.ws-step__badge {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.stage-progress {
-  margin: 6px 0 0;
-  max-width: 320px;
+.ws-step__badge .ant-tag {
+  margin-inline-end: 0;
 }
 
-.stage-notes {
-  margin: 6px 0 0;
+.ws-step__progress {
+  margin: 8px 0 0;
+  max-width: 360px;
+}
+
+.ws-notes {
+  margin: 8px 0 0;
   padding-left: 18px;
   font-size: 12px;
+}
+
+.ws-notes li {
+  margin-bottom: 2px;
 }
 
 /* --- 通用列表（计划 / 大纲 / 来源 / 校验） --------------------------------- */
@@ -672,6 +737,147 @@ html[data-theme='light'] body {
   color: var(--ant-color-text-tertiary);
 }
 
+/* --- 工作台（Composer / 执行态） ------------------------------------------ */
+.ws-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  background: var(--ant-color-bg-container);
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: var(--ws-radius-lg);
+}
+
+.ws-compose__samples {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sample-chip {
+  font-weight: 400;
+  color: var(--ant-color-text-secondary);
+  border-color: var(--ant-color-border);
+}
+
+.sample-chip:hover {
+  color: var(--ant-color-primary) !important;
+  border-color: var(--ant-color-primary) !important;
+}
+
+.ws-compose__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ws-compose__hint {
+  font-size: 12px;
+}
+
+.ws-idle-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.ws-recent {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ws-recent li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ws-recent__query {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--ant-color-text);
+}
+
+.ws-recent__time {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary);
+}
+
+/* 执行态 */
+.ws-run__bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+.ws-run__meta {
+  font-size: 13px;
+  color: var(--ant-color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-run__actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ws-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.ws-grid__main,
+.ws-grid__side {
+  min-width: 0;
+}
+
+.ws-out {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ws-out__goal {
+  margin: 0 !important;
+}
+
+.ws-out__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ws-source__score {
+  margin-left: 8px;
+}
+
+@media (max-width: 1024px) {
+  .ws-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* --- 响应式 --------------------------------------------------------------- */
 @media (max-width: 768px) {
   .app-content {
@@ -683,7 +889,7 @@ html[data-theme='light'] body {
     align-items: stretch;
   }
 
-  .stage-badge {
+  .ws-step__badge {
     margin-left: 0;
   }
 

@@ -32,6 +32,8 @@ import HistoryPage from './pages/History'
 import KnowledgeBasePage from './pages/KnowledgeBase'
 import MemoryPage from './pages/Memory'
 import TaskPage from './pages/Task'
+import { NavProvider, useNav } from './state/nav'
+import type { PageKey } from './state/nav'
 import { TaskRunProvider, useTaskRun } from './state/taskRun'
 import { APP_VERSION, BRAND_NAME, BRAND_SUBTITLE, buildThemeConfig } from './theme/config'
 import { useUiPreferences } from './theme/useUiPreferences'
@@ -53,7 +55,9 @@ export default function App() {
       <AntApp>
         {/* 任务运行状态提升到 App 层：切换页面不丢进度，任务继续在后台执行 */}
         <TaskRunProvider>
-          <AppShell mode={mode} toggleMode={toggleMode} />
+          <NavProvider>
+            <AppShell mode={mode} toggleMode={toggleMode} />
+          </NavProvider>
         </TaskRunProvider>
       </AntApp>
     </ConfigProvider>
@@ -61,7 +65,7 @@ export default function App() {
 }
 
 function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: () => void }) {
-  const [page, setPage] = useState('workspace')
+  const { page, navigate } = useNav()
   const [collapsed, setCollapsed] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const narrow = useIsNarrow()
@@ -95,8 +99,8 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
       ),
   }))
 
-  const handleNav = (key: string) => {
-    setPage(key)
+  const handleNav = (key: PageKey) => {
+    navigate(key)
     setDrawerOpen(false)
   }
 
@@ -115,7 +119,7 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
         mode="inline"
         selectedKeys={[page]}
         items={menuItems}
-        onClick={(event) => handleNav(event.key)}
+        onClick={(event) => handleNav(event.key as PageKey)}
       />
       <div className="sider-footer">
         <Tooltip title={healthDetail} placement="right">
