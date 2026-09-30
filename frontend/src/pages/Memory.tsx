@@ -1,16 +1,15 @@
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import {
   App,
   Button,
   Card,
   Form,
   Input,
-  List,
+  Modal,
   Popconfirm,
   Select,
   Skeleton,
   Space,
-  Table,
   Tag,
   Typography,
 } from 'antd'
@@ -51,7 +50,11 @@ export default function MemoryPage() {
   const [profile, setProfile] = useState<MemoryProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const [prefModalOpen, setPrefModalOpen] = useState(false)
+  const [memModalOpen, setMemModalOpen] = useState(false)
   const [editingKey, setEditingKey] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
   const [preferenceForm] = Form.useForm<{ key: string; value: string }>()
   const [memoryForm] = Form.useForm<{ kind: string; content: string }>()
@@ -72,16 +75,37 @@ export default function MemoryPage() {
     void refresh()
   }, [refresh])
 
+  // --- 偏好 ---
+  const openAddPreference = () => {
+    setEditingKey(null)
+    preferenceForm.resetFields()
+    setPrefModalOpen(true)
+  }
+
+  const openEditPreference = (key: string, value: string) => {
+    setEditingKey(key)
+    preferenceForm.setFieldsValue({ key, value })
+    setPrefModalOpen(true)
+  }
+
+  const closePreferenceModal = () => {
+    setPrefModalOpen(false)
+    setEditingKey(null)
+    preferenceForm.resetFields()
+  }
+
   const handleSavePreference = async (values: { key: string; value: string }) => {
+    setSaving(true)
     setError(null)
     try {
       await setPreference(values.key, values.value)
       message.success(editingKey ? `已更新偏好 ${values.key}` : `已设置偏好 ${values.key}`)
-      setEditingKey(null)
-      preferenceForm.resetFields()
+      closePreferenceModal()
       await refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '保存偏好失败')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -90,25 +114,35 @@ export default function MemoryPage() {
     try {
       await deletePreference(key)
       message.success(`已删除偏好 ${key}`)
-      if (editingKey === key) {
-        setEditingKey(null)
-        preferenceForm.resetFields()
-      }
       await refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '删除偏好失败')
     }
   }
 
+  // --- 记忆 ---
+  const openAddMemory = () => {
+    memoryForm.resetFields()
+    setMemModalOpen(true)
+  }
+
+  const closeMemoryModal = () => {
+    setMemModalOpen(false)
+    memoryForm.resetFields()
+  }
+
   const handleAddMemory = async (values: { kind: string; content: string }) => {
+    setSaving(true)
     setError(null)
     try {
       await addMemory(values.kind, values.content)
       message.success('已新增长期记忆')
-      memoryForm.resetFields()
+      closeMemoryModal()
       await refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '新增记忆失败')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -123,15 +157,10 @@ export default function MemoryPage() {
     }
   }
 
-  const startEditing = (key: string, value: string) => {
-    setEditingKey(key)
-    preferenceForm.setFieldsValue({ key, value })
-  }
-
   const preferences: PreferenceRow[] = Object.entries(profile?.preferences ?? {}).map(
     ([key, value]) => ({ key, value }),
   )
-  const memories = profile?.memories ?? []
+  const memories: MemoryRecord[] = profile?.memories ?? []
   const firstLoad = loading && profile === null
 
   return (
@@ -146,95 +175,142 @@ export default function MemoryPage() {
         </Button>
       }
     >
-      {error && <ErrorNotice message={error} onClose={() => setError(null)} onRetry={() => void refresh()} />}
+      {error ? (
+        <ErrorNotice message={error} onClose={() => setError(null)} onRetry={() => void refresh()} />
+      ) : null}
 
-      <Card title={`偏好（${preferences.length}）`}>
+      <Card
+        title={`偏好（${preferences.length}）`}
+        extra={
+          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openAddPreference}>
+            新增偏好
+          </Button>
+        }
+      >
         {firstLoad ? (
           <Skeleton active paragraph={{ rows: 3 }} />
         ) : preferences.length === 0 ? (
           <EmptyState
             title="还没有偏好设置"
-            hint={
-              <>
-                常用键：{COMMON_KEYS.join(' / ')}；也可以在下方表单里自由填写
-              </>
-            }
+            hint={`常用键：${COMMON_KEYS.join(' / ')}；也可以自由填写`}
           />
         ) : (
-          <Table<PreferenceRow>
-            rowKey="key"
-            dataSource={preferences}
-            pagination={false}
-            size="small"
-            scroll={{ x: 'max-content' }}
-            columns={[
-              {
-                title: '键',
-                dataIndex: 'key',
-                key: 'key',
-                width: 160,
-                render: (key: string) =>
-                  COMMON_KEYS.includes(key) ? <Tag color="blue">{key}</Tag> : <Tag>{key}</Tag>,
-              },
-              { title: '值', dataIndex: 'value', key: 'value' },
-              {
-                title: '操作',
-                key: 'action',
-                width: 130,
-                render: (_, record) => (
-                  <Space size={4}>
-                    <Button type="link" onClick={() => startEditing(record.key, record.value)}>
-                      编辑
-                    </Button>
+          <div className="kv-grid">
+            {preferences.map((item) => (
+              <div className="kv-card" key={item.key}>
+                <div className="kv-card__head">
+                  {COMMON_KEYS.includes(item.key) ? (
+                    <Tag color="blue">{item.key}</Tag>
+                  ) : (
+                    <Tag>{item.key}</Tag>
+                  )}
+                  <Space size={2}>
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label={`编辑偏好 ${item.key}`}
+                      icon={<EditOutlined />}
+                      onClick={() => openEditPreference(item.key, item.value)}
+                    />
                     <Popconfirm
-                      title={`删除偏好 ${record.key}？`}
+                      title={`删除偏好 ${item.key}？`}
                       description="删除后任务将不再使用该偏好。"
-                      onConfirm={() => void handleDeletePreference(record.key)}
+                      onConfirm={() => void handleDeletePreference(item.key)}
                     >
-                      <Button danger type="link">
-                        删除
-                      </Button>
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        aria-label={`删除偏好 ${item.key}`}
+                        icon={<DeleteOutlined />}
+                      />
                     </Popconfirm>
                   </Space>
-                ),
-              },
-            ]}
-          />
+                </div>
+                <div className="kv-card__value">{item.value}</div>
+              </div>
+            ))}
+          </div>
         )}
+      </Card>
 
+      <Card
+        title={`记忆（${memories.length}）`}
+        extra={
+          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openAddMemory}>
+            新增记忆
+          </Button>
+        }
+      >
+        {firstLoad ? (
+          <Skeleton active paragraph={{ rows: 3 }} />
+        ) : memories.length === 0 ? (
+          <EmptyState
+            title="还没有长期记忆"
+            hint="跑一次任务后系统会自动积累，也可以手动添加"
+          />
+        ) : (
+          <div className="mem-grid">
+            {memories.map((item) => (
+              <div className="mem-card" key={item.memory_id}>
+                <div className="mem-card__head">
+                  <Tag>{item.kind}</Tag>
+                  <Text type="secondary" className="mem-card__time">
+                    {formatDateTime(item.created_at)}
+                  </Text>
+                </div>
+                <div className="mem-card__content">{item.content}</div>
+                <div className="mem-card__foot">
+                  <Text type="secondary">
+                    {item.source_task_id ? `来自任务 ${item.source_task_id.slice(0, 8)}` : '手动添加'}
+                  </Text>
+                  <Popconfirm
+                    title="删除该记忆？"
+                    description="删除后不可恢复。"
+                    onConfirm={() => void handleDeleteMemory(item.memory_id)}
+                  >
+                    <Button
+                      type="text"
+                      size="small"
+                      danger
+                      aria-label="删除记忆"
+                      icon={<DeleteOutlined />}
+                    />
+                  </Popconfirm>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Modal
+        title={editingKey ? `编辑偏好 · ${editingKey}` : '新增偏好'}
+        open={prefModalOpen}
+        confirmLoading={saving}
+        okText="保存"
+        cancelText="取消"
+        onOk={() => preferenceForm.submit()}
+        onCancel={closePreferenceModal}
+        destroyOnHidden
+      >
         <Form
           form={preferenceForm}
           layout="vertical"
-          className="memory-form"
           onFinish={(values) => void handleSavePreference(values)}
         >
-          <div className="memory-form__grid">
-            <Form.Item name="key" label="键" rules={[{ required: true, message: '请输入键' }]}>
-              <Input id="preference-key" name="key" placeholder="如 style" />
-            </Form.Item>
-            <Form.Item name="value" label="值" rules={[{ required: true, message: '请输入值' }]}>
-              <Input id="preference-value" name="value" placeholder="如 偏好学术严谨" />
-            </Form.Item>
-          </div>
-          <Form.Item className="memory-form__actions">
-            <Space>
-              <Button type="primary" htmlType="submit" icon={editingKey ? undefined : <PlusOutlined />}>
-                {editingKey ? `保存修改（${editingKey}）` : '保存偏好'}
-              </Button>
-              {editingKey && (
-                <Button
-                  onClick={() => {
-                    setEditingKey(null)
-                    preferenceForm.resetFields()
-                  }}
-                >
-                  取消编辑
-                </Button>
-              )}
-            </Space>
+          <Form.Item name="key" label="键" rules={[{ required: true, message: '请输入键' }]}>
+            <Input
+              id="preference-key"
+              name="key"
+              placeholder="如 style"
+              disabled={editingKey !== null}
+            />
+          </Form.Item>
+          <Form.Item name="value" label="值" rules={[{ required: true, message: '请输入值' }]}>
+            <Input id="preference-value" name="value" placeholder="如 偏好学术严谨" />
           </Form.Item>
         </Form>
-
         <div className="memory-form-hint">
           <Text type="secondary">快捷填入常用键：</Text>
           <Space size={[8, 8]} wrap>
@@ -250,87 +326,40 @@ export default function MemoryPage() {
             ))}
           </Space>
         </div>
-      </Card>
+      </Modal>
 
-      <Card title={`记忆（${memories.length}）`}>
-        {firstLoad ? (
-          <Skeleton active paragraph={{ rows: 3 }} />
-        ) : (
-          <List<MemoryRecord>
-            dataSource={memories}
-            locale={{
-              emptyText: (
-                <EmptyState
-                  compact
-                  title="还没有长期记忆"
-                  hint="跑一次任务后系统会自动积累，也可以手动添加"
-                />
-              ),
-            }}
-            renderItem={(item) => (
-              <List.Item
-                actions={[
-                  <Popconfirm
-                    key="delete"
-                    title="删除该记忆？"
-                    description="删除后不可恢复。"
-                    onConfirm={() => void handleDeleteMemory(item.memory_id)}
-                  >
-                    <Button danger type="link">
-                      删除
-                    </Button>
-                  </Popconfirm>,
-                ]}
-              >
-                <List.Item.Meta
-                  title={
-                    <Space size={6} wrap>
-                      <Tag>{item.kind}</Tag>
-                      <Text>{item.content}</Text>
-                    </Space>
-                  }
-                  description={
-                    <Text type="secondary">
-                      {item.source_task_id ? `来自任务 ${item.source_task_id.slice(0, 8)}` : '手动添加'}
-                      {' · '}
-                      {formatDateTime(item.created_at)}
-                    </Text>
-                  }
-                />
-              </List.Item>
-            )}
-          />
-        )}
-
+      <Modal
+        title="新增记忆"
+        open={memModalOpen}
+        confirmLoading={saving}
+        okText="保存"
+        cancelText="取消"
+        onOk={() => memoryForm.submit()}
+        onCancel={closeMemoryModal}
+        destroyOnHidden
+      >
         <Form
           form={memoryForm}
           layout="vertical"
-          className="memory-form"
           initialValues={{ kind: 'fact' }}
           onFinish={(values) => void handleAddMemory(values)}
         >
-          <div className="memory-form__grid memory-form__grid--memory">
-            <Form.Item name="kind" label="类型" rules={[{ required: true, message: '请选择类型' }]}>
-              <Select
-                id="memory-kind"
-                options={MEMORY_KINDS.map((kind) => ({ label: kind, value: kind }))}
-              />
-            </Form.Item>
-            <Form.Item name="content" label="内容" rules={[{ required: true, message: '请输入内容' }]}>
-              <Input
-                id="memory-content"
-                name="content"
-                placeholder="记忆内容，如：经常撰写技术综述"
-              />
-            </Form.Item>
-          </div>
-          <Form.Item className="memory-form__actions">
-            <Button type="primary" htmlType="submit" icon={<PlusOutlined />}>
-              新增记忆
-            </Button>
+          <Form.Item name="kind" label="类型" rules={[{ required: true, message: '请选择类型' }]}>
+            <Select
+              id="memory-kind"
+              options={MEMORY_KINDS.map((kind) => ({ label: kind, value: kind }))}
+            />
+          </Form.Item>
+          <Form.Item name="content" label="内容" rules={[{ required: true, message: '请输入内容' }]}>
+            <Input.TextArea
+              id="memory-content"
+              name="content"
+              rows={3}
+              placeholder="记忆内容，如：经常撰写技术综述"
+            />
           </Form.Item>
         </Form>
-      </Card>
+      </Modal>
     </PageContainer>
   )
 }

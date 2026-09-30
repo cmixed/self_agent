@@ -703,44 +703,93 @@ html[data-theme='dark'] body {
   font-size: 12px;
 }
 
-/* --- 表单区（长期记忆） --------------------------------------------------- */
-.memory-form {
-  margin-top: 16px;
-}
-
-.memory-form__grid {
+/* --- 长期记忆：偏好 Key/Value 卡片 + 记忆卡片 ----------------------------- */
+.kv-grid {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--ws-space-3);
 }
 
-.memory-form__grid--memory {
-  grid-template-columns: 180px minmax(0, 1fr);
+.kv-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-2);
+  padding: var(--ws-space-3) var(--ws-space-4);
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: var(--ws-radius);
+  background: var(--ant-color-fill-quaternary);
 }
 
-.memory-form__grid .ant-form-item {
-  margin-bottom: 0;
+.kv-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ws-space-2);
 }
 
-.memory-form__actions {
-  margin-top: 16px;
-  margin-bottom: 0;
+.kv-card__head .ant-tag {
+  margin-inline-end: 0;
+}
+
+.kv-card__value {
+  font-size: var(--ws-font-body);
+  color: var(--ant-color-text);
+  word-break: break-word;
+}
+
+.mem-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--ws-space-3);
+}
+
+.mem-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-2);
+  padding: var(--ws-space-4);
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: var(--ws-radius);
+  background: var(--ant-color-fill-quaternary);
+}
+
+.mem-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ws-space-2);
+}
+
+.mem-card__head .ant-tag {
+  margin-inline-end: 0;
+}
+
+.mem-card__time {
+  font-size: var(--ws-font-caption);
+}
+
+.mem-card__content {
+  font-size: var(--ws-font-body);
+  line-height: var(--ws-lh-body);
+  color: var(--ant-color-text);
+  word-break: break-word;
+}
+
+.mem-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ws-space-2);
+  font-size: var(--ws-font-caption);
 }
 
 .memory-form-hint {
-  margin-top: 12px;
-  font-size: 12px;
+  margin-top: var(--ws-space-3);
+  font-size: var(--ws-font-caption);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ws-space-2);
   flex-wrap: wrap;
-}
-
-@media (max-width: 640px) {
-  .memory-form__grid,
-  .memory-form__grid--memory {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 /* --- 行内指标条 ----------------------------------------------------------- */
