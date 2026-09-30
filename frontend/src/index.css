@@ -14,22 +14,90 @@ body,
 body {
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  /* React 挂载前的底色（默认深色），挂载后由 antd 容器色接管 */
-  background: #0b0d0c;
-}
-
-html[data-theme='light'] body {
+  /* React 挂载前的底色（默认浅色茶色），挂载后由 antd 容器色接管 */
   background: #f0e9df;
 }
 
-/* --- 语义尺度（统一实色分层：无毛玻璃、无渐变） --------------------------- */
+html[data-theme='dark'] body {
+  background: #101311;
+}
+
+/* =============================================================================
+   Design Token（单一来源）
+   业务 CSS 只消费这些变量与 antd 的 --ant-* 变量，不在页面里写死颜色。
+   颜色（随主题变化）由 theme/config.ts 写入 --ant-*；此处定义与主题无关的尺度。
+   ============================================================================= */
 :root {
+  /* 间距刻度 */
+  --ws-space-1: 4px;
+  --ws-space-2: 8px;
+  --ws-space-3: 12px;
+  --ws-space-4: 16px;
+  --ws-space-5: 20px;
+  --ws-space-6: 24px;
+  --ws-space-7: 32px;
+  --ws-space-8: 40px;
+  --ws-space-9: 48px;
+
+  /* 圆角（克制：6 / 8 / 12） */
   --ws-radius-sm: 6px;
   --ws-radius: 8px;
   --ws-radius-lg: 12px;
-  --ws-gap: 16px;
-  --ws-page-pad: 24px;
+
+  /* 字体层级 */
+  --ws-font-caption: 12px;
+  --ws-font-secondary: 13px;
+  --ws-font-body: 14px;
+  --ws-font-card-title: 14px;
+  --ws-font-section: 16px;
+  --ws-font-page: 20px;
+  --ws-lh-body: 1.6;
+  --ws-lh-reading: 1.75;
+
+  /* 尺寸 */
+  --ws-sidebar-w: 236px;
+  --ws-sidebar-collapsed-w: 64px;
+  --ws-header-h: 56px;
   --ws-content-max: 1200px;
+  --ws-page-pad: 24px;
+  --ws-gap: 16px;
+
+  /* 层级 */
+  --ws-z-sticky: 10;
+  --ws-z-dropdown: 1000;
+  --ws-z-modal: 1100;
+  --ws-z-toast: 1200;
+}
+
+/* --- 状态色统一：把 antd 固定色盘收敛到品牌低饱和状态色 -------------------- */
+/* theme/config.ts 定义了 colorSuccess/Warning/Error/Info，antd 据此派生
+   *-bg / *-border 变量，并随深浅主题切换。 */
+.ant-tag.ant-tag-green {
+  color: var(--ant-color-success);
+  background: var(--ant-color-success-bg);
+  border-color: var(--ant-color-success-border);
+}
+
+.ant-tag.ant-tag-red {
+  color: var(--ant-color-error);
+  background: var(--ant-color-error-bg);
+  border-color: var(--ant-color-error-border);
+}
+
+.ant-tag.ant-tag-orange,
+.ant-tag.ant-tag-volcano,
+.ant-tag.ant-tag-gold {
+  color: var(--ant-color-warning);
+  background: var(--ant-color-warning-bg);
+  border-color: var(--ant-color-warning-border);
+}
+
+.ant-tag.ant-tag-blue,
+.ant-tag.ant-tag-cyan,
+.ant-tag.ant-tag-geekblue {
+  color: var(--ant-color-info);
+  background: var(--ant-color-info-bg);
+  border-color: var(--ant-color-info-border);
 }
 
 /* --- 布局外壳 ------------------------------------------------------------- */
@@ -65,7 +133,7 @@ html[data-theme='light'] body {
   width: 34px;
   height: 34px;
   flex: 0 0 34px;
-  border-radius: 9px;
+  border-radius: var(--ws-radius);
   background: var(--ant-color-primary);
   color: #fff;
   font-weight: 700;
@@ -102,6 +170,11 @@ html[data-theme='light'] body {
   border-inline-end: none;
 }
 
+/* 选中项：仙茶绿低饱和底色 + 左侧主色指示条（用 inset 阴影，避免与 antd 的 ::before 冲突） */
+.app-sider .app-menu.ant-menu .ant-menu-item-selected {
+  box-shadow: inset 2px 0 0 0 var(--ant-color-primary);
+}
+
 /* 窄屏抽屉内的侧栏：高度自适应，去掉桌面 sticky */
 .app-sider--drawer {
   position: static;
@@ -112,11 +185,11 @@ html[data-theme='light'] body {
 }
 
 .sider-footer {
-  padding: 12px;
+  padding: var(--ws-space-3);
   border-top: 1px solid var(--ant-color-border-secondary);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--ws-space-3);
 }
 
 .health-row {
@@ -158,12 +231,12 @@ html[data-theme='light'] body {
 .app-header {
   position: sticky;
   top: 0;
-  z-index: 2;
-  height: 56px;
+  z-index: var(--ws-z-sticky);
+  height: var(--ws-header-h);
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 16px;
+  gap: var(--ws-space-2);
+  padding: 0 var(--ws-space-4);
   background: var(--ant-color-bg-container);
   border-bottom: 1px solid var(--ant-color-border-secondary);
 }
@@ -182,7 +255,7 @@ html[data-theme='light'] body {
 }
 
 .app-content {
-  padding: 24px;
+  padding: var(--ws-page-pad);
   background: transparent;
 }
 
@@ -204,8 +277,8 @@ html[data-theme='light'] body {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
+  gap: var(--ws-space-4);
+  margin-bottom: var(--ws-space-5);
 }
 
 .page-header-text {
@@ -214,30 +287,28 @@ html[data-theme='light'] body {
 
 .page-eyebrow {
   display: block;
-  font-size: 12px;
+  font-size: var(--ws-font-caption);
   font-weight: 500;
   letter-spacing: 0.6px;
   color: var(--ant-color-text-tertiary);
-  margin-bottom: 4px;
+  margin-bottom: var(--ws-space-1);
 }
 
 .page-title {
   margin: 0 !important;
-  font-size: 20px !important;
-  font-weight: 600 !important;
-  line-height: 1.35 !important;
+  font-size: var(--ws-font-page) !important;
 }
 
 .page-description {
   display: block;
-  margin-top: 6px;
-  font-size: 13px;
+  margin-top: var(--ws-space-1);
+  font-size: var(--ws-font-secondary);
 }
 
 .page-body {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--ws-gap);
 }
 
 /* --- Markdown 正文（跟随主题） -------------------------------------------- */

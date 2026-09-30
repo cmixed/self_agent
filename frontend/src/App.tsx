@@ -35,7 +35,7 @@ import TaskPage from './pages/Task'
 import { NavProvider, useNav } from './state/nav'
 import type { PageKey } from './state/nav'
 import { TaskRunProvider, useTaskRun } from './state/taskRun'
-import { APP_VERSION, BRAND_NAME, BRAND_SUBTITLE, buildThemeConfig } from './theme/config'
+import { APP_VERSION, BRAND_NAME, BRAND_SUBTITLE, LAYOUT, buildThemeConfig } from './theme/config'
 import { useUiPreferences } from './theme/useUiPreferences'
 
 const { Content, Sider } = Layout
@@ -76,7 +76,11 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
   const menuTheme = mode === 'dark' ? 'dark' : 'light'
   const healthy = health?.status === 'ok'
   const healthColor = !loaded ? 'default' : healthy ? 'success' : 'error'
-  const healthText = !loaded ? '检查中…' : healthy ? `${health?.llm_provider} 就绪` : '后端未连接'
+  const providerKey = (health?.llm_provider ?? '').toLowerCase()
+  const providerLabel =
+    { deepseek: 'DeepSeek', ollama: 'Ollama' }[providerKey] ??
+    (providerKey ? providerKey.charAt(0).toUpperCase() + providerKey.slice(1) : '')
+  const healthText = !loaded ? '检查中…' : healthy ? `${providerLabel} 已连接` : '后端未连接'
   const healthDetail = healthy
     ? health?.llm_configured
       ? '后端与模型配置正常'
@@ -145,7 +149,7 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
       {narrow ? (
         <Drawer
           placement="left"
-          width={248}
+          width={LAYOUT.drawerWidth}
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           closable={false}
@@ -157,8 +161,8 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
         <Sider
           className="app-sider"
           theme={menuTheme}
-          width={236}
-          collapsedWidth={64}
+          width={LAYOUT.sidebarWidth}
+          collapsedWidth={LAYOUT.sidebarCollapsedWidth}
           collapsed={collapsed}
           trigger={null}
         >

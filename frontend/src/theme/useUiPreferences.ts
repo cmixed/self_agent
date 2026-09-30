@@ -20,10 +20,10 @@ function writeStored(key: string, value: string): void {
   }
 }
 
-/** 主题模式（持久化到 localStorage）。默认深色。 */
+/** 主题模式（持久化到 localStorage）。默认浅色（茶色），可切换到深色。 */
 export function useUiPreferences() {
   const [mode, setMode] = useState<ThemeMode>(() =>
-    readStored(THEME_STORAGE_KEY, 'dark') === 'light' ? 'light' : 'dark',
+    readStored(THEME_STORAGE_KEY, 'light') === 'dark' ? 'dark' : 'light',
   )
 
   useEffect(() => {
