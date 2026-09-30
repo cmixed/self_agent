@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons'
 import {
   App,
+  Badge,
   Button,
   Card,
   Popconfirm,
@@ -129,20 +130,22 @@ export default function KnowledgeBasePage() {
         ]}
       />
 
-      <Card title="上传文档">
+      <Card title="上传知识文档">
         <Dragger {...uploadProps}>
           <p className="ant-upload-drag-icon">
             <InboxOutlined />
           </p>
           <Paragraph style={{ marginBottom: 4 }}>点击或拖拽文件到此区域上传</Paragraph>
-          <Text type="secondary">支持 PDF / TXT / Markdown；上传后会切分并写入向量库</Text>
+          <Text type="secondary">
+            支持 PDF / TXT / Markdown；上传后自动完成文本解析、分块与向量索引
+          </Text>
         </Dragger>
 
         {uploading && (
           <Space style={{ marginTop: 12 }} size="small">
             <Spin size="small" />
             <Text type="secondary">
-              正在解析并向量化…首次上传需加载本地 Embedding 模型（约 10 秒），请勿关闭页面
+              正在解析并建立索引…首次上传需加载本地 Embedding 模型（约 10 秒），请勿关闭页面
             </Text>
           </Space>
         )}
@@ -160,7 +163,14 @@ export default function KnowledgeBasePage() {
         {documents.length === 0 && !loading ? (
           <EmptyState
             title="还没有任何文档"
-            hint="先上传一份论文或笔记，Agent 才能在任务中检索并标注来源"
+            hint="上传一份论文或笔记，Agent 才能在任务中检索并标注来源"
+            action={
+              <Upload {...uploadProps}>
+                <Button type="primary" icon={<InboxOutlined />}>
+                  上传文档
+                </Button>
+              </Upload>
+            }
           />
         ) : (
           <Table<DocumentInfo>
@@ -191,14 +201,21 @@ export default function KnowledgeBasePage() {
                 title: '文本块',
                 dataIndex: 'chunks',
                 key: 'chunks',
-                width: 120,
+                width: 110,
                 sorter: (a: DocumentInfo, b: DocumentInfo) => a.chunks - b.chunks,
-                render: (chunks: number) => <Tag>{chunks}</Tag>,
+                render: (chunks: number) => <Text>{chunks}</Text>,
+              },
+              {
+                title: '状态',
+                key: 'status',
+                width: 110,
+                // 接口只返回已成功索引的文档，故此处为真实派生状态
+                render: () => <Badge status="success" text="已索引" />,
               },
               {
                 title: '操作',
                 key: 'action',
-                width: 100,
+                width: 90,
                 render: (_, record) => (
                   <Popconfirm
                     title="删除该文档及其向量？"
