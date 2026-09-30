@@ -1,8 +1,14 @@
 import {
   ArrowRightOutlined,
+  BulbOutlined,
+  DatabaseOutlined,
   DownloadOutlined,
+  EditOutlined,
+  FileTextOutlined,
+  SafetyCertificateOutlined,
   StopOutlined,
   ThunderboltOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons'
 import { Alert, Button, Card, Input, Result, Space, Tabs, Tag, Tooltip, Typography } from 'antd'
 import { useEffect, useRef, useState } from 'react'
@@ -12,6 +18,7 @@ import type { MacroStage } from '../components/AgentProgress'
 import EmptyState from '../components/EmptyState'
 import MarkdownReader from '../components/MarkdownReader'
 import PageContainer from '../components/PageContainer'
+import Section from '../components/Section'
 import StatStrip from '../components/StatStrip'
 import StatusTag from '../components/StatusTag'
 import { listDocuments, listTasks } from '../services/api'
@@ -27,8 +34,15 @@ const EYEBROW = '工作台'
 const IDLE_TITLE = '让 Agent 基于你的资料完成一个复杂任务'
 const IDLE_DESC = 'Agent 会规划任务、检索你的知识库，再分章节撰写并进行自我校验。'
 
-/** 闲置态展示的执行流程（与运行时时间线一一对应） */
-const IDLE_PIPELINE = ['规划任务', '检索知识库', '生成大纲', '逐章撰写 ⇄ 校验', '整合结果']
+/** 闲置态展示的执行流程（与运行时时间线一一对应，未开始=tertiary） */
+const IDLE_PIPELINE = [
+  { label: '规划任务', icon: <BulbOutlined /> },
+  { label: '检索知识库', icon: <DatabaseOutlined /> },
+  { label: '生成大纲', icon: <UnorderedListOutlined /> },
+  { label: '逐章撰写', icon: <EditOutlined /> },
+  { label: '校验质量', icon: <SafetyCertificateOutlined /> },
+  { label: '整合结果', icon: <FileTextOutlined /> },
+]
 
 const TARGET_LABEL = (target: string) =>
   target === 'document' ? '整篇文档' : `章节 ${target.replace('chapter_', '')}`
@@ -325,10 +339,13 @@ export default function TaskPage() {
   if (!hasStarted) {
     return (
       <PageContainer eyebrow={EYEBROW} title={IDLE_TITLE} description={IDLE_DESC}>
+        <Section title="创建任务" description="描述一个需要多步完成的任务，Agent 会自动规划并执行" />
+
         <div className="ws-compose">
           <TextArea
             id="task-query"
             name="query"
+            className="ws-compose__input"
             autoSize={{ minRows: 4, maxRows: 10 }}
             value={query}
             placeholder="例如：根据我的资料写一篇 RAG 技术综述"
@@ -359,7 +376,7 @@ export default function TaskPage() {
             </Text>
             <Space>
               <Button disabled={!query.trim()} onClick={() => setQuery('')}>
-                重置
+                清空
               </Button>
               <Button
                 type="primary"
@@ -373,13 +390,17 @@ export default function TaskPage() {
           </div>
         </div>
 
-        <div className="ws-pipeline" aria-label="Agent 执行流程">
-          <span className="ws-pipeline__label">Agent 执行流程</span>
+        <Section title="Agent 执行流程" description="运行时会按此顺序推进，并实时反馈当前阶段" />
+
+        <div className="ws-pipeline">
           <div className="ws-pipeline__flow">
             {IDLE_PIPELINE.map((step, index) => (
-              <span className="ws-pipeline__item" key={step}>
+              <span className="ws-pipeline__item" key={step.label}>
                 {index > 0 ? <ArrowRightOutlined className="ws-pipeline__arrow" /> : null}
-                <span className="ws-pipeline__step">{step}</span>
+                <span className="ws-pipeline__step">
+                  <span className="ws-pipeline__icon">{step.icon}</span>
+                  {step.label}
+                </span>
               </span>
             ))}
           </div>
