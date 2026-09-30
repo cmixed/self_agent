@@ -279,6 +279,8 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
       }
       if (event.event === 'researcher_completed') {
         setRetrievedCount(event.retrieved_count ?? 0)
+        // 运行中即可展示「检索到的资料」（来自真实 metadata，已去重）
+        if (event.sources) setSources(event.sources)
       }
       if (event.event === 'outline_completed') {
         const titles = event.outline ?? []

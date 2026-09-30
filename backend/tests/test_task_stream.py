@@ -180,3 +180,12 @@ async def test_stream_includes_researcher_events(tmp_path) -> None:
     researcher_done = next(event for event in events if event["event"] == "researcher_completed")
     assert researcher_done["retrieved_count"] >= 1
     assert events[-1]["result"]["sources"]
+
+    # 增量字段：researcher_completed 附带去重后的来源明细，且与最终 result.sources 一致
+    assert researcher_done["sources"] == events[-1]["result"]["sources"]
+    assert all(
+        {"index", "filename", "page", "chunk_id", "score"} <= set(source)
+        for source in researcher_done["sources"]
+    )
+    chunk_ids = [source["chunk_id"] for source in researcher_done["sources"]]
+    assert len(chunk_ids) == len(set(chunk_ids))

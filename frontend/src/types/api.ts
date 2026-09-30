@@ -142,6 +142,7 @@ export interface TaskEvent {
   plan?: Plan | null
   outline?: string[]
   retrieved_count?: number
+  sources?: Source[]
   passed?: boolean
   target?: string
   issues?: string[]

@@ -316,9 +316,11 @@ class TaskService:
                         if name == "planner":
                             payload["plan"] = output.get("plan")
                         if name == "researcher":
-                            payload["retrieved_count"] = len(
-                                output.get("retrieved_documents") or []
-                            )
+                            documents = output.get("retrieved_documents") or []
+                            payload["retrieved_count"] = len(documents)
+                            # 增量附带去重后的来源明细（与最终 result.sources 同源同编号），
+                            # 使前端在运行中即可展示「检索到的资料」。不修改既有字段。
+                            payload["sources"] = _sources(documents)
                         if name == "outline":
                             payload["outline"] = [
                                 section.get("title", "")
