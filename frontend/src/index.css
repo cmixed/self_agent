@@ -1137,12 +1137,30 @@ html[data-theme='dark'] body {
 
 .source-card {
   display: flex;
+  width: 100%;
   align-items: center;
   gap: var(--ws-space-3);
   padding: var(--ws-space-3);
   border: 1px solid var(--ant-color-border-secondary);
   border-radius: var(--ws-radius);
   background: var(--ant-color-fill-quaternary);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.source-card:hover {
+  border-color: var(--ant-color-primary);
+  background: var(--ant-color-primary-bg);
+}
+
+.source-card:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  outline-offset: 2px;
 }
 
 .source-card__icon {
@@ -1168,6 +1186,13 @@ html[data-theme='dark'] body {
 .source-card__meta {
   font-size: var(--ws-font-caption);
   color: var(--ant-color-text-tertiary);
+}
+
+.source-card__go {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: var(--ws-font-caption);
+  color: var(--ant-color-text-quaternary);
 }
 
 /* 结果区 */
@@ -1302,6 +1327,27 @@ html[data-theme='dark'] body {
   margin-right: 6px;
 }
 
+/* 参考来源文件名：点击查看原文件预览 */
+.md-reader__ref-link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: var(--ant-color-link, var(--ant-color-primary));
+  cursor: pointer;
+  text-align: left;
+}
+
+.md-reader__ref-link:hover {
+  text-decoration: underline;
+}
+
+.md-reader__ref-link:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 .md-reader__ref-score {
   margin-left: 8px;
   font-size: var(--ws-font-caption);
@@ -1335,6 +1381,12 @@ html[data-theme='dark'] body {
   border: 1px solid var(--ant-color-border-secondary);
   border-radius: var(--ws-radius);
   background: var(--ant-color-bg-container);
+}
+
+.doc-preview__markdown.markdown-body {
+  /* 预览按抽屉宽度舒展，不再套用正文的 76ch 限制 */
+  max-width: 960px;
+  margin-inline: auto;
 }
 
 .doc-preview__text {

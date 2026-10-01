@@ -25,6 +25,7 @@ import type { ReactNode } from 'react'
 import { useState } from 'react'
 
 import ErrorBoundary from './components/ErrorBoundary'
+import { DocumentPreviewProvider } from './components/DocumentPreview'
 import { useHealth } from './hooks/useHealth'
 import { useIsNarrow } from './hooks/useIsNarrow'
 import HistoryPage from './pages/History'
@@ -55,7 +56,9 @@ export default function App() {
         {/* 任务运行状态提升到 App 层：切换页面不丢进度，任务继续在后台执行 */}
         <TaskRunProvider>
           <NavProvider>
-            <AppShell mode={mode} toggleMode={toggleMode} />
+            <DocumentPreviewProvider>
+              <AppShell mode={mode} toggleMode={toggleMode} />
+            </DocumentPreviewProvider>
           </NavProvider>
         </TaskRunProvider>
       </AntApp>

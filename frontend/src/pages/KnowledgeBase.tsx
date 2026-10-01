@@ -1,5 +1,4 @@
 import {
-  DownloadOutlined,
   FileMarkdownOutlined,
   FilePdfOutlined,
   FileTextOutlined,
@@ -12,7 +11,6 @@ import {
   Badge,
   Button,
   Card,
-  Drawer,
   Popconfirm,
   Space,
   Spin,
@@ -24,18 +22,12 @@ import {
 import type { UploadProps } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
+import { useDocumentPreview } from '../components/DocumentPreview'
 import EmptyState from '../components/EmptyState'
 import ErrorNotice from '../components/ErrorNotice'
-import MarkdownReader from '../components/MarkdownReader'
 import PageContainer from '../components/PageContainer'
 import StatStrip from '../components/StatStrip'
-import {
-  ApiError,
-  deleteDocument,
-  documentFileUrl,
-  listDocuments,
-  uploadDocument,
-} from '../services/api'
+import { ApiError, deleteDocument, listDocuments, uploadDocument } from '../services/api'
 import type { DocumentInfo } from '../types/api'
 import { documentKind } from '../utils/format'
 
@@ -56,6 +48,7 @@ const KIND_META = {
 
 export default function KnowledgeBasePage() {
   const { message } = App.useApp()
+  const { openDocument } = useDocumentPreview()
   const [documents, setDocuments] = useState<DocumentInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -111,73 +104,6 @@ export default function KnowledgeBasePage() {
     customRequest: ({ file, onSuccess }) => {
       void handleUpload(file as File).then(() => onSuccess?.({}))
     },
-  }
-
-  // --- 原文件预览 ---
-  const [preview, setPreview] = useState<DocumentInfo | null>(null)
-  const [previewText, setPreviewText] = useState<string | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
-  const [previewError, setPreviewError] = useState<string | null>(null)
-
-  const openPreview = async (document: DocumentInfo) => {
-    setPreview(document)
-    setPreviewText(null)
-    setPreviewError(null)
-    // PDF 交给浏览器内联渲染，无需读取文本
-    if (documentKind(document.filename) === 'pdf') return
-    setPreviewLoading(true)
-    try {
-      const response = await fetch(documentFileUrl(document.document_id))
-      if (!response.ok) throw new Error(String(response.status))
-      setPreviewText(await response.text())
-    } catch {
-      setPreviewError('无法读取文件内容（原文件可能已丢失）')
-    } finally {
-      setPreviewLoading(false)
-    }
-  }
-
-  const closePreview = () => {
-    setPreview(null)
-    setPreviewText(null)
-    setPreviewError(null)
-  }
-
-  const renderPreview = (document: DocumentInfo) => {
-    const kind = documentKind(document.filename)
-    if (kind === 'pdf') {
-      return (
-        <iframe
-          className="doc-preview__frame"
-          src={documentFileUrl(document.document_id)}
-          title={document.filename}
-        />
-      )
-    }
-    if (kind === 'unknown') {
-      return (
-        <EmptyState
-          title="暂不支持在线预览该类型"
-          hint="可点击右上角「下载」或「新标签打开」查看原文件"
-        />
-      )
-    }
-    if (previewLoading) {
-      return (
-        <div className="doc-preview__loading">
-          <Spin />
-        </div>
-      )
-    }
-    if (previewError) {
-      return <ErrorNotice message={previewError} onRetry={() => void openPreview(document)} />
-    }
-    if (previewText === null) return null
-    return kind === 'markdown' ? (
-      <MarkdownReader content={previewText} />
-    ) : (
-      <pre className="doc-preview__text">{previewText}</pre>
-    )
   }
 
   const totalChunks = documents.reduce((sum, item) => sum + item.chunks, 0)
@@ -270,7 +196,12 @@ export default function KnowledgeBasePage() {
                       <Button
                         type="link"
                         className="doc-name"
-                        onClick={() => void openPreview(record)}
+                        onClick={() =>
+                          openDocument({
+                            documentId: record.document_id,
+                            filename: record.filename,
+                          })
+                        }
                       >
                         {filename}
                       </Button>
@@ -300,7 +231,15 @@ export default function KnowledgeBasePage() {
                 width: 130,
                 render: (_, record) => (
                   <Space size={4}>
-                    <Button type="link" onClick={() => void openPreview(record)}>
+                    <Button
+                      type="link"
+                      onClick={() =>
+                        openDocument({
+                          documentId: record.document_id,
+                          filename: record.filename,
+                        })
+                      }
+                    >
                       查看
                     </Button>
                     <Popconfirm
@@ -319,32 +258,6 @@ export default function KnowledgeBasePage() {
           />
         )}
       </Card>
-
-      <Drawer
-        title={preview?.filename ?? '文档预览'}
-        open={preview !== null}
-        onClose={closePreview}
-        width={760}
-        destroyOnHidden
-        extra={
-          preview ? (
-            <Space>
-              <Button
-                size="small"
-                icon={<DownloadOutlined />}
-                href={documentFileUrl(preview.document_id, true)}
-              >
-                下载
-              </Button>
-              <Button size="small" href={documentFileUrl(preview.document_id)} target="_blank">
-                新标签打开
-              </Button>
-            </Space>
-          ) : null
-        }
-      >
-        {preview ? renderPreview(preview) : null}
-      </Drawer>
     </PageContainer>
   )
 }

@@ -3,6 +3,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import type { Source } from '../types/api'
+import { useDocumentPreview } from './DocumentPreview'
 
 interface TocItem {
   id: string
@@ -24,6 +25,7 @@ export default function MarkdownReader({
   const articleRef = useRef<HTMLDivElement>(null)
   const [toc, setToc] = useState<TocItem[]>([])
   const [activeId, setActiveId] = useState('')
+  const { openDocument } = useDocumentPreview()
 
   // 将正文中的 [n] 引用指向下方「参考来源」，便于对照
   const prepared = useMemo(() => {
@@ -108,10 +110,17 @@ export default function MarkdownReader({
               {sources.map((source) => (
                 <li key={source.chunk_id} id={`source-${source.index}`}>
                   <span className="md-reader__ref-index">[{source.index}]</span>
-                  <span>
+                  <button
+                    type="button"
+                    className="md-reader__ref-link"
+                    title={`查看《${source.filename}》`}
+                    onClick={() =>
+                      openDocument({ documentId: source.document_id, filename: source.filename })
+                    }
+                  >
                     {source.filename}
                     {source.page ? `（第 ${source.page} 页）` : ''}
-                  </span>
+                  </button>
                   {typeof source.score === 'number' ? (
                     <span className="md-reader__ref-score">相似度 {source.score.toFixed(3)}</span>
                   ) : null}
