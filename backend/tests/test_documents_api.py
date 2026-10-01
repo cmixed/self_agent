@@ -59,3 +59,28 @@ def test_upload_unsupported_type_returns_415(tmp_path: Path) -> None:
         )
     assert response.status_code == 415
     assert response.json()["error_type"] == "unsupported_document"
+
+
+def test_document_content_inline_and_download(tmp_path: Path) -> None:
+    content = "# RAG\n\n检索增强生成。".encode()
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/api/documents/upload",
+            files={"file": ("rag.md", content, "text/markdown")},
+        )
+        assert upload.status_code == 200
+        document_id = upload.json()["document_id"]
+
+        # 内联预览：返回原文件字节，Content-Disposition 为 inline
+        inline = client.get(f"/api/documents/{document_id}/content")
+        assert inline.status_code == 200
+        assert inline.content == content
+        assert "inline" in inline.headers["content-disposition"]
+
+        # 下载：Content-Disposition 为 attachment（保留原始文件名）
+        download = client.get(f"/api/documents/{document_id}/content?download=true")
+        assert download.status_code == 200
+        assert "attachment" in download.headers["content-disposition"]
+
+        # 未知文档 -> 404
+        assert client.get("/api/documents/missing/content").status_code == 404

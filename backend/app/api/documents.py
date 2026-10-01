@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+import mimetypes
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 
 from app.api.deps import get_document_service
 from app.core.logging import get_logger
@@ -15,6 +19,19 @@ from app.services.document_service import DocumentService
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 logger = get_logger(__name__)
+
+# 显式映射，保证浏览器按文本内联渲染（而不是下载）
+_MEDIA_TYPES: dict[str, str] = {
+    ".pdf": "application/pdf",
+    ".md": "text/markdown; charset=utf-8",
+    ".markdown": "text/markdown; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
+}
+
+
+def _media_type(path: Path) -> str:
+    guessed, _ = mimetypes.guess_type(path.name)
+    return _MEDIA_TYPES.get(path.suffix.lower()) or guessed or "application/octet-stream"
 
 
 @router.post("/upload", response_model=DocumentInfo)
@@ -31,6 +48,30 @@ async def list_documents(
     service: DocumentService = Depends(get_document_service),
 ) -> DocumentListResponse:
     return DocumentListResponse(documents=service.list_documents())
+
+
+@router.get("/{document_id}/content")
+async def get_document_content(
+    document_id: str,
+    download: bool = Query(default=False, description="true=附件下载；false=内联预览"),
+    service: DocumentService = Depends(get_document_service),
+) -> FileResponse:
+    """返回知识库文档的原文件，供在线查看或下载。
+
+    只读取本地上传目录中该文档的原始文件；不读取向量库内容、不触发模型。
+    """
+    found = service.document_file(document_id)
+    if found is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在或原文件已丢失"
+        )
+    path, filename = found
+    return FileResponse(
+        path,
+        media_type=_media_type(path),
+        filename=filename,
+        content_disposition_type="attachment" if download else "inline",
+    )
 
 
 @router.delete("/{document_id}", response_model=DeleteDocumentResponse)

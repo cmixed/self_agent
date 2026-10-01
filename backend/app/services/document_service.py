@@ -102,6 +102,19 @@ class DocumentService:
     def list_documents(self) -> list[DocumentInfo]:
         return [DocumentInfo(**item) for item in self._store.list_documents()]
 
+    def document_file(self, document_id: str) -> tuple[Path, str] | None:
+        """返回文档原文件的 ``(路径, 原始文件名)``；文档不存在或原文件缺失时返回 ``None``。"""
+        info = next(
+            (item for item in self._store.list_documents() if item["document_id"] == document_id),
+            None,
+        )
+        if info is None:
+            return None
+        matches = sorted(self._documents_dir.glob(f"{document_id}.*"))
+        if not matches:
+            return None
+        return matches[0], str(info["filename"])
+
     def delete_document(self, document_id: str) -> bool:
         known = any(item["document_id"] == document_id for item in self._store.list_documents())
         if not known:

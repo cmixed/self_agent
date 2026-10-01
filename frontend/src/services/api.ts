@@ -150,6 +150,11 @@ export async function uploadDocument(file: File): Promise<DocumentInfo> {
   return (await response.json()) as DocumentInfo
 }
 
+/** 知识库文档原文件的访问地址（download=true 时为附件下载，否则内联预览）。 */
+export function documentFileUrl(documentId: string, download = false): string {
+  return `${API_BASE}/documents/${documentId}/content${download ? '?download=true' : ''}`
+}
+
 // --- 长期记忆 ---
 
 export function getMemory(): Promise<MemoryProfile> {

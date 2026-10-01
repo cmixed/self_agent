@@ -1319,6 +1319,44 @@ html[data-theme='dark'] body {
   }
 }
 
+/* --- 知识库文档预览 -------------------------------------------------------- */
+.doc-name {
+  padding: 0;
+  height: auto;
+  font-size: var(--ws-font-body);
+  text-align: left;
+  white-space: normal;
+  word-break: break-all;
+}
+
+.doc-preview__frame {
+  width: 100%;
+  height: calc(100vh - 170px);
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: var(--ws-radius);
+  background: var(--ant-color-bg-container);
+}
+
+.doc-preview__text {
+  margin: 0;
+  padding: var(--ws-space-4);
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: var(--ws-radius);
+  background: var(--ant-color-fill-quaternary);
+  font-size: var(--ws-font-secondary);
+  line-height: var(--ws-lh-body);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: calc(100vh - 200px);
+  overflow: auto;
+}
+
+.doc-preview__loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--ws-space-7) 0;
+}
+
 /* --- 响应式 --------------------------------------------------------------- */
 /* 桌面：左右 32px；中等屏：20px；窄屏：16px */
 @media (max-width: 1199px) {
