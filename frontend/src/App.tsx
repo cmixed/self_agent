@@ -25,11 +25,9 @@ import type { ReactNode } from 'react'
 import { useState } from 'react'
 
 import ErrorBoundary from './components/ErrorBoundary'
-import {
-  DocumentWorkspace,
-  DocumentWorkspaceProvider,
-  useDocumentWorkspace,
-} from './components/DocumentWorkspace'
+import DocumentView from './components/DocumentView'
+import TaskDetailView from './components/TaskDetailView'
+import { ViewStackProvider, useViewStack } from './components/ViewStack'
 import { useHealth } from './hooks/useHealth'
 import { useIsNarrow } from './hooks/useIsNarrow'
 import HistoryPage from './pages/History'
@@ -60,9 +58,9 @@ export default function App() {
         {/* 任务运行状态提升到 App 层：切换页面不丢进度，任务继续在后台执行 */}
         <TaskRunProvider>
           <NavProvider>
-            <DocumentWorkspaceProvider>
+            <ViewStackProvider>
               <AppShell mode={mode} toggleMode={toggleMode} />
-            </DocumentWorkspaceProvider>
+            </ViewStackProvider>
           </NavProvider>
         </TaskRunProvider>
       </AntApp>
@@ -78,7 +76,7 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
 
   const { health, loaded, reload } = useHealth()
   const { running } = useTaskRun()
-  const { hasDocument, closeDocument } = useDocumentWorkspace()
+  const { overlays, closeAll } = useViewStack()
 
   const menuTheme = mode === 'dark' ? 'dark' : 'light'
   const healthy = health?.status === 'ok'
@@ -109,8 +107,8 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
   }))
 
   const handleNav = (key: PageKey) => {
-    // 从侧栏切页时退出文档阅读，回到正常浏览
-    closeDocument()
+    // 从侧栏切页时退出所有叠加视图，回到正常浏览
+    closeAll()
     navigate(key)
     setDrawerOpen(false)
   }
@@ -223,14 +221,29 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
 
         <Content className="app-content">
           <ErrorBoundary>
-            {/* 页面保持挂载（返回时列表与状态不丢），打开文档时隐藏 */}
-            <div className={hasDocument ? 'app-view is-hidden' : 'app-view'}>
+            {/* 页面常驻挂载；叠加视图隐藏它，返回时列表与状态不丢 */}
+            <div className={overlays.length === 0 ? 'app-layer' : 'app-layer is-hidden'}>
               {page === 'workspace' && <TaskPage />}
               {page === 'knowledge' && <KnowledgeBasePage />}
               {page === 'history' && <HistoryPage />}
               {page === 'memory' && <MemoryPage />}
             </div>
-            {hasDocument ? <DocumentWorkspace /> : null}
+            {/* 叠加视图（任务详情 / 文档阅读），可嵌套返回 */}
+            {overlays.map((entry, index) => (
+              <div
+                key={entry.id}
+                className={index === overlays.length - 1 ? 'app-layer' : 'app-layer is-hidden'}
+              >
+                {entry.view.kind === 'document' ? (
+                  <DocumentView
+                    documentId={entry.view.documentId}
+                    filename={entry.view.filename}
+                  />
+                ) : (
+                  <TaskDetailView taskId={entry.view.taskId} />
+                )}
+              </div>
+            ))}
           </ErrorBoundary>
         </Content>
       </Layout>

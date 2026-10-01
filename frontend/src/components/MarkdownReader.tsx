@@ -3,7 +3,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import type { Source } from '../types/api'
-import { useDocumentWorkspace } from './DocumentWorkspace'
+import { useViewStack } from './ViewStack'
 
 interface TocItem {
   id: string
@@ -25,7 +25,7 @@ export default function MarkdownReader({
   const articleRef = useRef<HTMLDivElement>(null)
   const [toc, setToc] = useState<TocItem[]>([])
   const [activeId, setActiveId] = useState('')
-  const { openDocument } = useDocumentWorkspace()
+  const { openDocument } = useViewStack()
 
   // 将正文中的 [n] 引用指向下方「参考来源」，便于对照
   const prepared = useMemo(() => {

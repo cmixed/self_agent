@@ -1365,7 +1365,7 @@ html[data-theme='dark'] body {
   }
 }
 
-/* --- 文档阅读视图（把文档挑出来独立查看） -------------------------------- */
+/* --- 叠加视图（任务详情 / 文档阅读）：统一面板 + 统一视图头 ---------------- */
 .doc-name {
   padding: 0;
   height: auto;
@@ -1375,19 +1375,19 @@ html[data-theme='dark'] body {
   word-break: break-all;
 }
 
-/* 打开文档时隐藏页面（页面保持挂载，返回后列表与状态不丢） */
-.app-view.is-hidden {
+/* 打开叠加视图时隐藏下层（下层保持挂载，返回后列表与状态不丢） */
+.app-layer.is-hidden {
   display: none;
 }
 
-.doc-view {
+.view-panel {
   border: 1px solid var(--ant-color-border);
   border-radius: var(--ws-radius-lg);
   background: var(--ant-color-bg-container);
   overflow: hidden;
 }
 
-.doc-view__head {
+.view-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1397,28 +1397,32 @@ html[data-theme='dark'] body {
   border-bottom: 1px solid var(--ant-color-border-secondary);
 }
 
-.doc-view__title {
+.view-header__left {
   display: flex;
   align-items: center;
   gap: var(--ws-space-2);
   min-width: 0;
 }
 
-.doc-view__back {
+.view-header__back {
   flex: 0 0 auto;
 }
 
-.doc-view__divider {
+.view-header__divider {
   width: 1px;
   height: 16px;
   background: var(--ant-color-border-secondary);
 }
 
-.doc-view__icon {
-  color: var(--ant-color-text-tertiary);
+.view-header__text {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ws-space-2);
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
-.doc-view__name {
+.view-header__title {
   font-size: var(--ws-font-body);
   font-weight: 600;
   color: var(--ant-color-text);
@@ -1427,7 +1431,17 @@ html[data-theme='dark'] body {
   white-space: nowrap;
 }
 
-.doc-view__body {
+.view-header__icon {
+  color: var(--ant-color-text-tertiary);
+  margin-right: 2px;
+}
+
+.view-header__subtitle {
+  font-size: var(--ws-font-caption);
+  color: var(--ant-color-text-tertiary);
+}
+
+.view-body {
   padding: var(--ws-space-5);
 }
 
