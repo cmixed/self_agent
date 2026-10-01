@@ -20,6 +20,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
 import ErrorNotice from '../components/ErrorNotice'
+import { useDocumentWorkspace } from '../components/DocumentWorkspace'
 import MarkdownReader from '../components/MarkdownReader'
 import PageContainer from '../components/PageContainer'
 import StatusTag from '../components/StatusTag'
@@ -47,6 +48,8 @@ export default function HistoryPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [state, setState] = useState<TaskState | null>(null)
   const [stateError, setStateError] = useState<string | null>(null)
+
+  const { hasDocument } = useDocumentWorkspace()
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -250,7 +253,8 @@ export default function HistoryPage() {
       <Drawer
         title={detail ? `任务详情 · ${detail.task_id.slice(0, 8)}` : '任务详情'}
         size="large"
-        open={detail !== null}
+        // 打开来源文档时临时隐藏抽屉（返回后自动恢复，上下文不丢）
+        open={detail !== null && !hasDocument}
         loading={detailLoading}
         onClose={() => setDetail(null)}
         destroyOnHidden

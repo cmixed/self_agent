@@ -78,7 +78,7 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
 
   const { health, loaded, reload } = useHealth()
   const { running } = useTaskRun()
-  const { hasDocuments, closeAll } = useDocumentWorkspace()
+  const { hasDocument, closeDocument } = useDocumentWorkspace()
 
   const menuTheme = mode === 'dark' ? 'dark' : 'light'
   const healthy = health?.status === 'ok'
@@ -109,8 +109,8 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
   }))
 
   const handleNav = (key: PageKey) => {
-    // 从侧栏切页时退出文档工作区，回到正常浏览
-    closeAll()
+    // 从侧栏切页时退出文档阅读，回到正常浏览
+    closeDocument()
     navigate(key)
     setDrawerOpen(false)
   }
@@ -223,16 +223,14 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
 
         <Content className="app-content">
           <ErrorBoundary>
-            {hasDocuments ? (
-              <DocumentWorkspace />
-            ) : (
-              <>
-                {page === 'workspace' && <TaskPage />}
-                {page === 'knowledge' && <KnowledgeBasePage />}
-                {page === 'history' && <HistoryPage />}
-                {page === 'memory' && <MemoryPage />}
-              </>
-            )}
+            {/* 页面保持挂载（返回时列表与状态不丢），打开文档时隐藏 */}
+            <div className={hasDocument ? 'app-view is-hidden' : 'app-view'}>
+              {page === 'workspace' && <TaskPage />}
+              {page === 'knowledge' && <KnowledgeBasePage />}
+              {page === 'history' && <HistoryPage />}
+              {page === 'memory' && <MemoryPage />}
+            </div>
+            {hasDocument ? <DocumentWorkspace /> : null}
           </ErrorBoundary>
         </Content>
       </Layout>

@@ -1,4 +1,4 @@
-import { CloseOutlined, DownloadOutlined, FileTextOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, DownloadOutlined, FileTextOutlined } from '@ant-design/icons'
 import { Button, Space, Spin } from 'antd'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -16,18 +16,12 @@ export interface DocTarget {
 }
 
 interface WorkspaceValue {
-  /** 打开某个知识库文档（已打开则直接切换过去）。 */
+  /** 打开一个知识库文档（全内容区阅读；再次打开会替换当前文档）。 */
   openDocument: (target: DocTarget) => void
-  /** 关闭某个已打开的文档。 */
-  closeDocument: (documentId: string) => void
-  /** 关闭全部文档，返回当前页面。 */
-  closeAll: () => void
-  /** 切换当前活动文档。 */
-  showDocument: (documentId: string) => void
-  documents: DocTarget[]
-  activeDocument: DocTarget | null
-  /** 当前是否有文档处于打开状态（此时内容区展示文档工作区）。 */
-  hasDocuments: boolean
+  /** 关闭当前文档，返回原页面。 */
+  closeDocument: () => void
+  document: DocTarget | null
+  hasDocument: boolean
 }
 
 const WorkspaceContext = createContext<WorkspaceValue | null>(null)
@@ -36,52 +30,21 @@ const WorkspaceContext = createContext<WorkspaceValue | null>(null)
 const textCache = new Map<string, string>()
 
 /**
- * 文档工作区：像编辑器一样把文档"挑出来"在内容区阅读，而不是浮层预览。
+ * 文档工作区：把文档"挑出来"在内容区独立阅读，而不是浮层预览。
  *
- * - 在 App 层挂载一次；
- * - 任意位置 `useDocumentWorkspace().openDocument({ documentId, filename })` 即可打开；
- * - 内容区由 AppShell 决定渲染页面还是文档工作区（标签页 + 阅读视图 + 关闭）。
+ * 一次只阅读一篇（与"打开 → 查看 → 返回"的心智一致），
+ * 任何入口都走同一个视图与同一个「返回」：
+ *   useDocumentWorkspace().openDocument({ documentId, filename })
  */
 export function DocumentWorkspaceProvider({ children }: { children: ReactNode }) {
-  const [documents, setDocuments] = useState<DocTarget[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [doc, setDoc] = useState<DocTarget | null>(null)
 
-  const openDocument = useCallback((target: DocTarget) => {
-    setDocuments((prev) =>
-      prev.some((item) => item.documentId === target.documentId) ? prev : [...prev, target],
-    )
-    setActiveId(target.documentId)
-  }, [])
-
-  const closeDocument = useCallback((documentId: string) => {
-    setDocuments((prev) => prev.filter((item) => item.documentId !== documentId))
-    // 关闭的不是当前文档时保持选中不变；是当前文档时回退到剩余最后一个
-    setActiveId((current) => (current === documentId ? null : current))
-  }, [])
-
-  const closeAll = useCallback(() => {
-    setDocuments([])
-    setActiveId(null)
-  }, [])
-
-  const showDocument = useCallback((documentId: string) => setActiveId(documentId), [])
-
-  const activeDocument =
-    documents.find((item) => item.documentId === activeId) ??
-    documents[documents.length - 1] ??
-    null
+  const openDocument = useCallback((target: DocTarget) => setDoc(target), [])
+  const closeDocument = useCallback(() => setDoc(null), [])
 
   const value = useMemo<WorkspaceValue>(
-    () => ({
-      openDocument,
-      closeDocument,
-      closeAll,
-      showDocument,
-      documents,
-      activeDocument,
-      hasDocuments: documents.length > 0,
-    }),
-    [openDocument, closeDocument, closeAll, showDocument, documents, activeDocument],
+    () => ({ openDocument, closeDocument, document: doc, hasDocument: doc !== null }),
+    [openDocument, closeDocument, doc],
   )
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>
@@ -95,7 +58,7 @@ export function useDocumentWorkspace(): WorkspaceValue {
   return context
 }
 
-function DocumentViewer({ doc }: { doc: DocTarget }) {
+function DocumentViewer({ doc, onClose }: { doc: DocTarget; onClose: () => void }) {
   const kind = documentKind(doc.filename)
   const [text, setText] = useState<string | null>(() => textCache.get(doc.documentId) ?? null)
   const [loading, setLoading] = useState(false)
@@ -159,10 +122,22 @@ function DocumentViewer({ doc }: { doc: DocTarget }) {
     <div className="doc-view">
       <div className="doc-view__head">
         <div className="doc-view__title">
+          <Button
+            size="small"
+            type="text"
+            className="doc-view__back"
+            icon={<ArrowLeftOutlined />}
+            onClick={onClose}
+          >
+            返回
+          </Button>
+          <span className="doc-view__divider" aria-hidden="true" />
           <span className="doc-view__icon" aria-hidden="true">
             <FileTextOutlined />
           </span>
-          <span className="doc-view__name">{doc.filename}</span>
+          <span className="doc-view__name" title={doc.filename}>
+            {doc.filename}
+          </span>
         </div>
         <Space>
           <Button
@@ -182,48 +157,9 @@ function DocumentViewer({ doc }: { doc: DocTarget }) {
   )
 }
 
-/** 文档工作区：标签页 + 当前文档视图。由 AppShell 在内容区渲染。 */
+/** 当前打开的文档（由 AppShell 在内容区渲染）。 */
 export function DocumentWorkspace() {
-  const { documents, activeDocument, showDocument, closeDocument, closeAll } =
-    useDocumentWorkspace()
-
-  return (
-    <div className="doc-workspace">
-      <div className="doc-tabs" role="tablist" aria-label="打开的文档">
-        {documents.map((doc) => {
-          const isActive = doc.documentId === activeDocument?.documentId
-          return (
-            <div key={doc.documentId} className={`doc-tab${isActive ? ' is-active' : ''}`}>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                className="doc-tab__label"
-                title={doc.filename}
-                onClick={() => showDocument(doc.documentId)}
-              >
-                <FileTextOutlined />
-                <span className="doc-tab__name">{doc.filename}</span>
-              </button>
-              <button
-                type="button"
-                className="doc-tab__close"
-                aria-label={`关闭 ${doc.filename}`}
-                onClick={() => closeDocument(doc.documentId)}
-              >
-                <CloseOutlined />
-              </button>
-            </div>
-          )
-        })}
-        <button type="button" className="doc-tabs__close-all" onClick={closeAll}>
-          关闭全部
-        </button>
-      </div>
-
-      {activeDocument ? (
-        <DocumentViewer key={activeDocument.documentId} doc={activeDocument} />
-      ) : null}
-    </div>
-  )
+  const { document: doc, closeDocument } = useDocumentWorkspace()
+  if (doc === null) return null
+  return <DocumentViewer key={doc.documentId} doc={doc} onClose={closeDocument} />
 }
