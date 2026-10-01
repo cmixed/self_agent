@@ -1422,7 +1422,12 @@ html[data-theme='dark'] body {
   border: 1px solid var(--ant-color-border);
   border-radius: var(--ws-radius-lg);
   background: var(--ant-color-bg-container);
-  overflow: hidden;
+}
+
+/* 阅读器目录需要 position: sticky；任何 overflow:hidden 祖先都会破坏吸附，
+   因此视图内不使用裁剪（antd Card 默认 overflow:hidden，一并放开）。 */
+.view-panel .ant-card {
+  overflow: visible;
 }
 
 .view-header {
