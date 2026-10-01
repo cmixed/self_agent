@@ -2,13 +2,12 @@ import { DownloadOutlined, FileTextOutlined } from '@ant-design/icons'
 import { Button, Spin } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 
 import { documentFileUrl } from '../services/api'
 import { documentKind } from '../utils/format'
 import EmptyState from './EmptyState'
 import ErrorNotice from './ErrorNotice'
+import MarkdownReader from './MarkdownReader'
 import ViewHeader from './ViewHeader'
 import { useViewStack } from './ViewStack'
 
@@ -68,9 +67,8 @@ export default function DocumentView({
   } else if (text !== null) {
     body =
       kind === 'markdown' ? (
-        <div className="doc-view__markdown markdown-body">
-          <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
-        </div>
+        // 与任务详情用同一个阅读器（目录 + 阅读列），保证体验一致
+        <MarkdownReader content={text} />
       ) : (
         <pre className="doc-view__text">{text}</pre>
       )

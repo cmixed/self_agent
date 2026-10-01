@@ -11,6 +11,41 @@ body,
   margin: 0;
 }
 
+/* 原生控件与滚动条配色跟随主题（否则深色模式下滚动条会是白块） */
+html[data-theme='light'] {
+  color-scheme: light;
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+/* 统一滚动条外观（Chromium / Edge / WebKit） */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ant-color-border, rgba(128, 128, 128, 0.35));
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ant-color-text-quaternary, rgba(128, 128, 128, 0.55));
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 body {
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
@@ -109,6 +144,9 @@ html[data-theme='dark'] body {
   z-index: 1;
   min-height: 100vh;
   background: transparent;
+  /* Firefox 滚动条随主题 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--ant-color-border) transparent;
 }
 
 .app-sider {
@@ -1443,12 +1481,6 @@ html[data-theme='dark'] body {
 
 .view-body {
   padding: var(--ws-space-5);
-}
-
-/* 原文件阅读区加宽，不再套用正文的 76ch 限制 */
-.doc-view__markdown.markdown-body {
-  max-width: 960px;
-  margin-inline: auto;
 }
 
 .doc-view__frame {
