@@ -1365,7 +1365,7 @@ html[data-theme='dark'] body {
   }
 }
 
-/* --- 知识库文档预览 -------------------------------------------------------- */
+/* --- 文档工作区（独立阅读视图 + 标签页） ---------------------------------- */
 .doc-name {
   padding: 0;
   height: auto;
@@ -1375,21 +1375,158 @@ html[data-theme='dark'] body {
   word-break: break-all;
 }
 
-.doc-preview__frame {
+.doc-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-3);
   width: 100%;
-  height: calc(100vh - 170px);
-  border: 1px solid var(--ant-color-border-secondary);
-  border-radius: var(--ws-radius);
-  background: var(--ant-color-bg-container);
 }
 
-.doc-preview__markdown.markdown-body {
-  /* 预览按抽屉宽度舒展，不再套用正文的 76ch 限制 */
+/* 标签页（像编辑器一样切换/关闭打开的文档） */
+.doc-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--ws-space-2);
+  flex-wrap: wrap;
+}
+
+.doc-tab {
+  display: inline-flex;
+  align-items: center;
+  max-width: 280px;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: var(--ws-radius);
+  background: var(--ant-color-fill-quaternary);
+  overflow: hidden;
+}
+
+.doc-tab.is-active {
+  border-color: var(--ant-color-primary);
+  background: var(--ant-color-primary-bg);
+}
+
+.doc-tab__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ws-space-2);
+  min-width: 0;
+  padding: 5px 4px 5px 10px;
+  border: none;
+  background: transparent;
+  color: var(--ant-color-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.doc-tab.is-active .doc-tab__label {
+  color: var(--ant-color-text);
+  font-weight: 500;
+}
+
+.doc-tab__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-tab__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--ant-color-text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.doc-tab__close:hover {
+  color: var(--ant-color-text);
+}
+
+.doc-tab__label:focus-visible,
+.doc-tab__close:focus-visible,
+.doc-tabs__close-all:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  outline-offset: -2px;
+}
+
+.doc-tabs__close-all {
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--ws-radius);
+  background: transparent;
+  color: var(--ant-color-text-tertiary);
+  font: inherit;
+  font-size: var(--ws-font-secondary);
+  cursor: pointer;
+}
+
+.doc-tabs__close-all:hover {
+  color: var(--ant-color-text);
+  border-color: var(--ant-color-border);
+}
+
+/* 阅读视图 */
+.doc-view {
+  border: 1px solid var(--ant-color-border);
+  border-radius: var(--ws-radius-lg);
+  background: var(--ant-color-bg-container);
+  overflow: hidden;
+}
+
+.doc-view__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ws-space-3);
+  flex-wrap: wrap;
+  padding: var(--ws-space-3) var(--ws-space-5);
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+.doc-view__title {
+  display: flex;
+  align-items: center;
+  gap: var(--ws-space-2);
+  min-width: 0;
+}
+
+.doc-view__icon {
+  color: var(--ant-color-text-tertiary);
+}
+
+.doc-view__name {
+  font-size: var(--ws-font-body);
+  font-weight: 600;
+  color: var(--ant-color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-view__body {
+  padding: var(--ws-space-5);
+}
+
+/* 原文件阅读区加宽，不再套用正文的 76ch 限制 */
+.doc-view__markdown.markdown-body {
   max-width: 960px;
   margin-inline: auto;
 }
 
-.doc-preview__text {
+.doc-view__frame {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 280px);
+  border: none;
+  background: var(--ant-color-bg-container);
+}
+
+.doc-view__text {
   margin: 0;
   padding: var(--ws-space-4);
   border: 1px solid var(--ant-color-border-secondary);
@@ -1399,11 +1536,9 @@ html[data-theme='dark'] body {
   line-height: var(--ws-lh-body);
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: calc(100vh - 200px);
-  overflow: auto;
 }
 
-.doc-preview__loading {
+.doc-view__loading {
   display: flex;
   justify-content: center;
   padding: var(--ws-space-7) 0;

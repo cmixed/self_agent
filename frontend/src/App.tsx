@@ -25,7 +25,11 @@ import type { ReactNode } from 'react'
 import { useState } from 'react'
 
 import ErrorBoundary from './components/ErrorBoundary'
-import { DocumentPreviewProvider } from './components/DocumentPreview'
+import {
+  DocumentWorkspace,
+  DocumentWorkspaceProvider,
+  useDocumentWorkspace,
+} from './components/DocumentWorkspace'
 import { useHealth } from './hooks/useHealth'
 import { useIsNarrow } from './hooks/useIsNarrow'
 import HistoryPage from './pages/History'
@@ -56,9 +60,9 @@ export default function App() {
         {/* 任务运行状态提升到 App 层：切换页面不丢进度，任务继续在后台执行 */}
         <TaskRunProvider>
           <NavProvider>
-            <DocumentPreviewProvider>
+            <DocumentWorkspaceProvider>
               <AppShell mode={mode} toggleMode={toggleMode} />
-            </DocumentPreviewProvider>
+            </DocumentWorkspaceProvider>
           </NavProvider>
         </TaskRunProvider>
       </AntApp>
@@ -74,6 +78,7 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
 
   const { health, loaded, reload } = useHealth()
   const { running } = useTaskRun()
+  const { hasDocuments, closeAll } = useDocumentWorkspace()
 
   const menuTheme = mode === 'dark' ? 'dark' : 'light'
   const healthy = health?.status === 'ok'
@@ -104,6 +109,8 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
   }))
 
   const handleNav = (key: PageKey) => {
+    // 从侧栏切页时退出文档工作区，回到正常浏览
+    closeAll()
     navigate(key)
     setDrawerOpen(false)
   }
@@ -216,10 +223,16 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
 
         <Content className="app-content">
           <ErrorBoundary>
-            {page === 'workspace' && <TaskPage />}
-            {page === 'knowledge' && <KnowledgeBasePage />}
-            {page === 'history' && <HistoryPage />}
-            {page === 'memory' && <MemoryPage />}
+            {hasDocuments ? (
+              <DocumentWorkspace />
+            ) : (
+              <>
+                {page === 'workspace' && <TaskPage />}
+                {page === 'knowledge' && <KnowledgeBasePage />}
+                {page === 'history' && <HistoryPage />}
+                {page === 'memory' && <MemoryPage />}
+              </>
+            )}
           </ErrorBoundary>
         </Content>
       </Layout>

@@ -1,6 +1,6 @@
 import { FileTextOutlined, RightOutlined } from '@ant-design/icons'
 
-import { useDocumentPreview } from './DocumentPreview'
+import { useDocumentWorkspace } from './DocumentWorkspace'
 
 export interface SourceDoc {
   document_id: string
@@ -14,7 +14,7 @@ export interface SourceDoc {
  * 点击卡片即可打开该文档的原文件预览（统一预览组件）。
  */
 export default function SourceList({ docs }: { docs: SourceDoc[] }) {
-  const { openDocument } = useDocumentPreview()
+  const { openDocument } = useDocumentWorkspace()
   if (docs.length === 0) return null
   return (
     <ul className="source-list">

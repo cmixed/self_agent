@@ -22,7 +22,7 @@ import {
 import type { UploadProps } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
-import { useDocumentPreview } from '../components/DocumentPreview'
+import { useDocumentWorkspace } from '../components/DocumentWorkspace'
 import EmptyState from '../components/EmptyState'
 import ErrorNotice from '../components/ErrorNotice'
 import PageContainer from '../components/PageContainer'
@@ -48,7 +48,7 @@ const KIND_META = {
 
 export default function KnowledgeBasePage() {
   const { message } = App.useApp()
-  const { openDocument } = useDocumentPreview()
+  const { openDocument } = useDocumentWorkspace()
   const [documents, setDocuments] = useState<DocumentInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
