@@ -12,6 +12,7 @@ from app.embedding.base import EmbeddingConfigError, EmbeddingError
 from app.llm.base import (
     LLMConfigError,
     LLMError,
+    LLMQuotaError,
     LLMRateLimitError,
     LLMResponseFormatError,
     LLMTimeoutError,
@@ -23,6 +24,10 @@ from app.rag.loader import DocumentError, DocumentLoadError, UnsupportedDocument
 _ERROR_STATUS: dict[type[Exception], tuple[int, str]] = {
     # LLM
     LLMConfigError: (status.HTTP_503_SERVICE_UNAVAILABLE, "LLM 服务未正确配置"),
+    LLMQuotaError: (
+        status.HTTP_402_PAYMENT_REQUIRED,
+        "模型账户余额或配额不足，请充值或更换 Provider",
+    ),
     LLMTimeoutError: (status.HTTP_504_GATEWAY_TIMEOUT, "上游模型服务超时"),
     LLMRateLimitError: (status.HTTP_429_TOO_MANY_REQUESTS, "上游模型服务限流，请稍后重试"),
     LLMUpstreamError: (status.HTTP_502_BAD_GATEWAY, "上游模型服务异常"),

@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from app.llm.base import (
     ChatMessage,
     LLMConfigError,
+    LLMQuotaError,
+    LLMRateLimitError,
     LLMResponseFormatError,
     LLMTimeoutError,
     LLMUpstreamError,
@@ -178,5 +180,43 @@ async def test_chat_structured_raises_after_limited_retries() -> None:
             await provider.chat_structured(
                 [ChatMessage(role="user", content="规划")], _Plan, max_retries=1
             )
+    finally:
+        await provider.aclose()
+
+
+async def test_glm_insufficient_balance_is_quota_error_not_rate_limit() -> None:
+    """真实故障回归：智谱余额不足返回 HTTP 429 + code 1113，
+    必须归类为配额不足（不可重试），而不是「限流，请稍后重试」。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            json={"error": {"code": "1113", "message": "余额不足或无可用资源包,请充值。"}},
+        )
+
+    calls = {"n": 0}
+
+    def counting_handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return handler(request)
+
+    provider = make_provider(counting_handler)
+    try:
+        with pytest.raises(LLMQuotaError) as exc_info:
+            await provider.chat([ChatMessage(role="user", content="hi")])
+        assert exc_info.value.error_type == "llm_quota_exhausted"
+        assert calls["n"] == 1  # 配额不足不重试
+    finally:
+        await provider.aclose()
+
+
+async def test_plain_429_still_rate_limited() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"error": {"code": "1301", "message": "并发请求过多"}})
+
+    provider = make_provider(handler, max_retries=0)
+    try:
+        with pytest.raises(LLMRateLimitError):
+            await provider.chat([ChatMessage(role="user", content="hi")])
     finally:
         await provider.aclose()

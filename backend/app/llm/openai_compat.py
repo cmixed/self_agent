@@ -18,6 +18,7 @@ from app.llm.base import (
     ChatMessage,
     LLMConfigError,
     LLMProvider,
+    LLMQuotaError,
     LLMRateLimitError,
     LLMResponse,
     LLMTimeoutError,
@@ -26,6 +27,44 @@ from app.llm.base import (
 
 _CHAT_COMPLETIONS_PATH = "/chat/completions"
 _MAX_ERROR_BODY_CHARS = 300
+
+# 余额/配额不足的上游标识：智谱 code=1113（"余额不足或无可用资源包"）、
+# OpenAI 风格 code=insufficient_quota，以及常见中英文措辞兜底。
+_QUOTA_CODES = frozenset({"1113", "insufficient_quota", "quota_exceeded", "insufficient_balance"})
+_QUOTA_KEYWORDS = (
+    "余额不足",
+    "无可用资源包",
+    "欠费",
+    "配额不足",
+    "insufficient quota",
+    "exceeded your current quota",
+    "insufficient balance",
+)
+
+
+def _is_quota_exhausted(response: httpx.Response) -> bool:
+    """判断 429 响应是否表示账户余额/配额不足（而非普通限流）。
+
+    只读取错误体的 code 与 message 字段做匹配，不依赖具体厂商结构；
+    解析失败时按普通限流处理（保守：宁可重试，也不误判为余额不足）。
+    """
+    try:
+        data = response.json()
+    except ValueError:
+        return False
+    if not isinstance(data, dict):
+        return False
+
+    error = data.get("error")
+    if not isinstance(error, dict):
+        error = data
+
+    code = str(error.get("code") or "").strip().lower()
+    if code in _QUOTA_CODES:
+        return True
+
+    message = str(error.get("message") or "").lower()
+    return any(keyword in message for keyword in _QUOTA_KEYWORDS)
 
 
 class OpenAICompatProvider(LLMProvider):
@@ -94,6 +133,13 @@ class OpenAICompatProvider(LLMProvider):
                 if response.status_code == 200:
                     return self._parse_response(response)
                 if response.status_code == 429:
+                    # 429 语义有两类：真限流（可退避重试）与账户余额/配额不足
+                    # （重试无意义）。后者必须区分出来，否则前端会一直提示
+                    # 「限流，请稍后重试」而用户永远等不到成功。
+                    if _is_quota_exhausted(response):
+                        raise LLMQuotaError(
+                            f"{self.display_name} 账户余额或配额不足，请充值或更换 Provider"
+                        )
                     last_error = LLMRateLimitError(f"{self.display_name} 触发限流（429）")
                 elif response.status_code >= 500:
                     last_error = LLMUpstreamError(

@@ -54,9 +54,15 @@ class LLMTimeoutError(LLMError):
 
 
 class LLMRateLimitError(LLMError):
-    """上游限流。"""
+    """上游限流（可重试）。"""
 
     error_type = "llm_rate_limited"
+
+
+class LLMQuotaError(LLMError):
+    """上游账户余额/配额不足（重试无意义，需要充值或更换 Provider）。"""
+
+    error_type = "llm_quota_exhausted"
 
 
 class LLMUpstreamError(LLMError):

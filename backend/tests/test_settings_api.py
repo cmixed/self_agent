@@ -89,3 +89,12 @@ def test_switch_rejects_blank_provider() -> None:
     with make_client() as client:
         response = client.put("/api/settings/llm-provider", json={"provider": "  "})
     assert response.status_code == 422
+
+
+def test_quota_error_maps_to_402() -> None:
+    """余额/配额不足 → 402，与 429 限流区分（前端提示不再误导重试）。"""
+    from app.core.errors import resolve_error
+    from app.llm.base import LLMQuotaError, LLMRateLimitError
+
+    assert resolve_error(LLMQuotaError("余额不足"))[0] == 402
+    assert resolve_error(LLMRateLimitError("限流"))[0] == 429
