@@ -936,13 +936,14 @@ html[data-theme='dark'] body {
   box-shadow: none;
 }
 
-.ws-compose__samples {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--ws-space-2);
+/* --- 工作台预设任务 -------------------------------------------------------- */
+.ws-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--ws-gap);
 }
 
+/* 通用示例 chip（Memory 页等仍在使用） */
 .sample-chip {
   font-weight: 400;
   color: var(--ant-color-text-secondary);
@@ -953,6 +954,44 @@ html[data-theme='dark'] body {
   color: var(--ant-color-primary) !important;
   border-color: var(--ant-color-primary) !important;
   background: var(--ant-color-primary-bg) !important;
+}
+
+.ws-preset {
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.ws-preset:hover {
+  border-color: var(--ant-color-primary) !important;
+}
+
+.ws-preset .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-3);
+}
+
+.ws-preset__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-1);
+}
+
+.ws-preset__title {
+  font-size: var(--ws-font-card-title);
+  font-weight: 600;
+  color: var(--ant-color-text);
+}
+
+.ws-preset__desc {
+  font-size: var(--ws-font-caption);
+  line-height: var(--ws-lh-body);
+  color: var(--ant-color-text-secondary);
+}
+
+.ws-preset__actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .ws-compose__actions {

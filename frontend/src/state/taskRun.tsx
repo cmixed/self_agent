@@ -43,12 +43,6 @@ const MAX_LOG_ENTRIES = 60
 const MAX_PLANNER_NOTES = 4
 const MAX_CHAPTER_NOTES_PER_CHAPTER = 3
 
-export const SAMPLE_TASKS = [
-  '根据我的资料写一篇 RAG 技术综述',
-  '调研我资料里的几种技术方案，输出对比报告并给出选型建议',
-  '整理我的资料，生成一份带目录与来源引用的学习笔记',
-]
-
 interface ChapterState {
   written: number
   writing: boolean
@@ -104,7 +98,7 @@ export interface TaskRunValue {
   activeTab: string
   setActiveTab: (key: string) => void
   copied: boolean
-  run: () => Promise<void>
+  run: (overrideQuery?: string) => Promise<void>
   abort: () => void
   clear: () => void
   copy: () => Promise<void>
@@ -365,42 +359,49 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     setActiveTab('content')
   }, [])
 
-  const run = useCallback(async () => {
-    const trimmed = query.trim()
-    if (!trimmed || running) return
-
-    setRunning(true)
-    clear()
-    setHasStarted(true)
-    startedAtRef.current = Date.now()
-    const controller = new AbortController()
-    abortRef.current = controller
-
-    try {
-      await streamTask(trimmed, handleEvent, controller.signal)
-    } catch (err) {
-      if ((err as { name?: string } | null)?.name === 'AbortError') {
-        setAborted(true)
-        setNodes(
-          (prev) =>
-            Object.fromEntries(
-              Object.entries(prev).map(([key, value]) => [
-                key,
-                value === 'process' ? 'wait' : value,
-              ]),
-            ) as Record<NodeKey, StageStatus>,
-        )
-        pushLog('终止', '用户手动终止任务，连接已关闭（后端 Agent 同步取消）', 'warn')
-      } else {
-        setError(err instanceof ApiError ? err.message : '任务执行失败，请稍后重试')
-        setNodes((prev) => markRunningAsError(prev))
+  const run = useCallback(
+    async (overrideQuery?: string) => {
+      const trimmed = (overrideQuery ?? query).trim()
+      if (!trimmed || running) return
+      // 预设任务「直接运行」路径：把预设写入输入框，保持界面与实际执行一致
+      if (overrideQuery !== undefined && overrideQuery !== query) {
+        setQuery(overrideQuery)
       }
-      setDuration(Math.floor((Date.now() - (startedAtRef.current ?? Date.now())) / 1000))
-    } finally {
-      abortRef.current = null
-      setRunning(false)
-    }
-  }, [clear, handleEvent, pushLog, query, running])
+
+      setRunning(true)
+      clear()
+      setHasStarted(true)
+      startedAtRef.current = Date.now()
+      const controller = new AbortController()
+      abortRef.current = controller
+
+      try {
+        await streamTask(trimmed, handleEvent, controller.signal)
+      } catch (err) {
+        if ((err as { name?: string } | null)?.name === 'AbortError') {
+          setAborted(true)
+          setNodes(
+            (prev) =>
+              Object.fromEntries(
+                Object.entries(prev).map(([key, value]) => [
+                  key,
+                  value === 'process' ? 'wait' : value,
+                ]),
+              ) as Record<NodeKey, StageStatus>,
+          )
+          pushLog('终止', '用户手动终止任务，连接已关闭（后端 Agent 同步取消）', 'warn')
+        } else {
+          setError(err instanceof ApiError ? err.message : '任务执行失败，请稍后重试')
+          setNodes((prev) => markRunningAsError(prev))
+        }
+        setDuration(Math.floor((Date.now() - (startedAtRef.current ?? Date.now())) / 1000))
+      } finally {
+        abortRef.current = null
+        setRunning(false)
+      }
+    },
+    [clear, handleEvent, pushLog, query, running],
+  )
 
   const abort = useCallback(() => {
     // 先请求后端取消（标记 cancelled 并中断模型调用），再关闭本地 SSE 流

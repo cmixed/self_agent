@@ -29,7 +29,8 @@ import StatStrip from '../components/StatStrip'
 import StatusTag from '../components/StatusTag'
 import { listDocuments, listTasks } from '../services/api'
 import { useNav } from '../state/nav'
-import { SAMPLE_TASKS, useTaskRun } from '../state/taskRun'
+import { PRESET_TASKS } from '../state/presets'
+import { useTaskRun } from '../state/taskRun'
 import type { DocumentInfo, TaskSummary } from '../types/api'
 import { formatDateTime, formatDuration } from '../utils/format'
 
@@ -133,6 +134,19 @@ export default function TaskPage() {
 
   const handleStart = () => {
     void startRun()
+  }
+
+  /** 预设任务：点击卡片 = 填充输入框并聚焦（用户确认后再运行）。 */
+  const handlePresetFill = (presetQuery: string) => {
+    setQuery(presetQuery)
+    document.getElementById('task-query')?.focus()
+  }
+
+  /** 预设任务：一键直接运行（会覆盖输入框内容，与实际执行保持一致）。 */
+  const handlePresetRun = (presetQuery: string) => {
+    if (running) return
+    setQuery(presetQuery)
+    void startRun(presetQuery)
   }
 
   const handleReset = () => {
@@ -394,7 +408,7 @@ export default function TaskPage() {
             className="ws-compose__input"
             autoSize={{ minRows: 4, maxRows: 10 }}
             value={query}
-            placeholder="例如：根据我的资料写一篇 RAG 技术综述"
+            placeholder="描述需要多步完成的任务，或从下方预设任务中选择"
             onChange={(event) => setQuery(event.target.value)}
             onPressEnter={(event) => {
               // Enter 直接运行任务；Shift+Enter 换行
@@ -405,20 +419,9 @@ export default function TaskPage() {
             }}
           />
 
-          <div className="ws-compose__samples">
-            <Text type="secondary">示例任务</Text>
-            <Space size={[8, 8]} wrap>
-              {SAMPLE_TASKS.map((sample) => (
-                <Button key={sample} size="small" className="sample-chip" onClick={() => setQuery(sample)}>
-                  {sample}
-                </Button>
-              ))}
-            </Space>
-          </div>
-
           <div className="ws-compose__actions">
             <Text type="secondary" className="ws-compose__hint">
-              Enter 运行任务 · Shift + Enter 换行
+              Enter 运行任务 · Shift + Enter 换行 · 或从下方预设任务开始
             </Text>
             <Space>
               <Button disabled={!query.trim()} onClick={() => setQuery('')}>
@@ -434,6 +437,39 @@ export default function TaskPage() {
               </Button>
             </Space>
           </div>
+        </div>
+
+        <Section title="预设任务" description="点击卡片快速填入，也可一键直接运行" />
+
+        <div className="ws-presets">
+          {PRESET_TASKS.map((preset) => (
+            <Card
+              key={preset.id}
+              size="small"
+              className="ws-preset"
+              hoverable
+              onClick={() => handlePresetFill(preset.query)}
+            >
+              <div className="ws-preset__body">
+                <div className="ws-preset__title">{preset.title}</div>
+                <div className="ws-preset__desc">{preset.description}</div>
+              </div>
+              <div className="ws-preset__actions">
+                <Button
+                  size="small"
+                  type="primary"
+                  ghost
+                  disabled={running}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    handlePresetRun(preset.query)
+                  }}
+                >
+                  直接运行
+                </Button>
+              </div>
+            </Card>
+          ))}
         </div>
 
         <Section title="Agent 执行流程" description="运行时会按此顺序推进，并实时反馈当前阶段" />
