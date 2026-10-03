@@ -1,4 +1,5 @@
 import {
+  ApiOutlined,
   ArrowRightOutlined,
   BulbOutlined,
   CheckCircleOutlined,
@@ -45,6 +46,7 @@ const IDLE_DESC = 'Agent 会规划任务、检索你的知识库，再分章节�
 const STAGE_ICONS: Record<string, ReactNode> = {
   planner: <BulbOutlined />,
   researcher: <DatabaseOutlined />,
+  skills: <ApiOutlined />,
   outline: <UnorderedListOutlined />,
   writer: <EditOutlined />,
   validator: <SafetyCertificateOutlined />,
@@ -64,6 +66,18 @@ const PIPELINE_STEPS = [
 const TARGET_LABEL = (target: string) =>
   target === 'document' ? '整篇文档' : `章节 ${target.replace('chapter_', '')}`
 
+/** 计划步骤类型 -> 中文标签（skill 为技能调用） */
+const STEP_TYPE_LABEL = (type: string) =>
+  (
+    {
+      retrieval: '检索',
+      skill: '技能',
+      outline: '大纲',
+      writing: '撰写',
+      validation: '校验',
+    } as Record<string, string>
+  )[type] ?? type
+
 export default function TaskPage() {
   const { navigate } = useNav()
   const {
@@ -81,6 +95,7 @@ export default function TaskPage() {
     log,
     nodes,
     plannerNotes,
+    skillNotes,
     chapterNotes,
     chapterList,
     writtenChapters,
@@ -168,6 +183,9 @@ export default function TaskPage() {
     notes.map((note) => `第 ${chapter} 章：${note}`),
   )
 
+  const skillSteps = (plan?.steps ?? []).filter((step) => step.type === 'skill')
+  const hasSkillStage = skillSteps.length > 0 || nodes.skills !== 'wait'
+
   const macroStages: MacroStage[] = [
     {
       key: 'planner',
@@ -186,6 +204,17 @@ export default function TaskPage() {
           <Tag color={retrievedCount > 0 ? 'blue' : 'orange'}>{retrievedCount} 条片段</Tag>
         ) : undefined,
     },
+    ...(hasSkillStage
+      ? [
+          {
+            key: 'skills',
+            title: '应用技能',
+            status: nodes.skills as MacroStage['status'],
+            badge: skillSteps.length > 0 ? <Tag color="green">{skillSteps.length} 个</Tag> : undefined,
+            notes: skillNotes,
+          },
+        ]
+      : []),
     {
       key: 'outline',
       title: '生成文章大纲',
@@ -307,7 +336,7 @@ export default function TaskPage() {
           <ol className="plain-list">
             {plan.steps.map((step) => (
               <li key={step.id}>
-                <Tag>{step.type}</Tag>
+                <Tag color={step.type === 'skill' ? 'green' : undefined}>{STEP_TYPE_LABEL(step.type)}</Tag>
                 {step.description}
               </li>
             ))}

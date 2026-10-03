@@ -7,6 +7,8 @@ import type {
   MemoryProfile,
   MemoryRecord,
   SettingsResponse,
+  SkillInfo,
+  SkillListResponse,
   TaskDetail,
   TaskEvent,
   TaskListResponse,
@@ -168,6 +170,39 @@ export async function uploadDocument(file: File): Promise<DocumentInfo> {
 /** 知识库文档原文件的访问地址（download=true 时为附件下载，否则内联预览）。 */
 export function documentFileUrl(documentId: string, download = false): string {
   return `${API_BASE}/documents/${documentId}/content${download ? '?download=true' : ''}`
+}
+
+// --- 技能 ---
+
+export function listSkills(): Promise<SkillListResponse> {
+  return request<SkillListResponse>('/skills')
+}
+
+export function createSkill(payload: {
+  name: string
+  description: string
+  content: string
+}): Promise<SkillInfo> {
+  return request<SkillInfo>('/skills', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function updateSkill(
+  skillId: string,
+  payload: Partial<{ name: string; description: string; content: string; enabled: boolean }>,
+): Promise<SkillInfo> {
+  return request<SkillInfo>(`/skills/${encodeURIComponent(skillId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteSkill(skillId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/skills/${encodeURIComponent(skillId)}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    throw await toApiError(response)
+  }
 }
 
 // --- 长期记忆 ---

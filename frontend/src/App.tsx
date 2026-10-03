@@ -1,4 +1,5 @@
 import {
+  ApiOutlined,
   BulbOutlined,
   DatabaseOutlined,
   HistoryOutlined,
@@ -34,6 +35,7 @@ import { useIsNarrow } from './hooks/useIsNarrow'
 import HistoryPage from './pages/History'
 import KnowledgeBasePage from './pages/KnowledgeBase'
 import MemoryPage from './pages/Memory'
+import SkillsPage from './pages/Skills'
 import TaskPage from './pages/Task'
 import { NavProvider, useNav } from './state/nav'
 import type { PageKey } from './state/nav'
@@ -46,6 +48,7 @@ const { Content, Sider } = Layout
 const PAGE_META: Array<{ key: string; label: string; icon: ReactNode }> = [
   { key: 'workspace', label: '工作台', icon: <RocketOutlined /> },
   { key: 'knowledge', label: '知识库', icon: <DatabaseOutlined /> },
+  { key: 'skills', label: '技能', icon: <ApiOutlined /> },
   { key: 'history', label: '任务历史', icon: <HistoryOutlined /> },
   { key: 'memory', label: '长期记忆', icon: <BulbOutlined /> },
 ]
@@ -227,6 +230,7 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
             <div className={overlays.length === 0 ? 'app-layer' : 'app-layer is-hidden'}>
               {page === 'workspace' && <TaskPage />}
               {page === 'knowledge' && <KnowledgeBasePage />}
+              {page === 'skills' && <SkillsPage />}
               {page === 'history' && <HistoryPage />}
               {page === 'memory' && <MemoryPage />}
             </div>

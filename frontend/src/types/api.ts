@@ -30,6 +30,21 @@ export interface SettingsResponse {
   providers: LlmProviderInfo[]
 }
 
+export interface SkillInfo {
+  skill_id: string
+  name: string
+  description: string
+  content: string
+  enabled: boolean
+  builtin: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface SkillListResponse {
+  skills: SkillInfo[]
+}
+
 export interface ApiErrorBody {
   error: string
   error_type: string
@@ -162,5 +177,9 @@ export interface TaskEvent {
   retry_count?: number
   exhausted?: boolean
   error_type?: string
+  /** 技能事件（skill_started / skill_completed）附加字段 */
+  skill_id?: string
+  skill_name?: string
+  summary?: string
   result?: TaskResult
 }

@@ -11,13 +11,22 @@ import { ApiError, cancelTask, streamTask } from '../services/api'
 import type { Plan, Source, TaskEvent, Validation } from '../types/api'
 import { downloadMarkdown } from '../utils/download'
 
-/** 图中真实存在的 6 个节点（用于状态跟踪） */
-const NODE_KEYS = ['planner', 'researcher', 'outline', 'writer', 'validator', 'summarizer'] as const
+/** 图中可能出现的节点（skills 仅在存在启用技能时挂载） */
+const NODE_KEYS = [
+  'planner',
+  'researcher',
+  'skills',
+  'outline',
+  'writer',
+  'validator',
+  'summarizer',
+] as const
 type NodeKey = (typeof NODE_KEYS)[number]
 
 const INITIAL_NODES: Record<NodeKey, StageStatus> = {
   planner: 'wait',
   researcher: 'wait',
+  skills: 'wait',
   outline: 'wait',
   writer: 'wait',
   validator: 'wait',
@@ -27,6 +36,7 @@ const INITIAL_NODES: Record<NodeKey, StageStatus> = {
 const NODE_LABELS: Record<string, string> = {
   planner: '规划',
   researcher: '检索',
+  skills: '技能',
   outline: '大纲',
   writer: '撰写',
   validator: '校验',
@@ -82,6 +92,7 @@ export interface TaskRunValue {
   log: LogEntry[]
   nodes: Record<string, StageStatus>
   plannerNotes: string[]
+  skillNotes: string[]
   chapterNotes: Record<number, string[]>
   chapterList: ChapterView[]
   writtenChapters: number
@@ -119,6 +130,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   const [taskId, setTaskId] = useState<string | null>(null)
   const [nodes, setNodes] = useState<Record<NodeKey, StageStatus>>(INITIAL_NODES)
   const [plannerNotes, setPlannerNotes] = useState<string[]>([])
+  const [skillNotes, setSkillNotes] = useState<string[]>([])
   const [chapterNotes, setChapterNotes] = useState<Record<number, string[]>>({})
   const [round, setRound] = useState(1)
   const [log, setLog] = useState<LogEntry[]>([])
@@ -161,6 +173,10 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  const addSkillNote = useCallback((note: string) => {
+    setSkillNotes((prev) => [...prev, note].slice(-MAX_PLANNER_NOTES))
+  }, [])
+
   const addPlannerNote = useCallback((note: string) => {
     setPlannerNotes((prev) => [...prev, note].slice(-MAX_PLANNER_NOTES))
   }, [])
@@ -201,6 +217,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         setNodes({
           planner: 'finish',
           researcher: 'finish',
+          skills: 'finish',
           outline: 'finish',
           writer: 'finish',
           validator: 'finish',
@@ -244,8 +261,21 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         return
       }
 
+      if (event.event === 'skill_started' || event.event === 'skill_completed') {
+        const finished = event.event === 'skill_completed'
+        setNodes((prev) => ({ ...prev, skills: finished ? 'finish' : 'process' }))
+        if (finished) {
+          const name = event.skill_name || '技能'
+          addSkillNote(`${name}：${event.summary || '执行完成'}`)
+          pushLog('技能', `${name} 执行完成`, 'info')
+        } else {
+          pushLog('技能', event.message, 'info')
+        }
+        return
+      }
+
       const match =
-        /^(planner|researcher|outline|writer|validator|summarizer)_(started|completed)$/.exec(
+        /^(planner|researcher|skills|outline|writer|validator|summarizer)_(started|completed)$/.exec(
           event.event,
         )
       if (match) {
@@ -329,7 +359,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         })
       }
     },
-    [addPlannerNote, addChapterNote, pushLog, updateChapter],
+    [addPlannerNote, addSkillNote, addChapterNote, pushLog, updateChapter],
   )
 
   const clear = useCallback(() => {
@@ -337,6 +367,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     setTaskId(null)
     setNodes(INITIAL_NODES)
     setPlannerNotes([])
+    setSkillNotes([])
     setChapterNotes({})
     roundRef.current = 1
     setRound(1)
@@ -459,6 +490,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     log,
     nodes,
     plannerNotes,
+    skillNotes,
     chapterNotes,
     chapterList,
     writtenChapters,
