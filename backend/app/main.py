@@ -13,11 +13,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api import chat, documents, health, memory, skills, tasks
+from app.api import chat, documents, health, memory, presets, skills, tasks
 from app.api import settings as settings_api
 from app.api.deps import (
     build_checkpoint_store,
     build_database,
+    build_preset_service,
     build_skill_service,
     build_task_repository,
     get_checkpoint_store,
@@ -43,6 +44,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         )
     # 内置技能 seed（幂等：已存在的不覆盖，用户修改保留）
     await build_skill_service().ensure_seeded()
+    await build_preset_service().ensure_seeded()
     if settings.checkpoint_enabled:
         await build_checkpoint_store().start()
     logger.info(
@@ -79,6 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(settings_api.router)
     app.include_router(skills.router)
+    app.include_router(presets.router)
     app.include_router(chat.router)
     app.include_router(tasks.router)
     app.include_router(documents.router)

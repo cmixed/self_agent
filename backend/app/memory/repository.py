@@ -539,3 +539,173 @@ class SkillRepository:
                     ),
                 )
             connection.commit()
+
+
+@dataclass(frozen=True)
+class PresetRecord:
+    """一条预设任务（工作台的输入快捷方式，可由用户增删改）。"""
+
+    preset_id: str
+    title: str
+    description: str
+    query: str
+    created_at: str
+    updated_at: str
+
+
+class PresetRepository:
+    """presets 表的读写。"""
+
+    _PRESETS_KEY = "presets_seeded"
+    _SELECT = """
+        SELECT preset_id, title, description, query, created_at, updated_at
+          FROM presets
+    """
+
+    def __init__(self, database: SqliteDatabase) -> None:
+        self._database = database
+
+    async def list_presets(self) -> list[PresetRecord]:
+        return await asyncio.to_thread(self._list_presets)
+
+    async def get_preset(self, preset_id: str) -> PresetRecord | None:
+        return await asyncio.to_thread(self._get_preset, preset_id)
+
+    async def create_preset(self, *, title: str, description: str, query: str) -> PresetRecord:
+        return await asyncio.to_thread(self._create_preset, title, description, query)
+
+    async def update_preset(
+        self,
+        preset_id: str,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        query: str | None = None,
+    ) -> PresetRecord | None:
+        return await asyncio.to_thread(self._update_preset, preset_id, title, description, query)
+
+    async def delete_preset(self, preset_id: str) -> bool:
+        return await asyncio.to_thread(self._delete_preset, preset_id)
+
+    async def seed_once(self, seeds: list[dict[str, str]]) -> bool:
+        """仅在「从未写入过默认预设」时写入；返回是否真的写入了。
+
+        用 ``app_meta`` 标记而非「表是否为空」判断，因此用户删掉预设（甚至删空）
+        后重启不会被默认预设复活。
+        """
+        return await asyncio.to_thread(self._seed_once, seeds)
+
+    # --- 同步实现（在线程中执行）---
+
+    @staticmethod
+    def _record(row: Any) -> PresetRecord:
+        return PresetRecord(
+            preset_id=row["preset_id"],
+            title=row["title"],
+            description=row["description"],
+            query=row["query"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def _list_presets(self) -> list[PresetRecord]:
+        with self._database.connect() as connection:
+            rows = connection.execute(self._SELECT + " ORDER BY created_at").fetchall()
+        return [self._record(row) for row in rows]
+
+    def _get_preset(self, preset_id: str) -> PresetRecord | None:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                self._SELECT + " WHERE preset_id = ?", (preset_id,)
+            ).fetchone()
+        return self._record(row) if row is not None else None
+
+    def _create_preset(self, title: str, description: str, query: str) -> PresetRecord:
+        now = utc_now()
+        preset_id = str(uuid4())
+        with self._database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO presets(preset_id, title, description, query, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (preset_id, title, description, query, now, now),
+            )
+            connection.commit()
+        return PresetRecord(
+            preset_id=preset_id,
+            title=title,
+            description=description,
+            query=query,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def _update_preset(
+        self,
+        preset_id: str,
+        title: str | None,
+        description: str | None,
+        query: str | None,
+    ) -> PresetRecord | None:
+        assignments: list[str] = []
+        params: list[Any] = []
+        for column, value in (("title", title), ("description", description), ("query", query)):
+            if value is not None:
+                assignments.append(f"{column} = ?")
+                params.append(value)
+        if not assignments:
+            return self._get_preset(preset_id)
+
+        now = utc_now()
+        with self._database.connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE presets SET {', '.join(assignments)}, updated_at = ? WHERE preset_id = ?",
+                (*params, now, preset_id),
+            )
+            connection.commit()
+            if cursor.rowcount == 0:
+                return None
+            row = connection.execute(
+                self._SELECT + " WHERE preset_id = ?", (preset_id,)
+            ).fetchone()
+        return self._record(row) if row is not None else None
+
+    def _delete_preset(self, preset_id: str) -> bool:
+        with self._database.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM presets WHERE preset_id = ?", (preset_id,)
+            )
+            connection.commit()
+        return cursor.rowcount > 0
+
+    def _seed_once(self, seeds: list[dict[str, str]]) -> bool:
+        now = utc_now()
+        with self._database.connect() as connection:
+            seeded = connection.execute(
+                "SELECT value FROM app_meta WHERE key = ?", (self._PRESETS_KEY,)
+            ).fetchone()
+            if seeded is not None:
+                return False
+            for seed in seeds:
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO presets(preset_id, title, description, query,
+                                                  created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        seed["preset_id"],
+                        seed["title"],
+                        seed["description"],
+                        seed["query"],
+                        now,
+                        now,
+                    ),
+                )
+            connection.execute(
+                "INSERT OR REPLACE INTO app_meta(key, value) VALUES (?, ?)",
+                (self._PRESETS_KEY, "1"),
+            )
+            connection.commit()
+        return True

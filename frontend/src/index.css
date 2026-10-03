@@ -936,14 +936,14 @@ html[data-theme='dark'] body {
   box-shadow: none;
 }
 
-/* --- 技能页 ---------------------------------------------------------------- */
-.skill-list {
+/* --- 列表型实体（技能页 / 预设页共用）------------------------------------ */
+.entity-list {
   display: flex;
   flex-direction: column;
   gap: var(--ws-space-3);
 }
 
-.skill-item {
+.entity-item {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -953,37 +953,51 @@ html[data-theme='dark'] body {
   border-radius: var(--ws-radius);
 }
 
-.skill-item__main {
+.entity-item__main {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--ws-space-1);
 }
 
-.skill-item__head {
+.entity-item__head {
   display: flex;
   align-items: center;
   gap: var(--ws-space-2);
 }
 
-.skill-item__desc {
+.entity-item__desc {
   margin: 0 !important;
   font-size: var(--ws-font-secondary);
 }
 
-.skill-item__meta {
+.entity-item__meta {
   font-size: var(--ws-font-caption);
 }
 
-.skill-item__actions {
+/* 预设页展示完整任务内容（等宽、可换行） */
+.entity-item__query {
+  display: block;
+  font-size: var(--ws-font-caption);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.entity-item__actions {
   flex-shrink: 0;
 }
 
 /* --- 工作台预设任务 -------------------------------------------------------- */
 .ws-presets {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--ws-gap);
+}
+
+@media (max-width: 992px) {
+  .ws-presets {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* 通用示例 chip（Memory 页等仍在使用） */
@@ -1011,7 +1025,16 @@ html[data-theme='dark'] body {
 .ws-preset .ant-card-body {
   display: flex;
   flex-direction: column;
-  gap: var(--ws-space-3);
+  gap: var(--ws-space-2);
+  padding: var(--ws-space-3) var(--ws-space-4);
+}
+
+/* 一行内展示，描述最多两行，避免预设区抢占工作台空间 */
+.ws-preset__desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .ws-preset__body {

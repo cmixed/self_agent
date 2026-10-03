@@ -45,6 +45,19 @@ export interface SkillListResponse {
   skills: SkillInfo[]
 }
 
+export interface PresetInfo {
+  preset_id: string
+  title: string
+  description: string
+  query: string
+  created_at: string
+  updated_at: string
+}
+
+export interface PresetListResponse {
+  presets: PresetInfo[]
+}
+
 export interface ApiErrorBody {
   error: string
   error_type: string

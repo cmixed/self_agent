@@ -245,3 +245,30 @@ class ErrorResponse(BaseModel):
     detail: str | None = None
     # 便于失败后仍可查询任务记录（GET /api/tasks/{id}）
     task_id: str | None = None
+
+
+class PresetInfo(BaseModel):
+    """一条预设任务（工作台输入快捷方式）。"""
+
+    preset_id: str
+    title: str
+    description: str
+    query: str
+    created_at: str
+    updated_at: str
+
+
+class PresetListResponse(BaseModel):
+    presets: list[PresetInfo]
+
+
+class PresetCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=40)
+    description: str = Field(min_length=1, max_length=120)
+    query: str = Field(min_length=1, max_length=2000)
+
+
+class PresetUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=40)
+    description: str | None = Field(default=None, min_length=1, max_length=120)
+    query: str | None = Field(default=None, min_length=1, max_length=2000)

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
-export const PAGES = ['workspace', 'knowledge', 'skills', 'history', 'memory'] as const
+export const PAGES = ['workspace', 'knowledge', 'skills', 'presets', 'history', 'memory'] as const
 export type PageKey = (typeof PAGES)[number]
 
 interface NavValue {

@@ -26,6 +26,7 @@ from app.rag.store import ChromaStore
 from app.rag.tools import RagTool
 from app.services.document_service import DocumentService
 from app.services.memory_service import MemoryService
+from app.services.preset_service import PresetService
 from app.services.skill_service import SkillService
 from app.services.task_service import TaskService
 
@@ -148,6 +149,10 @@ def build_skill_service() -> SkillService:
     return SkillService(build_database())
 
 
+def build_preset_service() -> PresetService:
+    return PresetService(build_database())
+
+
 def get_user_id(x_user_id: str | None = Header(default=None, alias="X-User-Id")) -> str:
     """无复杂用户系统（§31）：默认单用户，可通过请求头覆盖。"""
     settings = get_settings()
@@ -193,6 +198,10 @@ def get_memory_repository() -> MemoryRepository:
 
 def get_skill_service() -> SkillService:
     return build_skill_service()
+
+
+def get_preset_service() -> PresetService:
+    return build_preset_service()
 
 
 def get_memory_service(

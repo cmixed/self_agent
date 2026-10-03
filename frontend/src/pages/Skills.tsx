@@ -169,23 +169,23 @@ export default function SkillsPage() {
             hint="新建一个技能，描述 Agent 在该场景下应当怎么做"
           />
         ) : (
-          <div className="skill-list">
+          <div className="entity-list">
             {skills.map((skill) => (
-              <div className="skill-item" key={skill.skill_id}>
-                <div className="skill-item__main">
-                  <div className="skill-item__head">
+              <div className="entity-item" key={skill.skill_id}>
+                <div className="entity-item__main">
+                  <div className="entity-item__head">
                     <Text strong>{skill.name}</Text>
                     {skill.builtin ? <Tag>内置</Tag> : null}
                     {!skill.enabled ? <Tag color="default">已停用</Tag> : null}
                   </div>
-                  <Paragraph type="secondary" className="skill-item__desc" ellipsis={{ rows: 2 }}>
+                  <Paragraph type="secondary" className="entity-item__desc" ellipsis={{ rows: 2 }}>
                     {skill.description}
                   </Paragraph>
-                  <Text type="secondary" className="skill-item__meta">
+                  <Text type="secondary" className="entity-item__meta">
                     更新于 {formatDateTime(skill.updated_at)}
                   </Text>
                 </div>
-                <Space className="skill-item__actions">
+                <Space className="entity-item__actions">
                   <Tooltip title={skill.enabled ? '停用后不再进入 Agent 技能目录' : '启用后可被 Agent 调用'}>
                     <Switch
                       size="small"

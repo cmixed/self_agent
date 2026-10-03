@@ -28,11 +28,10 @@ import Section from '../components/Section'
 import SourceList from '../components/SourceList'
 import StatStrip from '../components/StatStrip'
 import StatusTag from '../components/StatusTag'
-import { listDocuments, listTasks } from '../services/api'
+import { listDocuments, listPresets, listTasks } from '../services/api'
 import { useNav } from '../state/nav'
-import { PRESET_TASKS } from '../state/presets'
 import { useTaskRun } from '../state/taskRun'
-import type { DocumentInfo, TaskSummary } from '../types/api'
+import type { DocumentInfo, PresetInfo, TaskSummary } from '../types/api'
 import { formatDateTime, formatDuration } from '../utils/format'
 
 const { Text, Paragraph } = Typography
@@ -120,17 +119,19 @@ export default function TaskPage() {
   const resultRef = useRef<HTMLDivElement | null>(null)
   const [documents, setDocuments] = useState<DocumentInfo[] | null>(null)
   const [recentTasks, setRecentTasks] = useState<TaskSummary[]>([])
+  const [presets, setPresets] = useState<PresetInfo[]>([])
   const [outputTab, setOutputTab] = useState('plan')
 
   // 闲置态：轻量读取资料与最近任务（环境感知；失败静默，不打扰主流程）
   useEffect(() => {
     if (hasStarted) return
     let cancelled = false
-    Promise.all([listDocuments(), listTasks()])
-      .then(([docs, tasks]) => {
+    Promise.all([listDocuments(), listTasks(), listPresets()])
+      .then(([docs, tasks, presetData]) => {
         if (cancelled) return
         setDocuments(docs.documents)
         setRecentTasks(tasks.tasks.slice(0, 4))
+        setPresets(presetData.presets)
       })
       .catch(() => {
         if (!cancelled) setDocuments([])
@@ -468,38 +469,55 @@ export default function TaskPage() {
           </div>
         </div>
 
-        <Section title="预设任务" description="点击卡片快速填入，也可一键直接运行" />
+        <Section
+          title="预设任务"
+          description="点击卡片填入输入框，也可一键直接运行"
+          extra={
+            <Button type="link" size="small" onClick={() => navigate('presets')}>
+              查看全部 / 管理 <ArrowRightOutlined />
+            </Button>
+          }
+        />
 
-        <div className="ws-presets">
-          {PRESET_TASKS.map((preset) => (
-            <Card
-              key={preset.id}
-              size="small"
-              className="ws-preset"
-              hoverable
-              onClick={() => handlePresetFill(preset.query)}
-            >
-              <div className="ws-preset__body">
-                <div className="ws-preset__title">{preset.title}</div>
-                <div className="ws-preset__desc">{preset.description}</div>
-              </div>
-              <div className="ws-preset__actions">
-                <Button
+        {presets.length === 0 ? (
+          <EmptyState
+            compact
+            title="还没有预设任务"
+            hint="到「预设任务」页新增，或在下方直接描述任务"
+          />
+        ) : (
+          <div className="ws-presets">
+            {presets.slice(0, 3).map((preset) => (
+              <Tooltip key={preset.preset_id} title={preset.query} placement="top">
+                <Card
                   size="small"
-                  type="primary"
-                  ghost
-                  disabled={running}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    handlePresetRun(preset.query)
-                  }}
+                  className="ws-preset"
+                  hoverable
+                  onClick={() => handlePresetFill(preset.query)}
                 >
-                  直接运行
-                </Button>
-              </div>
-            </Card>
-          ))}
-        </div>
+                  <div className="ws-preset__body">
+                    <div className="ws-preset__title">{preset.title}</div>
+                    <div className="ws-preset__desc">{preset.description}</div>
+                  </div>
+                  <div className="ws-preset__actions">
+                    <Button
+                      size="small"
+                      type="primary"
+                      ghost
+                      disabled={running}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handlePresetRun(preset.query)
+                      }}
+                    >
+                      直接运行
+                    </Button>
+                  </div>
+                </Card>
+              </Tooltip>
+            ))}
+          </div>
+        )}
 
         <Section title="Agent 执行流程" description="运行时会按此顺序推进，并实时反馈当前阶段" />
 

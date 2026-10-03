@@ -6,6 +6,8 @@ import type {
   HealthResponse,
   MemoryProfile,
   MemoryRecord,
+  PresetInfo,
+  PresetListResponse,
   SettingsResponse,
   SkillInfo,
   SkillListResponse,
@@ -198,6 +200,39 @@ export function updateSkill(
 
 export async function deleteSkill(skillId: string): Promise<void> {
   const response = await fetch(`${API_BASE}/skills/${encodeURIComponent(skillId)}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    throw await toApiError(response)
+  }
+}
+
+// --- 预设任务 ---
+
+export function listPresets(): Promise<PresetListResponse> {
+  return request<PresetListResponse>('/presets')
+}
+
+export function createPreset(payload: {
+  title: string
+  description: string
+  query: string
+}): Promise<PresetInfo> {
+  return request<PresetInfo>('/presets', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function updatePreset(
+  presetId: string,
+  payload: Partial<{ title: string; description: string; query: string }>,
+): Promise<PresetInfo> {
+  return request<PresetInfo>(`/presets/${encodeURIComponent(presetId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deletePreset(presetId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/presets/${encodeURIComponent(presetId)}`, {
     method: 'DELETE',
   })
   if (!response.ok) {
