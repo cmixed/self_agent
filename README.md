@@ -28,8 +28,8 @@
 ```text
 .
 ├── AGENTS.md              # 项目规范（架构 / 边界 / 开发顺序）
-├── .env.example           # 环境变量样例
 ├── backend/
+│   ├── .env.example       # 环境变量样例（复制为 backend/.env 使用）
 │   ├── pyproject.toml
 │   ├── app/
 │   │   ├── main.py        # FastAPI 入口
@@ -58,13 +58,13 @@
 - Node.js 22+ 与 npm
 
 ```bash
-cp .env.example .env.local
-# 编辑 .env.local，填入真实的 DEEPSEEK_API_KEY
+cp backend/.env.example backend/.env
+# 编辑 backend/.env，填入真实的 DEEPSEEK_API_KEY
 ```
 
-> 后端读取的是 **`.env.local`**（不读取 `.env`），避免与其它使用仓库根 `.env` 的工具
-> （如 DeepSeek harness）互相覆盖。`.env.local` 已被 `.gitignore` 忽略，禁止提交；
-> 真实环境变量的优先级高于该文件。API Key 只从环境变量/该文件读取。
+> 后端读取的是 **`backend/.env`**（环境文件跟随消费者所在目录）；仓库根目录的 `.env`
+> 留给外部工具（如 DeepSeek harness），本应用不读取它。`backend/.env` 已被
+> `.gitignore` 忽略，禁止提交；真实环境变量的优先级高于该文件。API Key 只从环境变量/该文件读取。
 
 ### 数据存储（重要）
 
@@ -97,7 +97,7 @@ cd /home/cmixed/code/self_agent
 ./run.sh
 ```
 
-脚本会自动完成：检查 `uv` / `node` / `npm`、缺少 `.env.local` 时从 `.env.example` 生成、
+脚本会自动完成：检查 `uv` / `node` / `npm`、缺少 `backend/.env` 时从 `backend/.env.example` 生成、
 依赖缺失时自动 `uv sync` + `npm install`、检测端口占用、启动前后端并等待就绪、
 把两端日志带上 `[backend]` / `[frontend]` 前缀输出到当前终端。
 

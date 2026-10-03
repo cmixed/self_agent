@@ -232,10 +232,10 @@ DeepSeekClient(...)
 project-root/
 ├── AGENTS.md
 ├── README.md
-├── .env.example
 ├── .gitignore
 │
 ├── backend/
+│   ├── .env.example
 │   ├── pyproject.toml
 │   ├── uv.lock
 │   ├── tests/
@@ -451,7 +451,7 @@ Planner 输出必须是结构化数据，而不是让后续节点解析自然语
 
 ## 9. DeepSeek 配置
 
-`.env`：
+`backend/.env`（环境文件跟随消费者所在目录；仓库根 `.env` 留给外部工具）：
 
 ```env
 LLM_PROVIDER=deepseek
@@ -465,8 +465,9 @@ DEEPSEEK_MODEL=deepseek-flash
 
 - API Key 只能来自环境变量或安全配置。
 - 禁止把 API Key 写入源码。
-- 禁止提交 `.env`。
-- 必须提供 `.env.example`。
+- 禁止提交 `.env`（任意目录）。
+- 必须提供 `backend/.env.example`。
+- 环境文件放在 `backend/`（消费者目录），仓库根 `.env` 留给外部工具。
 - 日志中不得打印 API Key。
 - 不要把完整密钥返回给前端。
 
@@ -993,7 +994,7 @@ DeepSeek + LangGraph Agent + RAG
 FastAPI
 React
 DeepSeek Provider
-.env
+backend/.env
 ```
 
 先完成：
