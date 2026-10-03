@@ -51,3 +51,13 @@ def test_default_glm_settings() -> None:
     settings = Settings(_env_file=None)
     assert settings.glm_base_url == "https://open.bigmodel.cn/api/paas/v4"
     assert settings.glm_model == "glm-5.3-flash"
+
+
+def test_placeholder_key_is_not_configured() -> None:
+    """模板占位符不能被当成已配置（否则健康检查误报、调用时才 401）。"""
+    settings = Settings(_env_file=None, deepseek_api_key="your_api_key_here")
+    assert settings.provider_configured("deepseek") is False
+    assert settings.llm_configured is False
+
+    ok = Settings(_env_file=None, deepseek_api_key="sk-real-looking-key")
+    assert ok.provider_configured("deepseek") is True

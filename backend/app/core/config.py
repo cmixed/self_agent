@@ -17,6 +17,15 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
+# .env.example 中的占位值：出现这些值视为「尚未配置」，避免把模板当成真实密钥
+# （真实故障：占位符非空 → 健康检查误报已配置 → 调用时才 401）
+_PLACEHOLDER_KEYS = frozenset({"your_api_key_here", "your_api_key", "changeme", "sk-xxx"})
+
+
+def _is_placeholder(value: str) -> bool:
+    return value.strip().lower() in _PLACEHOLDER_KEYS
+
+
 class Settings(BaseSettings):
     """全局配置。字段名与 backend/.env 中的大写下划线变量一一对应。"""
 
@@ -94,7 +103,7 @@ class Settings(BaseSettings):
         return self.provider_configured(self.llm_provider)
 
     def provider_configured(self, provider: str) -> bool:
-        """按 Provider 名称检查密钥是否就绪（不校验可用性）。"""
+        """按 Provider 名称检查密钥是否就绪（不校验可用性；占位符视为未配置）。"""
         name = provider.strip().lower()
         key: SecretStr | None
         if name == "deepseek":
@@ -103,7 +112,10 @@ class Settings(BaseSettings):
             key = self.glm_api_key
         else:
             return False
-        return key is not None and bool(key.get_secret_value().strip())
+        if key is None:
+            return False
+        value = key.get_secret_value().strip()
+        return bool(value) and not _is_placeholder(value)
 
     def provider_model(self, provider: str) -> str:
         """返回 Provider 将使用的模型名（供设置快照展示）。"""
