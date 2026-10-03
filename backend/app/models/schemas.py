@@ -61,6 +61,36 @@ class LlmProviderUpdate(BaseModel):
     provider: str = Field(min_length=1)
 
 
+class SkillInfo(BaseModel):
+    """一个技能（Agent 可调用的结构化指令模块）。"""
+
+    skill_id: str
+    name: str
+    description: str
+    content: str
+    enabled: bool
+    builtin: bool
+    created_at: str
+    updated_at: str
+
+
+class SkillListResponse(BaseModel):
+    skills: list[SkillInfo]
+
+
+class SkillCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    description: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1)
+
+
+class SkillUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+    description: str | None = Field(default=None, min_length=1, max_length=200)
+    content: str | None = Field(default=None, min_length=1)
+    enabled: bool | None = None
+
+
 class TaskRequest(BaseModel):
     """提交一个 Agent 任务。"""
 

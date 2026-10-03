@@ -19,18 +19,20 @@ from app.core.task_registry import TaskRegistry
 from app.embedding.factory import get_embedding_provider
 from app.llm.base import LLMProvider
 from app.llm.factory import get_llm
-from app.memory.repository import MemoryRepository, TaskRepository
+from app.memory.repository import MemoryRepository, SkillRepository, TaskRepository
 from app.memory.sqlite import SqliteDatabase
 from app.rag.retriever import Retriever
 from app.rag.store import ChromaStore
 from app.rag.tools import RagTool
 from app.services.document_service import DocumentService
 from app.services.memory_service import MemoryService
+from app.services.skill_service import SkillService
 from app.services.task_service import TaskService
 
 _store: ChromaStore | None = None
 _task_repository: TaskRepository | None = None
 _memory_repository: MemoryRepository | None = None
+_skill_repository: SkillRepository | None = None
 _database: SqliteDatabase | None = None
 _checkpoint_store: CheckpointStore | None = None
 
@@ -135,6 +137,17 @@ def build_memory_repository() -> MemoryRepository:
     return _memory_repository
 
 
+def build_skill_repository() -> SkillRepository:
+    global _skill_repository
+    if _skill_repository is None:
+        _skill_repository = SkillRepository(build_database())
+    return _skill_repository
+
+
+def build_skill_service() -> SkillService:
+    return SkillService(build_database())
+
+
 def get_user_id(x_user_id: str | None = Header(default=None, alias="X-User-Id")) -> str:
     """无复杂用户系统（§31）：默认单用户，可通过请求头覆盖。"""
     settings = get_settings()
@@ -166,6 +179,10 @@ def get_memory_repository() -> MemoryRepository:
     return build_memory_repository()
 
 
+def get_skill_service() -> SkillService:
+    return build_skill_service()
+
+
 def get_memory_service(
     provider: LLMProvider = Depends(get_llm_provider),
 ) -> MemoryService:
@@ -174,8 +191,9 @@ def get_memory_service(
 
 def reset_caches() -> None:
     """仅用于测试：清空进程级缓存的向量集合与持久化句柄。"""
-    global _store, _task_repository, _memory_repository, _database
+    global _store, _task_repository, _memory_repository, _skill_repository, _database
     _store = None
     _task_repository = None
     _memory_repository = None
+    _skill_repository = None
     _database = None

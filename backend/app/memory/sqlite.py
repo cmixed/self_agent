@@ -64,6 +64,17 @@ CREATE TABLE IF NOT EXISTS memories (
 );
 
 CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS skills (
+    skill_id    TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    builtin     INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
 """
 
 

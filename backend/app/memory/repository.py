@@ -11,6 +11,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from app.memory.sqlite import SqliteDatabase
 
@@ -362,3 +363,179 @@ class MemoryRepository:
             )
             connection.commit()
         return cursor.rowcount > 0
+
+
+@dataclass(frozen=True)
+class SkillRecord:
+    """一个 Agent 可调用的技能（结构化指令模块）。"""
+
+    skill_id: str
+    name: str
+    description: str
+    content: str
+    enabled: bool
+    builtin: bool
+    created_at: str
+    updated_at: str
+
+
+class SkillRepository:
+    """skills 表的读写（Agent 技能，业务层不写 SQL）。"""
+
+    def __init__(self, database: SqliteDatabase) -> None:
+        self._database = database
+
+    async def list_skills(self, *, enabled_only: bool = False) -> list[SkillRecord]:
+        return await asyncio.to_thread(self._list_skills, enabled_only)
+
+    async def get_skill(self, skill_id: str) -> SkillRecord | None:
+        return await asyncio.to_thread(self._get_skill, skill_id)
+
+    async def create_skill(self, *, name: str, description: str, content: str) -> SkillRecord:
+        return await asyncio.to_thread(self._create_skill, name, description, content)
+
+    async def update_skill(
+        self,
+        skill_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        content: str | None = None,
+        enabled: bool | None = None,
+    ) -> SkillRecord | None:
+        return await asyncio.to_thread(
+            self._update_skill, skill_id, name, description, content, enabled
+        )
+
+    async def delete_skill(self, skill_id: str) -> bool:
+        return await asyncio.to_thread(self._delete_skill, skill_id)
+
+    async def seed_skills(self, seeds: list[dict[str, str]]) -> None:
+        """按固定 skill_id 写入内置技能；已存在（含被用户编辑过）的不覆盖。"""
+        await asyncio.to_thread(self._seed_skills, seeds)
+
+    # --- 同步实现（在线程中执行）---
+
+    _SELECT = """
+        SELECT skill_id, name, description, content, enabled, builtin, created_at, updated_at
+          FROM skills
+    """
+
+    @staticmethod
+    def _record(row: Any) -> SkillRecord:
+        return SkillRecord(
+            skill_id=row["skill_id"],
+            name=row["name"],
+            description=row["description"],
+            content=row["content"],
+            enabled=bool(row["enabled"]),
+            builtin=bool(row["builtin"]),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def _list_skills(self, enabled_only: bool) -> list[SkillRecord]:
+        query = self._SELECT
+        if enabled_only:
+            query += " WHERE enabled = 1"
+        query += " ORDER BY created_at"
+        with self._database.connect() as connection:
+            rows = connection.execute(query).fetchall()
+        return [self._record(row) for row in rows]
+
+    def _get_skill(self, skill_id: str) -> SkillRecord | None:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                self._SELECT + " WHERE skill_id = ?", (skill_id,)
+            ).fetchone()
+        return self._record(row) if row is not None else None
+
+    def _create_skill(self, name: str, description: str, content: str) -> SkillRecord:
+        now = utc_now()
+        skill_id = str(uuid4())
+        with self._database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO skills(skill_id, name, description, content,
+                                   enabled, builtin, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 1, 0, ?, ?)
+                """,
+                (skill_id, name, description, content, now, now),
+            )
+            connection.commit()
+        return SkillRecord(
+            skill_id=skill_id,
+            name=name,
+            description=description,
+            content=content,
+            enabled=True,
+            builtin=False,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def _update_skill(
+        self,
+        skill_id: str,
+        name: str | None,
+        description: str | None,
+        content: str | None,
+        enabled: bool | None,
+    ) -> SkillRecord | None:
+        assignments: list[str] = []
+        params: list[Any] = []
+        for column, value in (
+            ("name", name),
+            ("description", description),
+            ("content", content),
+            ("enabled", enabled),
+        ):
+            if value is not None:
+                assignments.append(f"{column} = ?")
+                params.append(int(value) if isinstance(value, bool) else value)
+        if not assignments:
+            return self._get_skill(skill_id)
+
+        now = utc_now()
+        with self._database.connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE skills SET {', '.join(assignments)}, updated_at = ? WHERE skill_id = ?",
+                (*params, now, skill_id),
+            )
+            connection.commit()
+            if cursor.rowcount == 0:
+                return None
+            row = connection.execute(
+                self._SELECT + " WHERE skill_id = ?", (skill_id,)
+            ).fetchone()
+        return self._record(row) if row is not None else None
+
+    def _delete_skill(self, skill_id: str) -> bool:
+        with self._database.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM skills WHERE skill_id = ? AND builtin = 0", (skill_id,)
+            )
+            connection.commit()
+        return cursor.rowcount > 0
+
+    def _seed_skills(self, seeds: list[dict[str, str]]) -> None:
+        now = utc_now()
+        with self._database.connect() as connection:
+            for seed in seeds:
+                connection.execute(
+                    """
+                    INSERT INTO skills(skill_id, name, description, content,
+                                       enabled, builtin, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 1, 1, ?, ?)
+                    ON CONFLICT(skill_id) DO NOTHING
+                    """,
+                    (
+                        seed["skill_id"],
+                        seed["name"],
+                        seed["description"],
+                        seed["content"],
+                        now,
+                        now,
+                    ),
+                )
+            connection.commit()
