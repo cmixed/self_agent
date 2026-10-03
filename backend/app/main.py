@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api import chat, documents, health, memory, tasks
+from app.api import settings as settings_api
 from app.api.deps import (
     build_checkpoint_store,
     build_database,
@@ -23,7 +24,7 @@ from app.api.deps import (
 from app.api.errors import register_exception_handlers
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
-from app.llm.factory import close_llm
+from app.llm.factory import close_llm, current_llm_provider
 
 logger = get_logger(__name__)
 
@@ -43,8 +44,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         await build_checkpoint_store().start()
     logger.info(
         "应用启动 "
-        f"env={settings.app_env} provider={settings.llm_provider} "
-        f"llm_configured={settings.llm_configured} "
+        f"env={settings.app_env} provider={current_llm_provider()} "
+        f"llm_configured={settings.provider_configured(current_llm_provider())} "
         f"checkpoint={settings.checkpoint_enabled}",
         extra={"event": "startup", "status": "ok"},
     )
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(health.router)
+    app.include_router(settings_api.router)
     app.include_router(chat.router)
     app.include_router(tasks.router)
     app.include_router(documents.router)

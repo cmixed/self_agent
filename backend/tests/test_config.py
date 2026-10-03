@@ -23,3 +23,31 @@ def test_default_model_is_deepseek_flash() -> None:
     settings = Settings(_env_file=None)
     assert settings.llm_provider == "deepseek"
     assert settings.deepseek_model == "deepseek-flash"
+
+
+def test_provider_configured_per_provider(monkeypatch) -> None:
+    monkeypatch.delenv("GLM_API_KEY", raising=False)
+    settings = Settings(_env_file=None, deepseek_api_key="secret")
+    assert settings.provider_configured("deepseek") is True
+    assert settings.provider_configured("glm") is False
+    assert settings.provider_configured("ollama") is False
+
+    with_glm = Settings(_env_file=None, deepseek_api_key="secret", glm_api_key="  ")
+    assert with_glm.provider_configured("glm") is False  # 空白 key 视为未配置
+
+    with_glm2 = Settings(_env_file=None, deepseek_api_key=None, glm_api_key="zhu-pu-key")
+    assert with_glm2.provider_configured("glm") is True
+    assert with_glm2.provider_configured("deepseek") is False
+
+
+def test_provider_model_returns_configured_model() -> None:
+    settings = Settings(_env_file=None, glm_model="glm-5.3")
+    assert settings.provider_model("deepseek") == "deepseek-flash"
+    assert settings.provider_model("glm") == "glm-5.3"
+    assert settings.provider_model("ollama") == ""
+
+
+def test_default_glm_settings() -> None:
+    settings = Settings(_env_file=None)
+    assert settings.glm_base_url == "https://open.bigmodel.cn/api/paas/v4"
+    assert settings.glm_model == "glm-5.3-flash"

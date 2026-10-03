@@ -34,10 +34,12 @@ def _isolate_settings(
         "model_config",
         {**Settings.model_config, "env_file": None},
     )
+    # 运行时 Provider 选择也指向临时目录，避免读写真实 data/settings.json
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "app.db"))
     monkeypatch.setenv("CHECKPOINT_PATH", str(tmp_path / "checkpoints.db"))
+    monkeypatch.setenv("SETTINGS_PATH", str(tmp_path / "settings.json"))
 
     get_settings.cache_clear()
     reset_caches()

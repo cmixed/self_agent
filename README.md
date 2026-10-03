@@ -60,11 +60,20 @@
 ```bash
 cp backend/.env.example backend/.env
 # 编辑 backend/.env，填入真实的 DEEPSEEK_API_KEY
+# （可选）同时填入 GLM_API_KEY，即可在前端顶栏一键切换模型服务商
 ```
 
 > 后端读取的是 **`backend/.env`**（环境文件跟随消费者所在目录）；仓库根目录的 `.env`
 > 留给外部工具（如 DeepSeek harness），本应用不读取它。`backend/.env` 已被
 > `.gitignore` 忽略，禁止提交；真实环境变量的优先级高于该文件。API Key 只从环境变量/该文件读取。
+
+### 切换模型服务商（DeepSeek ↔ GLM）
+
+- 前端顶栏提供切换器（未配置密钥的服务商选项会被禁用），任务执行中禁止切换；
+- 也可以直接改 `backend/.env` 的 `LLM_PROVIDER=deepseek | glm`（重启后端生效）；
+- 前端切换会**立即生效**并持久化到 `data/settings.json`，重启后保持；
+  `LLM_PROVIDER` 仅作为首次启动的默认值；
+- 两个服务商互为独立配置：`DEEPSEEK_*` 与 `GLM_*` 各自保留，切换互不影响。
 
 ### 数据存储（重要）
 
@@ -76,6 +85,7 @@ cp backend/.env.example backend/.env
 | `data/chroma/` | ChromaDB 向量库（集合 `personal_kb`） |
 | `data/sqlite/app.db` | 任务记录、用户偏好、长期记忆 |
 | `data/sqlite/checkpoints.db` | LangGraph Checkpoint（短期记忆） |
+| `data/settings.json` | 运行时 LLM Provider 选择（前端切换结果） |
 
 > ⚠️ **删除 `data/` 等于清空知识库与全部任务记录。**
 > `git clean -xfd` 也会删除它（因为它在 `.gitignore` 中）。
@@ -266,6 +276,8 @@ uv run python -m app.evaluation.run --suite compare --real --top-k 5 \
 | `POST` | `/api/documents/upload` | 上传并索引文档（PDF / TXT / MD） |
 | `GET` | `/api/documents` | 列出已索引文档 |
 | `DELETE` | `/api/documents/{id}` | 删除文档及其向量 |
+| `GET` | `/api/settings` | 应用设置快照（各 Provider 配置状态，不含密钥） |
+| `PUT` | `/api/settings/llm-provider` | 运行时切换 LLM Provider（未配置密钥返回 409） |
 
 `POST /api/tasks` 请求示例：
 

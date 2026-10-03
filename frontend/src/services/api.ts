@@ -6,6 +6,7 @@ import type {
   HealthResponse,
   MemoryProfile,
   MemoryRecord,
+  SettingsResponse,
   TaskDetail,
   TaskEvent,
   TaskListResponse,
@@ -51,6 +52,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getHealth(): Promise<HealthResponse> {
   return request<HealthResponse>('/health')
+}
+
+// --- 应用设置（LLM Provider 切换） ---
+
+export function getSettings(): Promise<SettingsResponse> {
+  return request<SettingsResponse>('/settings')
+}
+
+/** 切换当前 LLM Provider（后端立即生效并持久化；未配置密钥时返回 409）。 */
+export function updateLlmProvider(provider: string): Promise<SettingsResponse> {
+  return request<SettingsResponse>('/settings/llm-provider', {
+    method: 'PUT',
+    body: JSON.stringify({ provider }),
+  })
 }
 
 export function sendChat(messages: ChatMessage[], signal?: AbortSignal): Promise<ChatResponse> {

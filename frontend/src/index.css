@@ -314,6 +314,12 @@ html[data-theme='dark'] body {
   margin-left: 2px;
 }
 
+/* 顶栏模型服务商切换器：固定宽度避免切换时抖动 */
+.app-header-provider {
+  width: 118px;
+  font-size: var(--ws-font-secondary);
+}
+
 /* --- 页面容器 ------------------------------------------------------------- */
 .page-container {
   width: 100%;

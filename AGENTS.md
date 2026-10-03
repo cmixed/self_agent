@@ -461,6 +461,21 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-flash
 ```
 
+支持的第二 Provider（GLM，智谱 OpenAI 兼容接口；新增 Provider 只加
+`llm/<provider>.py` 与工厂分支，不改 Agent Graph，见 §4.3/§25）：
+
+```env
+LLM_PROVIDER=glm
+
+GLM_API_KEY=your_api_key
+GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+GLM_MODEL=glm-5.3-flash
+```
+
+- 两个 Provider 的配置互不影响，可同时保留密钥。
+- 前端顶栏支持运行时切换 Provider（`PUT /api/settings/llm-provider`），
+  选择持久化到 `data/settings.json`；`LLM_PROVIDER` 仅作为首次启动默认值。
+
 规则：
 
 - API Key 只能来自环境变量或安全配置。
@@ -470,6 +485,7 @@ DEEPSEEK_MODEL=deepseek-flash
 - 环境文件放在 `backend/`（消费者目录），仓库根 `.env` 留给外部工具。
 - 日志中不得打印 API Key。
 - 不要把完整密钥返回给前端。
+- 运行时切换 Provider 时，未配置密钥的服务商必须拒绝切换（不允许自动降级）。
 
 当前默认模型固定为：
 
@@ -796,6 +812,9 @@ GET  /api/tasks/{id}
 
 POST /api/chat
 GET  /api/tasks/{id}/stream
+
+GET  /api/settings
+PUT  /api/settings/llm-provider
 
 GET  /api/health
 ```

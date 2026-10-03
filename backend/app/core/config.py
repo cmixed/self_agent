@@ -54,6 +54,16 @@ class Settings(BaseSettings):
     deepseek_timeout_seconds: float = 60.0
     deepseek_max_retries: int = 2
 
+    # --- GLM（智谱，OpenAI 兼容接口）---
+    glm_api_key: SecretStr | None = None
+    glm_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
+    glm_model: str = "glm-5.3-flash"
+    glm_timeout_seconds: float = 60.0
+    glm_max_retries: int = 2
+
+    # --- 运行时设置（前端切换 LLM Provider 的持久化，§18 /api/settings）---
+    settings_path: Path = _REPO_ROOT / "data" / "settings.json"
+
     # --- Agent ---
     # 单个节点的最大重试次数（Validator 重试见 Phase 4，§16）
     max_retries: int = 2
@@ -81,11 +91,28 @@ class Settings(BaseSettings):
     @property
     def llm_configured(self) -> bool:
         """是否具备调用当前 LLM Provider 的必要配置（不校验可用性）。"""
-        if self.llm_provider.lower() == "deepseek":
-            return self.deepseek_api_key is not None and bool(
-                self.deepseek_api_key.get_secret_value().strip()
-            )
-        return False
+        return self.provider_configured(self.llm_provider)
+
+    def provider_configured(self, provider: str) -> bool:
+        """按 Provider 名称检查密钥是否就绪（不校验可用性）。"""
+        name = provider.strip().lower()
+        key: SecretStr | None
+        if name == "deepseek":
+            key = self.deepseek_api_key
+        elif name == "glm":
+            key = self.glm_api_key
+        else:
+            return False
+        return key is not None and bool(key.get_secret_value().strip())
+
+    def provider_model(self, provider: str) -> str:
+        """返回 Provider 将使用的模型名（供设置快照展示）。"""
+        name = provider.strip().lower()
+        if name == "deepseek":
+            return self.deepseek_model
+        if name == "glm":
+            return self.glm_model
+        return ""
 
 
 @lru_cache

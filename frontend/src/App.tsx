@@ -26,6 +26,7 @@ import { useState } from 'react'
 
 import ErrorBoundary from './components/ErrorBoundary'
 import DocumentView from './components/DocumentView'
+import ProviderSwitch, { providerLabelOf } from './components/ProviderSwitch'
 import TaskDetailView from './components/TaskDetailView'
 import { ViewStackProvider, useViewStack } from './components/ViewStack'
 import { useHealth } from './hooks/useHealth'
@@ -82,14 +83,12 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
   const healthy = health?.status === 'ok'
   const healthColor = !loaded ? 'default' : healthy ? 'success' : 'error'
   const providerKey = (health?.llm_provider ?? '').toLowerCase()
-  const providerLabel =
-    { deepseek: 'DeepSeek', ollama: 'Ollama' }[providerKey] ??
-    (providerKey ? providerKey.charAt(0).toUpperCase() + providerKey.slice(1) : '')
+  const providerLabel = providerLabelOf(providerKey)
   const healthText = !loaded ? '检查中…' : healthy ? `${providerLabel} 已连接` : '后端未连接'
   const healthDetail = healthy
     ? health?.llm_configured
       ? '后端与模型配置正常'
-      : '后端正常，但尚未配置 DEEPSEEK_API_KEY'
+      : '后端正常，但尚未配置模型 API Key'
     : '无法连接后端（请确认 FastAPI 已启动）'
 
   const menuItems = PAGE_META.map((item) => ({
@@ -206,6 +205,9 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
                   <span className="app-header-run__text">执行中</span>
                 </Button>
               </Tooltip>
+            ) : null}
+            {healthy ? (
+              <ProviderSwitch activeProvider={providerKey} running={running} onSwitched={reload} />
             ) : null}
             <Tooltip title={mode === 'dark' ? '切换到浅色' : '切换到深色'}>
               <Button

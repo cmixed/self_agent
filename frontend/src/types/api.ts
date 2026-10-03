@@ -18,6 +18,18 @@ export interface HealthResponse {
   llm_configured: boolean
 }
 
+export interface LlmProviderInfo {
+  id: string
+  model: string
+  configured: boolean
+  active: boolean
+}
+
+export interface SettingsResponse {
+  llm_provider: string
+  providers: LlmProviderInfo[]
+}
+
 export interface ApiErrorBody {
   error: string
   error_type: string

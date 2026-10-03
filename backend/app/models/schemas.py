@@ -39,6 +39,28 @@ class HealthResponse(BaseModel):
     llm_configured: bool
 
 
+class LLMProviderInfo(BaseModel):
+    """一个可选 LLM Provider 的状态（不含任何密钥信息）。"""
+
+    id: str
+    model: str
+    configured: bool
+    active: bool
+
+
+class SettingsResponse(BaseModel):
+    """应用设置快照。"""
+
+    llm_provider: str
+    providers: list[LLMProviderInfo]
+
+
+class LlmProviderUpdate(BaseModel):
+    """切换当前 LLM Provider 的请求体。"""
+
+    provider: str = Field(min_length=1)
+
+
 class TaskRequest(BaseModel):
     """提交一个 Agent 任务。"""
 
