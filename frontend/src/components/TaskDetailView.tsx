@@ -15,6 +15,31 @@ import { useViewStack } from './ViewStack'
 
 const { Text } = Typography
 
+/** 按任务状态给出「正文」空态文案：运行中不再误报「可能被取消或失败」。 */
+function contentEmptyState(status: string | undefined) {
+  if (status === 'running') {
+    return <EmptyState compact title="任务正在执行中" hint="完成后正文会显示在这里（页面会自动刷新）" />
+  }
+  if (status === 'cancelled' || status === 'failed') {
+    return <EmptyState compact title="该任务没有产出正文" hint="可能被取消或失败" />
+  }
+  return <EmptyState compact title="该任务没有产出正文" hint="任务已结束，但未生成正文内容" />
+}
+
+/** 按任务状态给出「校验」空态文案。 */
+function validationEmptyState(status: string | undefined) {
+  if (status === 'running') {
+    return <EmptyState compact title="校验将在写作完成后进行" hint="页面会自动刷新" />
+  }
+  if (status === 'cancelled') {
+    return <EmptyState compact title="任务已取消，没有校验记录" />
+  }
+  if (status === 'failed') {
+    return <EmptyState compact title="任务失败，没有校验记录" />
+  }
+  return <EmptyState compact title="该任务没有校验记录" />
+}
+
 /** 任务详情视图：与「文档阅读」同一形态（内容区独立视图 + 统一返回）。 */
 export default function TaskDetailView({ taskId }: { taskId: string }) {
   const { message } = App.useApp()
@@ -51,6 +76,22 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
   useEffect(() => {
     load()
   }, [load])
+
+  const running = detail?.status === 'running'
+
+  // 运行中的任务静默轮询（不打 loading、失败忽略），结束后自动停止
+  useEffect(() => {
+    if (!running) return
+    const timer = window.setInterval(() => {
+      getTask(taskId)
+        .then((data) => setDetail(data))
+        .catch(() => {})
+      getTaskState(taskId)
+        .then((data) => setState(data))
+        .catch(() => setState(null))
+    }, 4000)
+    return () => window.clearInterval(timer)
+  }, [running, taskId])
 
   const copyAnswer = async (content: string) => {
     try {
@@ -167,7 +208,7 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
                         <MarkdownReader content={detail.final_answer} sources={detail.sources} />
                       </Space>
                     ) : (
-                      <EmptyState compact title="该任务没有产出正文" hint="可能被取消或失败" />
+                      contentEmptyState(detail.status)
                     ),
                   },
                   {
@@ -195,7 +236,7 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
                         )}
                       </Space>
                     ) : (
-                      <EmptyState compact title="该任务没有校验记录" />
+                      validationEmptyState(detail.status)
                     ),
                   },
                 ]}
