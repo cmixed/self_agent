@@ -138,13 +138,13 @@ require_cmd npm
 require_cmd curl
 
 ensure_env() {
-  local env_file="$ROOT_DIR/.env"
+  local env_file="$ROOT_DIR/.env.local"
   if [[ ! -f "$env_file" ]]; then
     if [[ -f "$ROOT_DIR/.env.example" ]]; then
       cp "$ROOT_DIR/.env.example" "$env_file"
-      warn "已根据 .env.example 生成 .env —— 请填入真实的 DEEPSEEK_API_KEY"
+      warn "已根据 .env.example 生成 .env.local —— 请填入真实的 DEEPSEEK_API_KEY"
     else
-      warn "未找到 .env / .env.example"
+      warn "未找到 .env.local / .env.example"
     fi
   fi
   local key=""

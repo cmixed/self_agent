@@ -1,6 +1,6 @@
 """应用级配置。
 
-所有配置来自环境变量或仓库根目录的 ``.env``。密钥只保存在 ``SecretStr``
+所有配置来自环境变量或仓库根目录的 ``.env.local``。密钥只保存在 ``SecretStr``
 中，禁止写入源码、禁止打印到日志、禁止返回给前端（见 AGENTS.md §9/§21）。
 """
 
@@ -17,10 +17,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):
-    """全局配置。字段名与 .env 中的大写下划线变量一一对应。"""
+    """全局配置。字段名与 .env.local 中的大写下划线变量一一对应。"""
 
     model_config = SettingsConfigDict(
-        env_file=_REPO_ROOT / ".env",
+        # 只读 .env.local（而非 .env），避免与同样使用仓库根 .env 的工具（如
+        # DeepSeek harness）互相覆盖；真实环境变量的优先级仍高于该文件。
+        env_file=_REPO_ROOT / ".env.local",
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,

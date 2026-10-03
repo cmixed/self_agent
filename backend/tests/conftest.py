@@ -1,11 +1,11 @@
 """pytest 全局配置。
 
 单元测试不依赖真实 DeepSeek API，也不读写仓库内的运行数据：
-- 禁用本机 ``.env``；
+- 禁用本机 ``.env.local``；
 - ``SQLITE_PATH`` 指向临时目录；
 - 每个测试清空进程级缓存（向量集合 / 持久化句柄）。
 
-``smoke`` 标记的测试例外：它们就是要验证真实 API，必须使用本机 ``.env``。
+``smoke`` 标记的测试例外：它们就是要验证真实 API，必须使用本机 ``.env.local``。
 """
 
 from __future__ import annotations

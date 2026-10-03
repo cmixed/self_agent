@@ -58,11 +58,13 @@
 - Node.js 22+ 与 npm
 
 ```bash
-cp .env.example .env
-# 编辑 .env，填入真实的 DEEPSEEK_API_KEY
+cp .env.example .env.local
+# 编辑 .env.local，填入真实的 DEEPSEEK_API_KEY
 ```
 
-> `.env` 已被 `.gitignore` 忽略，禁止提交。API Key 只从环境变量读取。
+> 后端读取的是 **`.env.local`**（不读取 `.env`），避免与其它使用仓库根 `.env` 的工具
+> （如 DeepSeek harness）互相覆盖。`.env.local` 已被 `.gitignore` 忽略，禁止提交；
+> 真实环境变量的优先级高于该文件。API Key 只从环境变量/该文件读取。
 
 ### 数据存储（重要）
 
@@ -95,7 +97,7 @@ cd /home/cmixed/code/self_agent
 ./run.sh
 ```
 
-脚本会自动完成：检查 `uv` / `node` / `npm`、缺少 `.env` 时从 `.env.example` 生成、
+脚本会自动完成：检查 `uv` / `node` / `npm`、缺少 `.env.local` 时从 `.env.example` 生成、
 依赖缺失时自动 `uv sync` + `npm install`、检测端口占用、启动前后端并等待就绪、
 把两端日志带上 `[backend]` / `[frontend]` 前缀输出到当前终端。
 
