@@ -56,9 +56,17 @@ def make_outline_node(
     """构造 outline 节点。"""
 
     async def outline_node(state: AgentState) -> dict:
+        from app.agents.skills import render_skill_outputs
         from app.rag.tools import format_context
 
-        context = format_context(state.get("retrieved_documents") or [])
+        context_parts: list[str] = []
+        documents_context = format_context(state.get("retrieved_documents") or [])
+        if documents_context:
+            context_parts.append(documents_context)
+        skill_context = render_skill_outputs(state)
+        if skill_context:
+            context_parts.append(f"已完成的技能分析结论：\n{skill_context}")
+        context = "\n\n".join(context_parts)
         messages = [
             ChatMessage(role="system", content=_OUTLINE_SYSTEM_PROMPT),
             ChatMessage(role="user", content=_render_outline_input(state, context)),

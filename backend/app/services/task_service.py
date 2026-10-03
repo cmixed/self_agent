@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from typing import Any
 from uuid import uuid4
 
@@ -15,6 +15,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.errors import GraphRecursionError
 
 from app.agents.chapters import chapter_index_from_target, chapter_target, failed_chapters
+from app.agents.skills import CatalogEntry, pending_skill_step
 from app.core.agent_graph import build_graph, recursion_limit
 from app.core.errors import resolve_error
 from app.core.logging import get_logger
@@ -107,14 +108,17 @@ class TaskService:
         llm: LLMProvider,
         *,
         rag_tool_provider: Callable[[], RagTool] | None = None,
+        skill_catalog: Sequence[CatalogEntry] | None = None,
         repository: TaskRepository | None = None,
         checkpointer: BaseCheckpointSaver | None = None,
         registry: TaskRegistry | None = None,
         max_retries: int = 2,
     ) -> None:
+        self._catalog: list[CatalogEntry] = list(skill_catalog or [])
         self._graph = build_graph(
             llm,
             rag_tool_provider=rag_tool_provider,
+            skill_catalog=self._catalog,
             checkpointer=checkpointer,
             max_retries=max_retries,
         )
@@ -122,6 +126,13 @@ class TaskService:
         self._repository = repository
         self._checkpointer = checkpointer
         self._registry = registry or get_task_registry()
+
+    def _skill_name(self, skill_id: str | None) -> str:
+        """技能名查表（用于 SSE 事件展示，不暴露技能正文）。"""
+        for entry in self._catalog:
+            if entry["skill_id"] == skill_id:
+                return entry["name"]
+        return skill_id or ""
 
     def _config_for(self, run_id: str) -> dict[str, Any]:
         """图执行配置：超步上界 + （启用 Checkpoint 时）线程 id。"""
@@ -288,6 +299,40 @@ class TaskService:
                     output = (event.get("data") or {}).get("output")
                     if isinstance(output, dict):
                         final_state = output
+                    continue
+
+                if name == "skills":
+                    # 技能节点每次执行一个技能步骤：逐技能推送事件（§19 扩展）
+                    if kind == "on_chain_start":
+                        step = pending_skill_step((event.get("data") or {}).get("input") or {})
+                        skill_id = str(step.get("skill_id") or "") if step else ""
+                        yield _event(
+                            run_id,
+                            "skill_started",
+                            status="running",
+                            message=f"正在应用技能「{self._skill_name(skill_id)}」",
+                            step=str(step.get("id")) if step else None,
+                            skill_id=skill_id,
+                            skill_name=self._skill_name(skill_id),
+                        )
+                    elif kind == "on_chain_end":
+                        output = (event.get("data") or {}).get("output") or {}
+                        outputs = output.get("skill_outputs") or []
+                        latest = outputs[-1] if outputs else {}
+                        skill_id = str(latest.get("skill_id") or "")
+                        yield _event(
+                            run_id,
+                            "skill_completed",
+                            status="ok",
+                            message=(
+                                f"技能「{latest.get('skill_name') or self._skill_name(skill_id)}」"
+                                "执行完成"
+                            ),
+                            step=str(latest.get("step_id") or "") or None,
+                            skill_id=skill_id,
+                            skill_name=latest.get("skill_name") or self._skill_name(skill_id),
+                            summary=latest.get("summary") or "",
+                        )
                     continue
 
                 if name not in _NODE_EVENTS:

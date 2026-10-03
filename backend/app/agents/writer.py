@@ -18,6 +18,7 @@ from app.agents.chapters import (
     ensure_aligned,
     next_pending_index,
 )
+from app.agents.skills import render_skill_outputs
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, Section, StepResult
@@ -67,6 +68,10 @@ def _render_section_input(
             "注意：本任务需要检索用户资料，但知识库中没有检索到相关内容。"
             "请只依据通用知识作答，并明确说明未引用用户资料。"
         )
+
+    skill_context = render_skill_outputs(state)
+    if skill_context:
+        lines.append(f"已完成的技能分析结论（可作为写作依据）：\n{skill_context}")
 
     preferences = state.get("user_preferences") or {}
     if preferences:

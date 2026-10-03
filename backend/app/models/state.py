@@ -15,17 +15,21 @@ from typing import Annotated, Literal, TypedDict
 
 from app.llm.base import ChatMessage
 
-StepType = Literal["retrieval", "outline", "writing", "validation"]
+StepType = Literal["retrieval", "skill", "outline", "writing", "validation"]
 TaskStatus = Literal["pending", "planning", "writing", "validating", "completed", "failed"]
 SuggestedAction = Literal["continue", "retry_writer", "replan"]
 
 
 class PlanStep(TypedDict):
-    """计划中的单个步骤。"""
+    """计划中的单个步骤。
+
+    ``type="skill"`` 的步骤必须带 ``skill_id``，指向技能目录中的技能。
+    """
 
     id: str
     type: StepType
     description: str
+    skill_id: str | None
 
 
 class Plan(TypedDict):
@@ -53,6 +57,16 @@ class RetrievedDocument(TypedDict):
     chunk_id: str
     content: str
     score: float | None
+
+
+class SkillOutput(TypedDict):
+    """一次技能执行的产出（追加合并，供 outline/writer 作为上下文）。"""
+
+    skill_id: str
+    skill_name: str
+    step_id: str
+    summary: str
+    content: str
 
 
 class Section(TypedDict):
@@ -87,6 +101,8 @@ class AgentState(TypedDict, total=False):
     step_results: Annotated[list[StepResult], add]
     # --- 检索（Phase 3）---
     retrieved_documents: Annotated[list[RetrievedDocument], add]
+    # --- 技能（Agent 可调用的指令模块，按计划中的 skill 步骤逐个执行）---
+    skill_outputs: Annotated[list[SkillOutput], add]
     # --- 生成 ---
     outline: list[Section]
     # 覆盖语义、与 outline 下标对齐：支持重写某一章、跳过失败章节与 replan 后重置
@@ -123,6 +139,7 @@ def initial_state(
         current_step=None,
         step_results=[],
         retrieved_documents=[],
+        skill_outputs=[],
         outline=[],
         sections=[],
         draft="",

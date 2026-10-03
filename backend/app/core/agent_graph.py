@@ -2,11 +2,13 @@
 
 只负责节点连接与条件路由，业务逻辑在 ``app/agents/`` 中（见 AGENTS.md §4.2）。
 
-当前拓扑（Phase 4B）：
+当前拓扑（Phase 4B + 技能）：
 
     START → planner ──(需要检索)──→ researcher ──┐
                   │                             ↓
-                  ├──(不需要检索)──────────→ outline → writer → validator ──┐
+                  ├──(不需要检索)──────────→ skills ⇄ skills（逐个执行技能步骤）
+                  │                             ↓
+                  │                          outline → writer → validator ──┐
                   │                                            ↑           │
                   │                    (还有章节 / retry_writer) └───────────┤
                   │                                                        │
@@ -15,12 +17,14 @@
                   │              (通过且写完 / 重试达上限) ↓               │
                   └──(无计划)──→ END                    summarizer → END
 
+无技能目录时不挂载 skills 节点，拓扑退化为原有形态（researcher → outline）。
+
 重试次数由 ``MAX_RETRIES`` 限制，超限后进入 summarizer 安全结束（§16）。
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
@@ -30,6 +34,12 @@ from app.agents.chapters import MAX_SECTIONS
 from app.agents.outline import make_outline_node
 from app.agents.planner import make_planner_node, make_route_after_planner
 from app.agents.researcher import make_researcher_node
+from app.agents.skills import (
+    MAX_SKILL_STEPS,
+    CatalogEntry,
+    make_route_after_skills,
+    make_skills_node,
+)
 from app.agents.summarizer import make_summarizer_node
 from app.agents.validator import make_route_after_validation, make_validator_node
 from app.agents.writer import make_writer_node
@@ -46,8 +56,11 @@ def recursion_limit(max_retries: int) -> int:
     """
     retries = max(0, max_retries)
     per_pass = (
-        5 + 2 * MAX_SECTIONS * (1 + retries) + 2
-    )  # planner/researcher/outline + 各章 + 整篇校验
+        5
+        + (MAX_SKILL_STEPS + 1)  # 技能步骤逐个执行 + 最后一次路由
+        + 2 * MAX_SECTIONS * (1 + retries)
+        + 2  # 整篇校验 + 汇总
+    )  # planner/researcher/outline + 技能 + 各章 + 整篇校验
     return (retries + 1) * per_pass + 10
 
 
@@ -55,32 +68,50 @@ def build_graph(
     llm: LLMProvider,
     *,
     rag_tool_provider: Callable[[], RagTool] | None = None,
+    skill_catalog: Sequence[CatalogEntry] | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
     max_retries: int = 2,
 ) -> CompiledStateGraph:
     """构建并编译 Agent 图。
 
-    未提供 ``rag_tool_provider`` 时不挂载 researcher 节点，退化为不含检索的流程
-    （便于测试与无知识库场景）。
+    未提供 ``rag_tool_provider`` 时不挂载 researcher 节点；``skill_catalog``
+    为空时不挂载 skills 节点，各自退化为不含该阶段的流程（便于测试与无知识库场景）。
     """
+    catalog = list(skill_catalog or [])
     graph = StateGraph(AgentState)
 
-    graph.add_node("planner", make_planner_node(llm, max_retries=max_retries))
+    graph.add_node(
+        "planner", make_planner_node(llm, max_retries=max_retries, skill_catalog=catalog)
+    )
     graph.add_node("outline", make_outline_node(llm, max_retries=max_retries))
     graph.add_node("writer", make_writer_node(llm, max_retries=max_retries))
     graph.add_node("validator", make_validator_node(llm, max_retries=max_retries))
     graph.add_node("summarizer", make_summarizer_node(max_retries=max_retries))
 
+    if catalog:
+        graph.add_node("skills", make_skills_node(llm, catalog))
+        graph.add_conditional_edges(
+            "skills",
+            make_route_after_skills(),
+            {"skills": "skills", "outline": "outline"},
+        )
+    next_stage = "skills" if catalog else "outline"
+
     routes: dict[str, str] = {"outline": "outline", "end": END}
+    if catalog:
+        routes["skills"] = "skills"
     if rag_tool_provider is not None:
         graph.add_node("researcher", make_researcher_node(rag_tool_provider))
-        graph.add_edge("researcher", "outline")
+        graph.add_edge("researcher", next_stage)
         routes["researcher"] = "researcher"
 
     graph.add_edge(START, "planner")
     graph.add_conditional_edges(
         "planner",
-        make_route_after_planner(retrieval_available=rag_tool_provider is not None),
+        make_route_after_planner(
+            retrieval_available=rag_tool_provider is not None,
+            skills_available=bool(catalog),
+        ),
         routes,
     )
     graph.add_edge("outline", "writer")

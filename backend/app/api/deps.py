@@ -155,11 +155,23 @@ def get_user_id(x_user_id: str | None = Header(default=None, alias="X-User-Id"))
     return candidate or settings.default_user_id
 
 
-def get_task_service(provider: LLMProvider = Depends(get_llm_provider)) -> TaskService:
+async def get_task_service(provider: LLMProvider = Depends(get_llm_provider)) -> TaskService:
     settings = get_settings()
+    # 技能目录在任务开始时快照（运行中修改技能不影响本次任务）
+    skills = await build_skill_service().enabled_skills()
+    catalog = [
+        {
+            "skill_id": skill.skill_id,
+            "name": skill.name,
+            "description": skill.description,
+            "content": skill.content,
+        }
+        for skill in skills
+    ]
     return TaskService(
         provider,
         rag_tool_provider=build_rag_tool,
+        skill_catalog=catalog,
         repository=build_task_repository(),
         checkpointer=get_checkpointer(),
         max_retries=settings.max_retries,
