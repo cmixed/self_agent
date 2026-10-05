@@ -29,6 +29,9 @@ class LLMResponse(BaseModel):
     content: str
     model: str
     usage: dict[str, int] = Field(default_factory=dict)
+    # 结束原因：``"length"`` 表示被输出长度上限截断（内容可能不完整）。
+    # 上游不返回时为 None；业务层据此把「截断」暴露出来，而不是当成正常结尾。
+    finish_reason: str | None = None
 
 
 class LLMError(Exception):

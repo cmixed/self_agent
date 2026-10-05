@@ -20,6 +20,7 @@ from app.agents.chapters import (
     next_pending_index,
 )
 from app.agents.skills import render_skill_outputs
+from app.core.limits import DEFAULT_TOTAL_CHARS
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, Section, StepResult
@@ -39,6 +40,16 @@ _WRITER_SYSTEM_PROMPT = """你是一个中文写作助手。请撰写指定章�
 """
 
 
+def chapter_char_target(total_chars: int, total_sections: int) -> tuple[int, int]:
+    """按章节数把目标总字数分摊为单章区间 (下限, 上限)。
+
+    软目标：写进提示词让模型自我调节，**不做 max_tokens 硬截断**——
+    硬截断只会得到半截章节。单章下限兜底 200 字，避免章节过多时目标失去意义。
+    """
+    per_chapter = max(200, int(total_chars / max(1, total_sections)))
+    return int(per_chapter * 0.8), int(per_chapter * 1.3)
+
+
 def _render_section_input(
     state: AgentState,
     *,
@@ -46,12 +57,16 @@ def _render_section_input(
     index: int,
     total: int,
     rewrite: bool,
+    char_target: tuple[int, int] | None = None,
 ) -> str:
     plan = state.get("plan")
     lines = [f"用户任务：{state.get('user_query', '')}"]
     if plan:
         lines.append(f"任务目标：{plan.get('goal', '')}")
     lines.append(f"当前章节（第 {index}/{total} 章）：{title}")
+    if char_target is not None:
+        low, high = char_target
+        lines.append(f"本章目标篇幅：约 {low}-{high} 字（可接受 ±30%，不要为凑字数而注水）")
 
     if rewrite:
         validations = state.get("chapter_validations") or {}
@@ -110,9 +125,17 @@ def resolve_target_index(
 
 
 def make_writer_node(
-    llm: LLMProvider, *, max_retries: int = 2, max_sections: int = MAX_SECTIONS
+    llm: LLMProvider,
+    *,
+    max_retries: int = 2,
+    max_sections: int = MAX_SECTIONS,
+    target_total_chars: int = DEFAULT_TOTAL_CHARS,
 ) -> Callable[[AgentState], Awaitable[dict]]:
-    """构造 writer 节点（每次撰写或重写一章）。"""
+    """构造 writer 节点（每次撰写或重写一章）。
+
+    篇幅用「目标字数」软约束；输出被长度上限截断时（``finish_reason=length``）
+    追加**一次**有限续写，仍然截断则把事实写进 step_result 与消息（可见、不静默）。
+    """
 
     async def writer_node(state: AgentState) -> dict:
         outline = state.get("outline") or []
@@ -129,22 +152,66 @@ def make_writer_node(
         chapter = index + 1
         total = len(outline)
 
+        char_target = chapter_char_target(target_total_chars, total)
         messages = [
             ChatMessage(role="system", content=_WRITER_SYSTEM_PROMPT),
             ChatMessage(
                 role="user",
                 content=_render_section_input(
-                    state, title=title, index=chapter, total=total, rewrite=rewrite
+                    state,
+                    title=title,
+                    index=chapter,
+                    total=total,
+                    rewrite=rewrite,
+                    char_target=char_target,
                 ),
             ),
         ]
         response = await llm.chat(messages, temperature=0.7)
+        content = response.content.strip()
+        truncated = response.finish_reason == "length"
+
+        # 被输出长度上限截断：追加一次有限续写（有上限，绝不无限续）
+        if truncated and content:
+            tail = content[-500:]
+            continuation = await llm.chat(
+                [
+                    ChatMessage(role="system", content=_WRITER_SYSTEM_PROMPT),
+                    ChatMessage(
+                        role="user",
+                        content=(
+                            f"以下是「{title}」已写好的结尾部分（因长度上限被截断）：\n"
+                            f"……{tail}\n\n"
+                            "请从中断处**继续**输出后续内容，不要重复已写内容，"
+                            "不要重复章节标题，也不要输出「参考来源」。"
+                        ),
+                    ),
+                ],
+                temperature=0.7,
+            )
+            if continuation.content.strip():
+                content = f"{content}\n{continuation.content.strip()}"
+            truncated = continuation.finish_reason == "length"
+            logger.warning(
+                "章节输出被长度上限截断，已尝试一次续写",
+                extra={
+                    "task_id": state.get("task_id"),
+                    "node": "writer",
+                    "event": "chapter_truncated",
+                    "status": "warning",
+                    "chapter": chapter,
+                    "still_truncated": truncated,
+                },
+            )
 
         while len(sections) <= index:
             sections.append(Section(title="", content=""))
-        sections[index] = Section(title=title, content=response.content.strip())
+        sections[index] = Section(title=title, content=content)
 
         verb = "重写" if rewrite else "撰写"
+        summary = f"已{verb}：{title}"
+        if truncated:
+            summary += "（本章因输出长度上限被截断，内容可能不完整）"
         logger.info(
             "writer 完成章节",
             extra={
@@ -159,13 +226,13 @@ def make_writer_node(
             "current_step": f"chapter_{chapter}",
             "task_status": "writing",
             "messages": [
-                ChatMessage(role="assistant", content=f"[writer] 已{verb}第 {chapter} 章：{title}")
+                ChatMessage(role="assistant", content=f"[writer] {summary}")
             ],
             "step_results": [
                 StepResult(
                     step_id=f"chapter_{chapter}",
-                    status="ok",
-                    summary=f"已{verb}：{title}",
+                    status="ok" if not truncated else "error",
+                    summary=summary,
                 )
             ],
         }

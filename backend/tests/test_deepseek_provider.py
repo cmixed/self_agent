@@ -158,3 +158,31 @@ async def test_chat_structured_raises_after_limited_retries() -> None:
             )
     finally:
         await provider.aclose()
+
+
+async def test_finish_reason_is_parsed_for_truncation_visibility() -> None:
+    """finish_reason=length 必须能透出（否则截断完全不可见）。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = success_body("被截断的正文")
+        body["choices"][0]["finish_reason"] = "length"
+        return httpx.Response(200, json=body)
+
+    provider = make_provider(handler)
+    try:
+        response = await provider.chat([ChatMessage(role="user", content="写一章")])
+        assert response.finish_reason == "length"
+    finally:
+        await provider.aclose()
+
+
+async def test_finish_reason_none_when_upstream_omits_it() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=success_body("正常结尾"))
+
+    provider = make_provider(handler)
+    try:
+        response = await provider.chat([ChatMessage(role="user", content="写一章")])
+        assert response.finish_reason is None
+    finally:
+        await provider.aclose()

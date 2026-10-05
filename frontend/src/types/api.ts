@@ -190,6 +190,8 @@ export interface TaskEvent {
   retry_count?: number
   exhausted?: boolean
   error_type?: string
+  /** 内容被输出长度上限截断（outline / writer 事件） */
+  truncated?: boolean
   /** 技能事件（skill_started / skill_completed）附加字段 */
   skill_id?: string
   skill_name?: string

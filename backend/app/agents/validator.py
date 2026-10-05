@@ -28,6 +28,8 @@ from app.agents.chapters import (
     next_pending_index,
 )
 from app.agents.summarizer import assemble_document
+from app.agents.writer import chapter_char_target
+from app.core.limits import DEFAULT_TOTAL_CHARS
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, Section, StepResult, ValidationResult
@@ -42,9 +44,14 @@ _VALIDATOR_SYSTEM_PROMPT = """你是内容校验员。请检查给定内容是�
 2. 严重遗漏：未覆盖任务计划的关键要点；
 3. 引用问题：[编号] 与资料不对应，或存在资料无法支撑的断言；
 4. 明显的整段重复、明显跑题，或空洞到没有任何实质信息；
-5. 整篇校验时：章节结构残缺、顺序明显不合理。
+5. 整篇校验时：章节结构残缺、顺序明显不合理；
+6. 内容被截断（在半句话或半个列表处突然结束）导致不完整。
 
-以下情况**不应**判为不通过：措辞与文风偏好、详略程度、句式重复、
+篇幅：如果输入给出了「目标篇幅」而实际明显偏离，请在 issues 中**提示**
+（例如「实际 300 字，明显少于目标 800-1300 字」），但**仅当内容因此空泛或
+残缺时才判不通过**；篇幅偏差本身不触发重写。
+
+以下情况**不应**判为不通过：措辞与文风偏好、句式重复、
 可以进一步展开等非实质性改进空间。
 
 只输出 JSON，不要输出解释文字：
@@ -92,7 +99,14 @@ def resolve_scope(
     return "document", None
 
 
-def _render_input(state: AgentState, *, scope: str, target: str, content: str) -> str:
+def _render_input(
+    state: AgentState,
+    *,
+    scope: str,
+    target: str,
+    content: str,
+    char_target: tuple[int, int] | None = None,
+) -> str:
     plan = state.get("plan")
     lines = [f"用户任务：{state.get('user_query', '')}"]
     if plan:
@@ -114,6 +128,9 @@ def _render_input(state: AgentState, *, scope: str, target: str, content: str) -
         lines.append(f"检索到的资料：\n{format_context(documents)}")
 
     label = "整篇文档" if scope == "document" else f"章节（{target}）"
+    if char_target is not None:
+        low, high = char_target
+        lines.append(f"目标篇幅（本章）：约 {low}-{high} 字；当前实际 {len(content)} 字")
     lines.append(f"待校验内容（{label}）：\n{content}")
     return "\n".join(lines)
 
@@ -138,7 +155,11 @@ def _normalize_action(model: ValidationModel, *, scope: str) -> str:
 
 
 def make_validator_node(
-    llm: LLMProvider, *, max_retries: int = 2, max_sections: int = MAX_SECTIONS
+    llm: LLMProvider,
+    *,
+    max_retries: int = 2,
+    max_sections: int = MAX_SECTIONS,
+    target_total_chars: int = DEFAULT_TOTAL_CHARS,
 ) -> Callable[[AgentState], Awaitable[dict]]:
     """构造 validator 节点。"""
 
@@ -154,11 +175,16 @@ def make_validator_node(
             target = "document"
             content = assemble_document(state, max_retries=max_retries)
 
+        char_target = None
+        if scope == "chapter":
+            char_target = chapter_char_target(target_total_chars, len(state.get("outline") or []))
         messages = [
             ChatMessage(role="system", content=_VALIDATOR_SYSTEM_PROMPT),
             ChatMessage(
                 role="user",
-                content=_render_input(state, scope=scope, target=target, content=content),
+                content=_render_input(
+                    state, scope=scope, target=target, content=content, char_target=char_target
+                ),
             ),
         ]
         model = await llm.chat_structured(

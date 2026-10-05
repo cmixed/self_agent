@@ -12,9 +12,22 @@
 - ``DEFAULT_TARGET_SECTIONS``：提示词里的目标篇幅（可配置，≤ 生成上限）；
 - ``SCHEMA_SECTION_GUARD``：模型输出结构的防爆上限，远高于生成上限——
   超出生成上限时**截断并说明**，而不是让整单任务失败。
+
+篇幅（字数）同样分两件事：
+
+- ``DEFAULT_TOTAL_CHARS``：用户可理解的**目标总字数**（软目标，写进提示词）；
+- ``MAX_TOTAL_CHARS`` / ``MIN_TOTAL_CHARS``：配置夹取范围。
+
+**不设**「每章 max_tokens 硬上限」：tokens 是实现细节，且截断会让流程拿到
+半截章节；真正需要的是把截断暴露出来（见 ``LLMResponse.finish_reason``）。
 """
 
 from __future__ import annotations
+
+# --- 篇幅（目标总字数，软目标）---
+MIN_TOTAL_CHARS = 1500
+DEFAULT_TOTAL_CHARS = 6000
+MAX_TOTAL_CHARS = 40000
 
 # --- 章节数 ---
 MIN_SECTIONS = 3

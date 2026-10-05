@@ -213,3 +213,26 @@ async def test_stream_reports_outline_truncation() -> None:
     assert len(outline_event["outline"]) == 5
     assert outline_event["truncated"] is True
     assert "已按上限 5 截断" in outline_event["message"]
+
+
+async def test_stream_reports_chapter_truncation() -> None:
+    """章节被长度上限截断时，writer_completed 消息要说明（不静默）。"""
+    import json as jsonlib
+
+    plan = {
+        "goal": "写综述",
+        "needs_retrieval": False,
+        "steps": [{"id": "w", "type": "writing", "description": "撰写"}],
+    }
+    provider = ScriptedProvider(
+        [jsonlib.dumps(plan, ensure_ascii=False), OUTLINE_JSON, "半截章节", "还是半截"],
+        default_text="正文",
+        finish_reasons=[None, None, "length", "length"],
+    )
+    service = TaskService(provider, max_retries=0)
+
+    events = [event async for event in service.stream("写综述")]
+
+    truncated = [event for event in events if event.get("truncated")]
+    assert truncated, "截断事实必须出现在进度事件里"
+    assert "截断" in truncated[0]["message"]

@@ -82,3 +82,12 @@ def test_section_budget_is_clamped() -> None:
     target_over_max = Settings(_env_file=None, target_sections=18, max_sections=8)
     assert target_over_max.effective_max_sections == 8
     assert target_over_max.effective_target_sections == 8  # 不得高于生成上限
+
+
+def test_total_chars_is_clamped() -> None:
+    from app.core.limits import MAX_TOTAL_CHARS, MIN_TOTAL_CHARS
+
+    assert Settings(_env_file=None).effective_total_chars == 6000
+    assert Settings(_env_file=None, target_total_chars=10).effective_total_chars == MIN_TOTAL_CHARS
+    big = Settings(_env_file=None, target_total_chars=10**9)
+    assert big.effective_total_chars == MAX_TOTAL_CHARS

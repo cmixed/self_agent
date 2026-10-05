@@ -42,7 +42,11 @@ from app.agents.skills import (
 from app.agents.summarizer import make_summarizer_node
 from app.agents.validator import make_route_after_validation, make_validator_node
 from app.agents.writer import make_writer_node
-from app.core.limits import DEFAULT_MAX_SECTIONS, DEFAULT_TARGET_SECTIONS
+from app.core.limits import (
+    DEFAULT_MAX_SECTIONS,
+    DEFAULT_TARGET_SECTIONS,
+    DEFAULT_TOTAL_CHARS,
+)
 from app.llm.base import LLMProvider
 from app.models.state import AgentState
 from app.rag.tools import RagTool
@@ -74,6 +78,7 @@ def build_graph(
     max_retries: int = 2,
     target_sections: int = DEFAULT_TARGET_SECTIONS,
     max_sections: int = DEFAULT_MAX_SECTIONS,
+    target_total_chars: int = DEFAULT_TOTAL_CHARS,
 ) -> CompiledStateGraph:
     """构建并编译 Agent 图。
 
@@ -96,10 +101,22 @@ def build_graph(
         ),
     )
     graph.add_node(
-        "writer", make_writer_node(llm, max_retries=max_retries, max_sections=max_sections)
+        "writer",
+        make_writer_node(
+            llm,
+            max_retries=max_retries,
+            max_sections=max_sections,
+            target_total_chars=target_total_chars,
+        ),
     )
     graph.add_node(
-        "validator", make_validator_node(llm, max_retries=max_retries, max_sections=max_sections)
+        "validator",
+        make_validator_node(
+            llm,
+            max_retries=max_retries,
+            max_sections=max_sections,
+            target_total_chars=target_total_chars,
+        ),
     )
     graph.add_node(
         "summarizer", make_summarizer_node(max_retries=max_retries, max_sections=max_sections)

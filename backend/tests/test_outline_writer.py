@@ -285,3 +285,83 @@ def test_failed_chapters_respects_same_bound_as_writing() -> None:
     state["retry_counts"] = {f"chapter_{i}": 9 for i in range(1, 16)}
 
     assert failed_chapters(state, max_retries=2, max_sections=6) == list(range(6))
+
+
+# --- 篇幅：软目标（字数）与截断可见性 ---
+
+
+async def test_writer_prompt_includes_char_target() -> None:
+    """篇幅用目标字数表达（软目标），不做 max_tokens 硬截断。"""
+    provider = ScriptedProvider(default_text="正文")
+    node = make_writer_node(provider, max_retries=0, target_total_chars=6000)
+    state = _state_with_outline()
+    state["outline"] = [{"title": "引言", "content": ""}, {"title": "方法", "content": ""}]
+    state["sections"] = [{"title": "引言", "content": ""}, {"title": "方法", "content": ""}]
+
+    await node(state)
+
+    user_prompt = provider.calls[0][1].content
+    assert "本章目标篇幅：约 2400-3900 字" in user_prompt  # 6000/2 分摊后区间
+
+
+async def test_writer_continues_once_when_truncated() -> None:
+    """输出被长度上限截断：追加一次有限续写，内容拼接、不整单失败。"""
+    provider = ScriptedProvider(
+        ["前半段正文……", "续写的后半段。"],
+        finish_reasons=["length", "stop"],
+    )
+    node = make_writer_node(provider, max_retries=0)
+    state = _state_with_outline()
+
+    update = await node(state)
+
+    assert len(provider.calls) == 2  # 只续写一次
+    content = update["sections"][0]["content"]
+    assert "前半段正文" in content
+    assert "续写的后半段" in content
+    assert "截断" not in update["step_results"][0]["summary"]
+    # 续写请求要带上已写结尾并要求“不要重复”
+    assert "不要重复已写内容" in provider.calls[1][1].content
+
+
+async def test_writer_marks_persistent_truncation() -> None:
+    """续写后仍然截断：事实必须可见（step_result 标注），但不让整单失败。"""
+    provider = ScriptedProvider(
+        ["第一段", "又被截断的一段"],
+        finish_reasons=["length", "length"],
+    )
+    node = make_writer_node(provider, max_retries=0)
+    state = _state_with_outline()
+
+    update = await node(state)
+
+    summary = update["step_results"][0]["summary"]
+    assert "截断" in summary
+    assert update["step_results"][0]["status"] == "error"
+
+
+async def test_writer_no_continuation_without_truncation() -> None:
+    provider = ScriptedProvider(["完整的一章"], finish_reasons=["stop"])
+    node = make_writer_node(provider, max_retries=0)
+
+    await node(_state_with_outline())
+
+    assert len(provider.calls) == 1
+
+
+async def test_validator_input_includes_char_target() -> None:
+    from app.agents.validator import make_validator_node
+
+    provider = ScriptedProvider()  # 默认返回通过
+    node = make_validator_node(provider, max_retries=0, target_total_chars=6000)
+    state = _state_with_outline()
+    state["sections"] = [
+        {"title": "引言", "content": "内容一"},
+        {"title": "方法", "content": "内容二"},
+    ]
+
+    await node(state)
+
+    user_prompt = provider.calls[0][1].content
+    assert "目标篇幅（本章）：约 2400-3900 字" in user_prompt
+    assert "当前实际" in user_prompt

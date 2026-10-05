@@ -24,7 +24,11 @@ from app.agents.chapters import (
 from app.agents.skills import CatalogEntry, pending_skill_step
 from app.core.agent_graph import build_graph, recursion_limit
 from app.core.errors import resolve_error
-from app.core.limits import DEFAULT_MAX_SECTIONS, DEFAULT_TARGET_SECTIONS
+from app.core.limits import (
+    DEFAULT_MAX_SECTIONS,
+    DEFAULT_TARGET_SECTIONS,
+    DEFAULT_TOTAL_CHARS,
+)
 from app.core.logging import get_logger
 from app.core.task_registry import TaskRegistry, get_task_registry
 from app.llm.base import LLMError, LLMProvider
@@ -124,6 +128,7 @@ class TaskService:
         max_retries: int = 2,
         target_sections: int = DEFAULT_TARGET_SECTIONS,
         max_sections: int = DEFAULT_MAX_SECTIONS,
+        target_total_chars: int = DEFAULT_TOTAL_CHARS,
     ) -> None:
         self._catalog: list[CatalogEntry] = list(skill_catalog or [])
         self._max_sections = max(1, max_sections)
@@ -135,6 +140,7 @@ class TaskService:
             max_retries=max_retries,
             target_sections=target_sections,
             max_sections=self._max_sections,
+            target_total_chars=target_total_chars,
         )
         self._max_retries = max_retries
         self._repository = repository
@@ -403,6 +409,12 @@ class TaskService:
                                     payload["truncated"] = True
                         if name == "writer":
                             payload["step"] = output.get("current_step") or name
+                            # 章节被输出长度上限截断时，让进度消息如实说明
+                            for step_result in output.get("step_results") or []:
+                                step_summary = str(step_result.get("summary") or "")
+                                if "截断" in step_summary:
+                                    payload["message"] = step_summary
+                                    payload["truncated"] = True
                         if name == "validator":
                             validation = output.get("validation_result") or {}
                             payload["passed"] = bool(validation.get("passed"))

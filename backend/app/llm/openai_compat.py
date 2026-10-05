@@ -158,15 +158,18 @@ class OpenAICompatProvider(LLMProvider):
     def _parse_response(self, response: httpx.Response) -> LLMResponse:
         try:
             data = response.json()
-            content = data["choices"][0]["message"]["content"] or ""
+            choice = data["choices"][0]
+            content = choice["message"]["content"] or ""
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             raise LLMUpstreamError(f"{self.display_name} 返回体结构无法解析") from exc
 
         usage = data.get("usage") or {}
+        finish_reason = choice.get("finish_reason")
         return LLMResponse(
             content=content,
             model=data.get("model") or self._model,
             usage={k: int(v) for k, v in usage.items() if isinstance(v, int)},
+            finish_reason=str(finish_reason) if finish_reason else None,
         )
 
     def _describe_http_error(self, response: httpx.Response) -> str:

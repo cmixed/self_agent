@@ -15,8 +15,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from app.core.limits import (
     DEFAULT_MAX_SECTIONS,
     DEFAULT_TARGET_SECTIONS,
+    DEFAULT_TOTAL_CHARS,
     HARD_SECTION_CEILING,
+    MAX_TOTAL_CHARS,
     MIN_SECTIONS,
+    MIN_TOTAL_CHARS,
 )
 
 # backend/app/core/config.py -> backend/ 与仓库根目录
@@ -87,6 +90,9 @@ class Settings(BaseSettings):
     # 两者都会被夹到 [MIN_SECTIONS, HARD_SECTION_CEILING]，且 target ≤ max。
     target_sections: int = DEFAULT_TARGET_SECTIONS
     max_sections: int = DEFAULT_MAX_SECTIONS
+    # 目标总字数（软目标）：按章节数分摊后写进写作/校验提示词。
+    # 注意这不是 max_tokens 硬上限——硬截断只会得到半截章节。
+    target_total_chars: int = DEFAULT_TOTAL_CHARS
 
     # --- Embedding（独立于 LLM Provider，§12）---
     embedding_provider: str = "local"
@@ -132,6 +138,11 @@ class Settings(BaseSettings):
     def effective_max_sections(self) -> int:
         """实际生成上限：夹到 [MIN_SECTIONS, HARD_SECTION_CEILING]。"""
         return max(MIN_SECTIONS, min(self.max_sections, HARD_SECTION_CEILING))
+
+    @property
+    def effective_total_chars(self) -> int:
+        """目标总字数：夹到 [MIN_TOTAL_CHARS, MAX_TOTAL_CHARS]。"""
+        return max(MIN_TOTAL_CHARS, min(self.target_total_chars, MAX_TOTAL_CHARS))
 
     @property
     def effective_target_sections(self) -> int:

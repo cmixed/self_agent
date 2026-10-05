@@ -238,9 +238,19 @@ START → Planner ──(计划需要检索)──→ Researcher(RAG Tool) ─�
 | --- | --- | --- | --- |
 | `TARGET_SECTIONS` | 提示词里的目标篇幅 | 6 | ≥3，且 ≤ `MAX_SECTIONS` |
 | `MAX_SECTIONS` | 实际生成上限 | 12 | 夹在 [3, 20]（安全兜底 20） |
+| `TARGET_TOTAL_CHARS` | 目标总字数（软目标） | 6000 | 夹在 [1500, 40000] |
 
 > 模型给出超过 `MAX_SECTIONS` 的章节时会**按上限截断并在进度日志中说明**，
 > 而不是让整个任务失败；`failed_chapters` 只统计真正尝试撰写过的章节。
+
+篇幅为什么不用 `max_tokens`：tokens 是实现细节，硬截断只会得到半截章节（本项目
+已踩过推理模型 `reasoning_content` 与 `content` 共享预算导致 content 为空的坑）。
+现在的做法是三层：
+
+1. **软目标**：`TARGET_TOTAL_CHARS` 按章节数分摊 → 写作提示词「本章约 X-Y 字」；
+2. **校验纠偏**：Validator 会提示篇幅明显偏离（仅当内容因此空泛/残缺才判不通过）；
+3. **截断可见**：解析 `finish_reason=length` → 追加**一次**有限续写；仍截断则在
+   进度事件与步骤结果中如实标注（`truncated`）。
 - Validator 先做**章节级**校验，全部章节写完后做**整篇**校验；
 - 重试预算**按章节独立**（`retry_counts`，上限 `MAX_RETRIES`）：未达上限则重写该章，
   已达上限则记录问题、**跳过该章**并继续其他章节，最终结果中明确标记未通过；

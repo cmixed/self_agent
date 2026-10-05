@@ -61,11 +61,13 @@ class ScriptedProvider(LLMProvider):
         default: str | None = None,
         default_text: str = DRAFT_TEXT,
         default_json: str = VALIDATION_PASS_JSON,
+        finish_reasons: list[str | None] | None = None,
     ) -> None:
         self._responses = list(responses or [])
         self._default = default
         self._default_text = default_text
         self._default_json = default_json
+        self._finish_reasons = list(finish_reasons or [])
         self.calls: list[list[ChatMessage]] = []
         self.json_modes: list[bool] = []
 
@@ -85,7 +87,13 @@ class ScriptedProvider(LLMProvider):
             content = self._default
         else:
             content = self._default_json if json_mode else self._default_text
-        return LLMResponse(content=content, model="scripted", usage={"total_tokens": 1})
+        finish_reason = self._finish_reasons.pop(0) if self._finish_reasons else None
+        return LLMResponse(
+            content=content,
+            model="scripted",
+            usage={"total_tokens": 1},
+            finish_reason=finish_reason,
+        )
 
     async def aclose(self) -> None:
         return None

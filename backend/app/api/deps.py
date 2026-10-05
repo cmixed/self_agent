@@ -182,6 +182,7 @@ async def get_task_service(provider: LLMProvider = Depends(get_llm_provider)) ->
         max_retries=settings.max_retries,
         target_sections=settings.effective_target_sections,
         max_sections=settings.effective_max_sections,
+        target_total_chars=settings.effective_total_chars,
     )
 
 
