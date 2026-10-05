@@ -47,7 +47,7 @@ async def upload_document(
 async def list_documents(
     service: DocumentService = Depends(get_document_service),
 ) -> DocumentListResponse:
-    return DocumentListResponse(documents=service.list_documents())
+    return DocumentListResponse(documents=await service.list_documents())
 
 
 @router.get("/{document_id}/content")
@@ -60,7 +60,7 @@ async def get_document_content(
 
     只读取本地上传目录中该文档的原始文件；不读取向量库内容、不触发模型。
     """
-    found = service.document_file(document_id)
+    found = await service.document_file(document_id)
     if found is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在或原文件已丢失"
@@ -79,6 +79,6 @@ async def delete_document(
     document_id: str,
     service: DocumentService = Depends(get_document_service),
 ) -> DeleteDocumentResponse:
-    if not service.delete_document(document_id):
+    if not await service.delete_document(document_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
     return DeleteDocumentResponse(document_id=document_id, status="deleted")

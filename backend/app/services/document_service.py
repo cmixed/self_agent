@@ -62,9 +62,13 @@ class DocumentService:
         path.write_bytes(content)
 
         try:
-            pages = load_document(path)
-            chunks = split_pages(
-                pages, chunk_size=self._chunk_size, chunk_overlap=self._chunk_overlap
+            # 解析与切分是同步 CPU/IO 操作（PDF 解析可达数百毫秒），放到线程里
+            pages = await asyncio.to_thread(load_document, path)
+            chunks = await asyncio.to_thread(
+                split_pages,
+                pages,
+                chunk_size=self._chunk_size,
+                chunk_overlap=self._chunk_overlap,
             )
             if not chunks:
                 raise DocumentLoadError("文档切分后没有得到任何文本块")
@@ -73,10 +77,10 @@ class DocumentService:
             # 放到线程里执行：模型加载/下载是阻塞操作，直接调用会卡住事件循环。
             provider = await asyncio.to_thread(self._provider_factory)
             # 先与集合中已有向量比对维度，避免用错模型污染索引（§12）
-            self._store.verify_dimension(provider.dimension)
+            await self._store.averify_dimension(provider.dimension)
             texts = [chunk.text for chunk in chunks]
             vectors = await embed_in_batches(provider, texts, batch_size=self._embed_batch_size)
-            self._store.add_chunks(
+            await self._store.aadd_chunks(
                 ids=[self._chunk_id(document_id, chunk) for chunk in chunks],
                 documents=texts,
                 metadatas=[self._metadata(document_id, filename, title, chunk) for chunk in chunks],
@@ -84,7 +88,7 @@ class DocumentService:
             )
         except Exception:
             self._remove_file(path)
-            self._store.delete_document(document_id)
+            await self._store.adelete_document(document_id)
             raise
 
         logger.info(
@@ -99,15 +103,12 @@ class DocumentService:
             document_id=document_id, filename=filename, title=title, chunks=len(chunks)
         )
 
-    def list_documents(self) -> list[DocumentInfo]:
-        return [DocumentInfo(**item) for item in self._store.list_documents()]
+    async def list_documents(self) -> list[DocumentInfo]:
+        return [DocumentInfo(**item) for item in await self._store.alist_documents()]
 
-    def document_file(self, document_id: str) -> tuple[Path, str] | None:
+    async def document_file(self, document_id: str) -> tuple[Path, str] | None:
         """返回文档原文件的 ``(路径, 原始文件名)``；文档不存在或原文件缺失时返回 ``None``。"""
-        info = next(
-            (item for item in self._store.list_documents() if item["document_id"] == document_id),
-            None,
-        )
+        info = await self._store.aget_document(document_id)
         if info is None:
             return None
         matches = sorted(self._documents_dir.glob(f"{document_id}.*"))
@@ -115,11 +116,10 @@ class DocumentService:
             return None
         return matches[0], str(info["filename"])
 
-    def delete_document(self, document_id: str) -> bool:
-        known = any(item["document_id"] == document_id for item in self._store.list_documents())
-        if not known:
+    async def delete_document(self, document_id: str) -> bool:
+        if await self._store.aget_document(document_id) is None:
             return False
-        self._store.delete_document(document_id)
+        await self._store.adelete_document(document_id)
         for path in self._documents_dir.glob(f"{document_id}.*"):
             self._remove_file(path)
         return True

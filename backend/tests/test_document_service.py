@@ -42,7 +42,7 @@ async def test_ingest_list_retrieve_delete(tmp_path: Path) -> None:
     assert info.title == "rag"
     assert info.chunks >= 1
 
-    listed = service.list_documents()
+    listed = await service.list_documents()
     assert [item.document_id for item in listed] == [info.document_id]
     assert listed[0].chunks == info.chunks
 
@@ -55,8 +55,8 @@ async def test_ingest_list_retrieve_delete(tmp_path: Path) -> None:
     assert hits[0]["content"]
     assert hits[0]["score"] is not None
 
-    assert service.delete_document(info.document_id) is True
-    assert service.list_documents() == []
+    assert await service.delete_document(info.document_id) is True
+    assert await service.list_documents() == []
     assert store.count() == 0
 
 
@@ -77,14 +77,14 @@ async def test_ingest_rolls_back_on_embedding_failure(tmp_path: Path) -> None:
         await service.ingest(filename="a.md", content=b"# title\n\ncontent")
 
     # 回滚：既没有留下文档记录，也没有残留文件
-    assert service.list_documents() == []
+    assert await service.list_documents() == []
     assert store.count() == 0
     assert list((tmp_path / "documents").glob("*")) == []
 
 
 async def test_delete_unknown_document_returns_false(tmp_path: Path) -> None:
     service = make_service(tmp_path, make_store(tmp_path))
-    assert service.delete_document("does-not-exist") is False
+    assert await service.delete_document("does-not-exist") is False
 
 
 async def test_dimension_mismatch_is_detected(tmp_path: Path) -> None:

@@ -569,7 +569,14 @@ Agent
 要求：
 
 - 文档处理与 Agent 解耦。
-- ChromaDB 访问集中在 `rag/`。
+- ChromaDB 访问集中在 `rag/`，且**只允许走 `ChromaStore` 的异步接口**
+  （`aquery` / `alist_documents` / `aget_document` / `aadd_chunks` / `adelete_document`
+  / `averify_dimension`）：内部统一加锁 + `asyncio.to_thread`。
+  直接调用同步方法会阻塞事件循环（实测入库 220 块约 190ms，且随块数线性增长），
+  阻塞期间所有并发请求（含 SSE 任务流）都会被拖住。
+- 单文档操作（预览 / 删除）必须用 `get_document()` 精确过滤，
+  不要 `list_documents()` 全量扫描后再筛选（5000 块时相差 15×）。
+- 解析与切分（`load_document` / `split_pages`）等同步 CPU/IO 操作要放进线程。
 - Retriever 不应散落在 Agent 节点中。
 - Agent 只能通过 RAG Tool 查询知识库。
 - 检索结果必须保留 source metadata。

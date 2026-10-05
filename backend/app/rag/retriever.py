@@ -30,7 +30,7 @@ class Retriever:
             return []
 
         embedding = await self._provider.embed_query(query)
-        hits = self._store.query(embedding=embedding, top_k=top_k or self._top_k)
+        hits = await self._store.aquery(embedding=embedding, top_k=top_k or self._top_k)
 
         documents: list[RetrievedDocument] = []
         for hit in hits:

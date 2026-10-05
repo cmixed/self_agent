@@ -96,6 +96,16 @@ cp backend/.env.example backend/.env
 - `data/documents/`、`data/chroma/`：上传的文档与向量库
 - 无复杂用户系统（§31）：默认用户 `DEFAULT_USER_ID=local-user`，可用 `X-User-Id` 请求头覆盖
 
+### 性能约定
+
+| 约定 | 原因（实测） |
+| --- | --- |
+| Chroma 只走 `ChromaStore` 的 `a*` 异步接口（内部加锁 + `to_thread`） | 同步入库 220 块约 190ms，阻塞期间并发请求被拖住（改造后 p95 11ms→5.6ms） |
+| 单文档操作用 `get_document()` 精确过滤 | 替代全量扫描：5000 块时 48.6ms → 3.2ms（15×） |
+| 文档解析/切分放线程 | PDF 解析可达数百毫秒 |
+| 启动时预热 Chroma 连接 | 首次打开 ~0.5s，预热后首个请求 0.054s |
+| 前端预设/文档等独立请求，不放进同一个 `Promise.all` | 避免被最慢接口拖住而出现空态闪烁 |
+
 首次上传文档时会自动下载本地 Embedding 模型 `BAAI/bge-small-zh-v1.5`
 （约 100 MB，缓存在 HuggingFace 缓存目录，仅需一次）。网络受限时可设置
 `HF_ENDPOINT=https://hf-mirror.com`，或可选设置 `HF_TOKEN` 提高下载速率。
