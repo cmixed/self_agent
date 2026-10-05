@@ -118,6 +118,10 @@ def make_skills_node(
         if documents:
             context_parts.append("参考资料：\n" + format_context(documents))
         context_parts.append(f"技能说明（{definition['name']}）：\n{definition['content']}")
+        context_parts.append(
+            "输出要求：**不要使用 [编号] 形式标注引用**——[编号] 由正文统一按"
+            "「检索到的资料」顺序生成；如需指明依据，请直接写文件名或章节名。"
+        )
 
         response = await llm.chat(
             [

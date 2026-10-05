@@ -112,10 +112,56 @@ export async function streamTask(
   onEvent: (event: TaskEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(`${API_BASE}/tasks/stream`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify({ query }),
+  return streamSse(
+    '/tasks/stream',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    },
+    onEvent,
+    signal,
+  )
+}
+
+/** 从断点继续生成（同一任务，已完成的步骤不重跑）。 */
+export async function streamResume(
+  taskId: string,
+  onEvent: (event: TaskEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return streamSse(
+    `/tasks/${encodeURIComponent(taskId)}/resume`,
+    { method: 'POST' },
+    onEvent,
+    signal,
+  )
+}
+
+/** 用同一任务内容重新生成（新任务 id，原任务记录保留）。 */
+export async function streamRerun(
+  taskId: string,
+  onEvent: (event: TaskEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return streamSse(
+    `/tasks/${encodeURIComponent(taskId)}/rerun`,
+    { method: 'POST' },
+    onEvent,
+    signal,
+  )
+}
+
+/** 消费 SSE 任务流（fetch + ReadableStream：EventSource 不支持 POST）。 */
+async function streamSse(
+  path: string,
+  init: RequestInit,
+  onEvent: (event: TaskEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: { Accept: 'text/event-stream', ...(init.headers ?? {}) },
     signal,
   })
 

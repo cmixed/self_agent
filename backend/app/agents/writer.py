@@ -87,7 +87,11 @@ def _render_section_input(
 
     skill_context = render_skill_outputs(state)
     if skill_context:
-        lines.append(f"已完成的技能分析结论（可作为写作依据）：\n{skill_context}")
+        lines.append(
+            "已完成的技能分析结论（可作为写作依据，但其中若出现 [编号]，"
+            "一律以「检索到的资料」的编号为准，不得引用资料之外的编号）：\n"
+            f"{skill_context}"
+        )
 
     preferences = state.get("user_preferences") or {}
     if preferences:

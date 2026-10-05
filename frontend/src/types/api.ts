@@ -120,6 +120,10 @@ export interface TaskDetail extends TaskResult {
   created_at: string
   finished_at?: string | null
   error_type?: string | null
+  /** 任务正在运行中（前端据此隐藏继续/重新生成按钮） */
+  running?: boolean
+  /** 存在可用检查点，可从断点继续生成 */
+  resumable?: boolean
 }
 
 /** 任务列表项（不含正文）。 */
@@ -192,6 +196,11 @@ export interface TaskEvent {
   error_type?: string
   /** 内容被输出长度上限截断（outline / writer 事件） */
   truncated?: boolean
+  /** 断点续跑：task_resumed 事件 */
+  resumed?: boolean
+  chapters_written?: number
+  /** 重新生成：task_started 事件指向的原任务 */
+  rerun_of?: string
   /** 技能事件（skill_started / skill_completed）附加字段 */
   skill_id?: string
   skill_name?: string

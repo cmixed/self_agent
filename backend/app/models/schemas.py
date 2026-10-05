@@ -230,6 +230,9 @@ class TaskDetailResponse(TaskResponse):
     created_at: str
     finished_at: str | None = None
     error_type: str | None = None
+    # 是否正在运行 / 是否可从断点继续（前端据此显示「继续生成」按钮）
+    running: bool = False
+    resumable: bool = False
 
 
 class DeleteDocumentResponse(BaseModel):

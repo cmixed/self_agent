@@ -257,3 +257,34 @@ async def test_validation_failure_does_not_rerun_skills() -> None:
     events = [event async for event in service.stream("写综述")]
 
     assert [event["event"] for event in events].count("skill_started") == 1
+
+
+async def test_stream_does_not_emit_empty_skill_events() -> None:
+    """无待执行技能时 skills 节点是空转：不得推送技能名为空的假事件。"""
+    plan = {
+        "goal": "写综述",
+        "needs_retrieval": False,
+        "steps": [{"id": "w1", "type": "writing", "description": "撰写"}],
+    }
+    provider = ScriptedProvider(
+        [json.dumps(plan, ensure_ascii=False), OUTLINE_JSON], default_text="正文"
+    )
+    service = TaskService(provider, skill_catalog=CATALOG, max_retries=0)
+
+    events = [event async for event in service.stream("写综述")]
+
+    skill_events = [e for e in events if e["event"] in {"skill_started", "skill_completed"}]
+    assert skill_events == []
+    assert events[-1]["event"] == "task_completed"
+
+
+async def test_skill_output_tells_model_not_to_invent_citations() -> None:
+    """技能结论必须避免自造 [编号]，否则正文会引用不存在的来源。"""
+    provider = ScriptedProvider(default_text="对比结论")
+    node = make_skills_node(provider, CATALOG)
+    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+
+    await node(_state_with_plan(steps))
+
+    user_prompt = provider.calls[0][1].content
+    assert "不要使用 [编号] 形式标注引用" in user_prompt

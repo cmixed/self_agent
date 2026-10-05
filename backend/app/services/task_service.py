@@ -38,6 +38,10 @@ from app.rag.tools import RagTool
 
 logger = get_logger(__name__)
 
+
+class TaskNotResumableError(Exception):
+    """任务没有可用的检查点，无法「继续生成」（应改用重新生成）。"""
+
 # 节点 -> (进行中提示, 完成提示)。仅这些节点会推送给前端（§19）。
 _NODE_EVENTS: dict[str, tuple[str, str]] = {
     "planner": ("正在分析任务并生成计划", "已完成任务规划"),
@@ -316,11 +320,93 @@ class TaskService:
 
         await self._start_run(run_id, query, user_id)
         yield _event(run_id, "task_started", status="running", message="任务已创建")
-        final_state: AgentState = state
 
+        async for event in self._run_graph(run_id, state):
+            yield event
+
+    async def resume(
+        self,
+        task_id: str,
+        *,
+        user_preferences: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """从断点继续执行（同一 task_id 与 checkpoint thread）。
+
+        失败/取消发生在某个节点内部时，检查点停在**上一个超步**，因此续跑会
+        恰好从失败的那个节点重新开始：已完成的章节不重写、不重复计费。
+        """
+        self._registry.register(task_id, asyncio.current_task())
+        try:
+            async for event in self._resume_impl(
+                task_id, user_preferences=user_preferences, user_id=user_id
+            ):
+                yield event
+        except asyncio.CancelledError:
+            await self._mark_cancelled(task_id)
+            raise
+        finally:
+            self._registry.unregister(task_id)
+
+    async def _resume_impl(
+        self,
+        task_id: str,
+        *,
+        user_preferences: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        snapshot = await self.snapshot(task_id)
+        if snapshot is None:
+            raise TaskNotResumableError("该任务没有可恢复的检查点，请使用「重新生成」")
+
+        if self._repository is not None:
+            await self._repository.resume_run(task_id=task_id)
+
+        written = len([s for s in snapshot.get("sections") or [] if s.get("content")])
+        outline = [str(s.get("title", "")) for s in snapshot.get("outline") or []]
+        documents = snapshot.get("retrieved_documents") or []
+        yield _event(
+            task_id,
+            "task_resumed",
+            status="running",
+            message=(
+                f"已从断点继续（已完成 {written}/{len(outline)} 章）"
+                if outline
+                else "已从断点继续"
+            ),
+            resumed=True,
+            plan=snapshot.get("plan"),
+            outline=outline,
+            chapters_written=written,
+            retrieved_count=len(documents),
+            sources=_sources(documents),
+        )
+
+        # 输入为 None：LangGraph 从该 thread 的最后一个检查点继续
+        async for event in self._run_graph(task_id, None):
+            yield event
+
+    async def snapshot(self, task_id: str) -> dict[str, Any] | None:
+        """读取该任务最近一次 checkpoint 的状态值（无则 None）。"""
+        if self._checkpointer is None:
+            return None
+        checkpoint_tuple = await self._checkpointer.aget_tuple(
+            {"configurable": {"thread_id": task_id}}
+        )
+        if checkpoint_tuple is None:
+            return None
+        checkpoint = checkpoint_tuple.checkpoint or {}
+        values = checkpoint.get("channel_values")
+        return values if isinstance(values, dict) else {}
+
+    async def _run_graph(
+        self, run_id: str, graph_input: AgentState | None
+    ) -> AsyncIterator[dict[str, Any]]:
+        """执行/续跑图并按 §19 产出事件；错误转为 ``task_failed``，不向外抛。"""
+        final_state: AgentState = graph_input if graph_input is not None else AgentState()
         try:
             async for event in self._graph.astream_events(
-                state, version="v2", config=self._config_for(run_id)
+                graph_input, version="v2", config=self._config_for(run_id)
             ):
                 name = event.get("name")
                 kind = event.get("event")
@@ -332,10 +418,13 @@ class TaskService:
                     continue
 
                 if name == "skills":
-                    # 技能节点每次执行一个技能步骤：逐技能推送事件（§19 扩展）
+                    # 技能节点每次执行一个技能步骤：逐技能推送事件（§19 扩展）。
+                    # 无待执行技能时该节点是空转（拓扑上必经一次），不推送空事件。
                     if kind == "on_chain_start":
                         step = pending_skill_step((event.get("data") or {}).get("input") or {})
-                        skill_id = str(step.get("skill_id") or "") if step else ""
+                        if step is None:
+                            continue
+                        skill_id = str(step.get("skill_id") or "")
                         yield _event(
                             run_id,
                             "skill_started",
@@ -348,7 +437,9 @@ class TaskService:
                     elif kind == "on_chain_end":
                         output = (event.get("data") or {}).get("output") or {}
                         outputs = output.get("skill_outputs") or []
-                        latest = outputs[-1] if outputs else {}
+                        if not outputs:
+                            continue
+                        latest = outputs[-1]
                         skill_id = str(latest.get("skill_id") or "")
                         yield _event(
                             run_id,

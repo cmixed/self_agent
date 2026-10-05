@@ -46,6 +46,22 @@ class CheckpointStore:
         self._saver = AsyncSqliteSaver(self._connection, serde=_CHECKPOINT_SERDE)
         await self._saver.setup()
 
+    async def snapshot(self, thread_id: str) -> dict | None:
+        """返回该 thread 最近的 checkpoint 状态值（无记录时 None）。
+
+        用于两件事：判断任务是否「可继续生成」；续跑前给前端一份进度快照。
+        """
+        if self._saver is None:
+            return None
+        checkpoint_tuple = await self._saver.aget_tuple(
+            {"configurable": {"thread_id": thread_id}}
+        )
+        if checkpoint_tuple is None:
+            return None
+        checkpoint = checkpoint_tuple.checkpoint or {}
+        values = checkpoint.get("channel_values")
+        return values if isinstance(values, dict) else {}
+
     async def close(self) -> None:
         if self._connection is not None:
             await self._connection.close()

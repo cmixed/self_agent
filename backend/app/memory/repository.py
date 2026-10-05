@@ -61,6 +61,15 @@ class TaskRepository:
     async def fail_run(self, *, task_id: str, error_type: str) -> None:
         await asyncio.to_thread(self._fail_run, task_id, error_type)
 
+    async def resume_run(self, *, task_id: str) -> None:
+        """把任务与本次运行重置回 running，供「继续生成」复用同一条记录。
+
+        ``task_runs.run_id`` 就等于 ``task_id``（一次任务一条运行记录），
+        因此续跑必须**更新**而不是插入，否则主键冲突。上一次的错误与结果
+        会被清空：状态为 running 时不应再展示旧的失败/正文。
+        """
+        await asyncio.to_thread(self._resume_run, task_id)
+
     async def cancel_run(self, *, task_id: str) -> None:
         """标记任务为已取消（幂等：只影响仍在运行的记录）。"""
         await asyncio.to_thread(self._cancel_run, task_id)
@@ -138,6 +147,22 @@ class TaskRepository:
                  WHERE run_id = ?
                 """,
                 (error_type, now, task_id),
+            )
+            connection.commit()
+
+    def _resume_run(self, task_id: str) -> None:
+        with self._database.connect() as connection:
+            connection.execute(
+                "UPDATE tasks SET status = 'running' WHERE task_id = ?", (task_id,)
+            )
+            connection.execute(
+                """
+                UPDATE task_runs
+                   SET status = 'running', finished_at = NULL, error_type = NULL,
+                       result_json = NULL, failed_chapters_json = NULL, retry_count = 0
+                 WHERE run_id = ?
+                """,
+                (task_id,),
             )
             connection.commit()
 

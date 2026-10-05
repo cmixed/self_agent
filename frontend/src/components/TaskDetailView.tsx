@@ -1,8 +1,29 @@
-import { CopyOutlined, DownloadOutlined } from '@ant-design/icons'
-import { App, Button, Card, Col, Descriptions, Empty, Row, Space, Tabs, Tag, Typography } from 'antd'
+import {
+  CopyOutlined,
+  DownloadOutlined,
+  ReloadOutlined,
+  RightCircleOutlined,
+} from '@ant-design/icons'
+import {
+  Alert,
+  App,
+  Button,
+  Card,
+  Col,
+  Descriptions,
+  Empty,
+  Row,
+  Space,
+  Tabs,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
 import { ApiError, getTask, getTaskState } from '../services/api'
+import { useNav } from '../state/nav'
+import { useTaskRun } from '../state/taskRun'
 import type { TaskDetail, TaskState } from '../types/api'
 import { downloadMarkdown } from '../utils/download'
 import { formatDateTime, formatDuration, taskDurationSeconds } from '../utils/format'
@@ -14,6 +35,22 @@ import ViewHeader from './ViewHeader'
 import { useViewStack } from './ViewStack'
 
 const { Text } = Typography
+
+/** 失败后的下一步建议（按可读错误类型给出可执行动作）。 */
+function failureHint(errorType: string | null | undefined): string | null {
+  if (!errorType) return null
+  const hints: Record<string, string> = {
+    llm_quota_exhausted:
+      '模型额度/余额不足：请为该 Provider 充值，或在顶栏切换到其它模型后点击「重新生成」。',
+    llm_config_error:
+      '模型密钥无效或缺失：修正 backend/.env 后**重启后端**（配置与 Provider 有进程内缓存），再点「继续生成」。',
+    llm_rate_limited: '上游限流：稍等片刻后点击「继续生成」即可从断点续跑。',
+    llm_timeout: '上游超时：点击「继续生成」会从断点继续，已完成的章节不会重跑。',
+    llm_upstream_error: '上游服务异常：稍后点击「继续生成」重试。',
+    graph_recursion_limit: '步骤超出安全上限：建议调整任务描述后「重新生成」。',
+  }
+  return hints[errorType] ?? null
+}
 
 /** 按任务状态给出「正文」空态文案：运行中不再误报「可能被取消或失败」。 */
 function contentEmptyState(status: string | undefined) {
@@ -44,6 +81,8 @@ function validationEmptyState(status: string | undefined) {
 export default function TaskDetailView({ taskId }: { taskId: string }) {
   const { message } = App.useApp()
   const { back } = useViewStack()
+  const { navigate } = useNav()
+  const { running: taskRunning, resume, rerun } = useTaskRun()
   const [detail, setDetail] = useState<TaskDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -78,6 +117,8 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
   }, [load])
 
   const running = detail?.status === 'running'
+  const interrupted = detail?.status === 'failed' || detail?.status === 'cancelled'
+  const hint = failureHint(detail?.error_type)
 
   // 运行中的任务静默轮询（不打 loading、失败忽略），结束后自动停止
   useEffect(() => {
@@ -92,6 +133,22 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
     }, 4000)
     return () => window.clearInterval(timer)
   }, [running, taskId])
+
+  /** 继续生成 / 重新生成：关闭详情回到工作台，用既有进度界面消费 SSE。 */
+  const handleResume = () => {
+    closeAndRun(() => void resume(taskId))
+  }
+
+  const handleRerun = () => {
+    if (!detail) return
+    closeAndRun(() => void rerun(taskId, detail.query))
+  }
+
+  const closeAndRun = (start: () => void) => {
+    back()
+    navigate('workspace')
+    start()
+  }
 
   const copyAnswer = async (content: string) => {
     try {
@@ -109,14 +166,43 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
         subtitle={detail ? <StatusTag status={detail.status} /> : null}
         onBack={back}
         extra={
-          detail?.final_answer ? (
-            <Button
-              size="small"
-              icon={<DownloadOutlined />}
-              onClick={() => downloadMarkdown(detail.final_answer, detail.query)}
-            >
-              下载 .md
-            </Button>
+          detail ? (
+            <Space size={8}>
+              {detail.final_answer ? (
+                <Button
+                  size="small"
+                  icon={<DownloadOutlined />}
+                  onClick={() => downloadMarkdown(detail.final_answer, detail.query)}
+                >
+                  下载 .md
+                </Button>
+              ) : null}
+              {detail.resumable && !detail.running ? (
+                <Tooltip title="从断点继续，已完成的章节不会重跑">
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<RightCircleOutlined />}
+                    disabled={taskRunning}
+                    onClick={() => handleResume()}
+                  >
+                    继续生成
+                  </Button>
+                </Tooltip>
+              ) : null}
+              {!detail.running ? (
+                <Tooltip title="用同一任务内容重新生成（新建一次运行，保留本次记录）">
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    disabled={taskRunning}
+                    onClick={() => handleRerun()}
+                  >
+                    重新生成
+                  </Button>
+                </Tooltip>
+              ) : null}
+            </Space>
           ) : null
         }
       />
@@ -128,6 +214,15 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
         ) : detail ? (
           <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
             {error ? <ErrorNotice message={error} onClose={() => setError(null)} /> : null}
+
+            {interrupted && hint ? (
+              <Alert
+                type="warning"
+                showIcon
+                message="任务被中断，可以继续生成"
+                description={hint}
+              />
+            ) : null}
 
             <Descriptions column={{ xs: 1, sm: 1, md: 2 }} size="small" bordered>
               <Descriptions.Item label="任务" span={2}>

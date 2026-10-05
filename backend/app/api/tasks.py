@@ -98,15 +98,26 @@ async def list_tasks(
     return TaskListResponse(tasks=[_to_summary(record) for record in records])
 
 
+def _resumable(status_value: str, snapshot: dict | None) -> bool:
+    """是否可以从断点继续：未完成的中断任务 + 存在未完成的检查点。"""
+    if status_value not in {"failed", "cancelled"} or snapshot is None:
+        return False
+    if snapshot.get("is_complete"):
+        return False
+    return snapshot.get("task_status") != "completed"
+
+
 @router.get("/tasks/{task_id}", response_model=TaskDetailResponse)
 async def get_task(
     task_id: str,
     repository: TaskRepository = Depends(get_task_repository),
+    store: CheckpointStore | None = Depends(get_checkpoint_store),
 ) -> TaskDetailResponse:
     record = await repository.get_task(task_id)
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
 
+    snapshot = await store.snapshot(task_id) if store is not None else None
     payload = dict(record.result or {})
     payload.update(
         {
@@ -117,6 +128,8 @@ async def get_task(
             "created_at": record.created_at,
             "finished_at": record.finished_at,
             "error_type": record.error_type,
+            "running": record.status == "running",
+            "resumable": _resumable(record.status, snapshot),
         }
     )
     return TaskDetailResponse.model_validate(payload)
@@ -215,6 +228,103 @@ async def stream_task(
         if completed:
             await memory_service.extract_from_task(
                 user_id, query=payload.query, result=completed, task_id=task_id
+            )
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+@router.post("/tasks/{task_id}/resume")
+async def resume_task(
+    task_id: str,
+    service: TaskService = Depends(get_task_service),
+    repository: TaskRepository = Depends(get_task_repository),
+    store: CheckpointStore | None = Depends(get_checkpoint_store),
+    memory_service: MemoryService = Depends(get_memory_service),
+    user_id: str = Depends(get_user_id),
+) -> StreamingResponse:
+    """从断点继续执行被中断（失败/取消）的任务，SSE 协议与 /tasks/stream 一致。
+
+    与「重新生成」的区别：这里复用同一 task_id 与 checkpoint，已完成的步骤
+    不会重跑；没有可用检查点时返回 409，前端应改用重新生成。
+    """
+    record = await repository.get_task(task_id)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
+    if record.status == "running":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="任务正在运行中")
+
+    snapshot = await store.snapshot(task_id) if store is not None else None
+    if not _resumable(record.status, snapshot):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="该任务没有可恢复的检查点，请使用「重新生成」",
+        )
+
+    stored = await memory_service.get_preferences(user_id)
+    completed: dict = {}
+
+    async def event_source() -> AsyncIterator[str]:
+        async for event in service.resume(
+            task_id, user_preferences=stored, user_id=user_id
+        ):
+            if event.get("event") == "task_completed" and event.get("result"):
+                completed.update(event["result"])
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+        if completed:
+            await memory_service.extract_from_task(
+                user_id, query=record.query, result=completed, task_id=task_id
+            )
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/tasks/{task_id}/rerun")
+async def rerun_task(
+    task_id: str,
+    service: TaskService = Depends(get_task_service),
+    repository: TaskRepository = Depends(get_task_repository),
+    memory_service: MemoryService = Depends(get_memory_service),
+    user_id: str = Depends(get_user_id),
+) -> StreamingResponse:
+    """用同一 query **重新生成**：新建一次运行（新 task_id），原任务记录保持不变。
+
+    这样「换模型/修好密钥后再试」的结果可以与原任务并列对比，不会覆盖历史。
+    """
+    record = await repository.get_task(task_id)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
+    if record.status == "running":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="任务正在运行中")
+
+    new_task_id = str(uuid4())
+    stored = await memory_service.get_preferences(user_id)
+    completed: dict = {}
+
+    async def event_source() -> AsyncIterator[str]:
+        async for event in service.stream(
+            record.query,
+            user_preferences=stored,
+            task_id=new_task_id,
+            user_id=user_id,
+        ):
+            # 让前端知道这是一次重新生成（并指向原任务）
+            if event.get("event") == "task_started":
+                event = {**event, "rerun_of": task_id}
+            if event.get("event") == "task_completed" and event.get("result"):
+                completed.update(event["result"])
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+        if completed:
+            await memory_service.extract_from_task(
+                user_id, query=record.query, result=completed, task_id=new_task_id
             )
 
     return StreamingResponse(

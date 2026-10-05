@@ -835,6 +835,10 @@ GET  /api/tasks/{id}
 POST /api/chat
 GET  /api/tasks/{id}/stream
 
+POST /api/tasks/{id}/cancel
+POST /api/tasks/{id}/resume
+POST /api/tasks/{id}/rerun
+
 GET  /api/settings
 PUT  /api/settings/llm-provider
 
@@ -881,6 +885,17 @@ task_failed
 ```
 
 不要通过 Streaming 输出模型隐藏推理过程。
+
+中断恢复（额度不足 / 密钥失效 / 用户取消）必须提供两个动作，而不是让用户删任务重建：
+
+```text
+继续生成  POST /api/tasks/{id}/resume   复用同一 task_id 与 checkpoint，从断点续跑
+重新生成  POST /api/tasks/{id}/rerun    同 query 新建一次运行，原记录保留（可对比）
+```
+
+- 续跑必须**不重做**已完成的步骤（检查点停在失败节点的上一个超步）；
+- 续跑推送 ``task_resumed`` 事件并携带进度快照，前端据此预填；
+- 无检查点时返回 409 并提示改用重新生成，不得静默从头开始。
 
 ---
 

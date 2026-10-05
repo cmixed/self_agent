@@ -7,7 +7,7 @@ import type {
   LogEntry,
   StageStatus,
 } from '../components/AgentProgress'
-import { ApiError, cancelTask, streamTask } from '../services/api'
+import { ApiError, cancelTask, streamRerun, streamResume, streamTask } from '../services/api'
 import type { Plan, Source, TaskEvent, Validation } from '../types/api'
 import { downloadMarkdown } from '../utils/download'
 
@@ -110,6 +110,10 @@ export interface TaskRunValue {
   setActiveTab: (key: string) => void
   copied: boolean
   run: (overrideQuery?: string) => Promise<void>
+  /** 从断点继续（同一任务） */
+  resume: (taskId: string) => Promise<void>
+  /** 用原任务内容重新生成（新任务） */
+  rerun: (taskId: string, sourceQuery: string) => Promise<void>
   abort: () => void
   clear: () => void
   copy: () => Promise<void>
@@ -203,6 +207,38 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   const handleEvent = useCallback(
     (event: TaskEvent) => {
       if (event.task_id) setTaskId(event.task_id)
+
+      if (event.event === 'task_resumed') {
+        pushLog('继续', event.message, 'info')
+        if (event.plan) {
+          setPlan(event.plan)
+          setNodes((prev) => ({ ...prev, planner: 'finish' }))
+        }
+        const titles = event.outline ?? []
+        if (titles.length > 0) {
+          const written = event.chapters_written ?? 0
+          setOutline(titles)
+          setChapters(
+            Object.fromEntries(
+              titles.map((_, index) => [
+                index + 1,
+                {
+                  written: index < written ? 1 : 0,
+                  writing: false,
+                  validation: 'pending' as ChapterValidation,
+                },
+              ]),
+            ),
+          )
+          setNodes((prev) => ({ ...prev, outline: 'finish', writer: 'process' }))
+        }
+        if (event.sources) {
+          setSources(event.sources)
+          setRetrievedCount(event.retrieved_count ?? event.sources.length)
+          setNodes((prev) => ({ ...prev, researcher: 'finish', skills: 'finish' }))
+        }
+        return
+      }
 
       if (event.event === 'task_failed') {
         pushLog('失败', event.message, 'error')
@@ -390,15 +426,9 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     setActiveTab('content')
   }, [])
 
-  const run = useCallback(
-    async (overrideQuery?: string) => {
-      const trimmed = (overrideQuery ?? query).trim()
-      if (!trimmed || running) return
-      // 预设任务「直接运行」路径：把预设写入输入框，保持界面与实际执行一致
-      if (overrideQuery !== undefined && overrideQuery !== query) {
-        setQuery(overrideQuery)
-      }
-
+  /** 公共执行体：复位状态 + 消费一条 SSE 流（新建 / 续跑 / 重跑共用）。 */
+  const runStream = useCallback(
+    async (start: (onEvent: (event: TaskEvent) => void, signal: AbortSignal) => Promise<void>) => {
       setRunning(true)
       clear()
       setHasStarted(true)
@@ -407,7 +437,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
       abortRef.current = controller
 
       try {
-        await streamTask(trimmed, handleEvent, controller.signal)
+        await start(handleEvent, controller.signal)
       } catch (err) {
         if ((err as { name?: string } | null)?.name === 'AbortError') {
           setAborted(true)
@@ -431,7 +461,37 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         setRunning(false)
       }
     },
-    [clear, handleEvent, pushLog, query, running],
+    [clear, handleEvent, pushLog],
+  )
+
+  const run = useCallback(
+    async (overrideQuery?: string) => {
+      const trimmed = (overrideQuery ?? query).trim()
+      if (!trimmed || running) return
+      // 预设任务「直接运行」路径：把预设写入输入框，保持界面与实际执行一致
+      if (overrideQuery !== undefined && overrideQuery !== query) {
+        setQuery(overrideQuery)
+      }
+      await runStream((onEvent, signal) => streamTask(trimmed, onEvent, signal))
+    },
+    [query, running, runStream, setQuery],
+  )
+
+  const resume = useCallback(
+    async (taskId: string) => {
+      if (running) return
+      await runStream((onEvent, signal) => streamResume(taskId, onEvent, signal))
+    },
+    [running, runStream],
+  )
+
+  const rerun = useCallback(
+    async (taskId: string, sourceQuery: string) => {
+      if (running) return
+      setQuery(sourceQuery)
+      await runStream((onEvent, signal) => streamRerun(taskId, onEvent, signal))
+    },
+    [runStream, running, setQuery],
   )
 
   const abort = useCallback(() => {
@@ -508,6 +568,8 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     setActiveTab,
     copied,
     run,
+    resume,
+    rerun,
     abort,
     clear,
     copy,

@@ -285,6 +285,25 @@ uv run python -m app.evaluation.run --suite compare --real --top-k 5 \
 
 > 评估在**临时向量库**中进行，不会污染个人知识库。
 
+## 任务中断后怎么办
+
+额度不足、密钥失效、手动取消都会让任务中断。此时**不需要删除重建**，任务详情页提供两个动作：
+
+| 动作 | 行为 | 适用 |
+| --- | --- | --- |
+| **继续生成** | 复用同一 `task_id` 与 LangGraph checkpoint **从断点续跑**：已完成的章节不重写、不重复计费 | 充值/修好配置后继续；误取消后继续 |
+| **重新生成** | 用同一 query **新建一次运行**（新 `task_id`），原记录保留 | 想换模型/换 Provider 重跑并对比 |
+
+要点：
+
+- 失败发生在节点内部时，检查点停在**上一个超步**，因此续跑正好从失败的节点重新开始
+  （含"第一个节点就失败"的情况——检查点保留了初始状态）。
+- 续跑会推送 `task_resumed` 事件，携带进度快照（计划、大纲、已写章节数、来源），
+  前端据此预填进度而不是从零开始。
+- **改了 `backend/.env` 必须重启后端**才会生效（配置与 Provider 都是进程内缓存）；
+  仅充值额度则无需重启。
+- 页面按错误类型给出下一步提示（额度不足 / 密钥无效 / 限流 / 超时）。
+
 ## 接口
 
 | 方法 | 路径 | 说明 |
@@ -298,6 +317,8 @@ uv run python -m app.evaluation.run --suite compare --real --top-k 5 \
 | `DELETE` | `/api/documents/{id}` | 删除文档及其向量 |
 | `GET` | `/api/settings` | 应用设置快照（各 Provider 配置状态，不含密钥） |
 | `PUT` | `/api/settings/llm-provider` | 运行时切换 LLM Provider（未配置密钥返回 409） |
+| `POST` | `/api/tasks/{id}/resume` | **继续生成**：从断点续跑（SSE；无检查点返回 409） |
+| `POST` | `/api/tasks/{id}/rerun` | **重新生成**：同 query 新建一次运行（SSE，原任务记录保留） |
 
 `POST /api/tasks` 请求示例：
 
