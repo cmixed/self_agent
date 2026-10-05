@@ -8,9 +8,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Callable, Sequence
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
+from langchain_core.runnables.config import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.errors import GraphRecursionError
 
@@ -134,15 +135,15 @@ class TaskService:
                 return entry["name"]
         return skill_id or ""
 
-    def _config_for(self, run_id: str) -> dict[str, Any]:
+    def _config_for(self, run_id: str) -> RunnableConfig:
         """图执行配置：超步上界 + （启用 Checkpoint 时）线程 id。"""
-        config: dict[str, Any] = {"recursion_limit": recursion_limit(self._max_retries)}
+        config: RunnableConfig = {"recursion_limit": recursion_limit(self._max_retries)}
         if self._checkpointer is not None:
             config["configurable"] = {"thread_id": run_id}
         return config
 
     @property
-    def _config(self) -> dict[str, Any]:
+    def _config(self) -> RunnableConfig:
         """不含 thread_id 的默认配置（兼容旧用法 / 测试）。"""
         return self._config_for("")
 
@@ -191,7 +192,10 @@ class TaskService:
         )
         await self._start_run(run_id, query, user_id)
         try:
-            final_state = await self._graph.ainvoke(state, config=self._config_for(run_id))
+            final_state = cast(
+                AgentState,
+                await self._graph.ainvoke(state, config=self._config_for(run_id)),
+            )
         except Exception as exc:
             await self._fail_run(run_id, exc)
             raise
@@ -298,7 +302,7 @@ class TaskService:
                 if name == "LangGraph" and kind == "on_chain_end":
                     output = (event.get("data") or {}).get("output")
                     if isinstance(output, dict):
-                        final_state = output
+                        final_state = cast(AgentState, output)
                     continue
 
                 if name == "skills":
