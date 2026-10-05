@@ -35,6 +35,18 @@ class TaskRecord:
 
 
 @dataclass(frozen=True)
+class TaskAttempt:
+    """任务的一次运行尝试（首次执行 / 继续生成 / 重新生成）。"""
+
+    attempt_no: int
+    status: str
+    started_at: str
+    finished_at: str | None
+    error_type: str | None
+    retry_count: int
+
+
+@dataclass(frozen=True)
 class MemoryRecord:
     """一条长期记忆。"""
 
@@ -62,13 +74,12 @@ class TaskRepository:
         await asyncio.to_thread(self._fail_run, task_id, error_type)
 
     async def resume_run(self, *, task_id: str) -> None:
-        """把任务与本次运行重置回 running，供「继续生成」复用同一条记录。
+        """追加一次新的运行尝试（「继续生成」），**保留**此前的失败记录。"""
+        await asyncio.to_thread(self._begin_attempt, task_id)
 
-        ``task_runs.run_id`` 就等于 ``task_id``（一次任务一条运行记录），
-        因此续跑必须**更新**而不是插入，否则主键冲突。上一次的错误与结果
-        会被清空：状态为 running 时不应再展示旧的失败/正文。
-        """
-        await asyncio.to_thread(self._resume_run, task_id)
+    async def list_attempts(self, task_id: str) -> list[TaskAttempt]:
+        """该任务的全部运行尝试（按尝试号升序）。"""
+        return await asyncio.to_thread(self._list_attempts, task_id)
 
     async def cancel_run(self, *, task_id: str) -> None:
         """标记任务为已取消（幂等：只影响仍在运行的记录）。"""
@@ -104,14 +115,25 @@ class TaskRepository:
                 """,
                 (task_id, user_id, query, now),
             )
-            connection.execute(
-                """
-                INSERT INTO task_runs(run_id, task_id, status, started_at)
-                VALUES (?, ?, 'running', ?)
-                """,
-                (task_id, task_id, now),
-            )
+            self._insert_attempt(connection, task_id, now)
             connection.commit()
+
+    @staticmethod
+    def _insert_attempt(connection: Any, task_id: str, now: str) -> None:
+        """追加一次尝试：run_id 为独立 uuid，attempt_no 递增。"""
+        connection.execute(
+            """
+            INSERT INTO task_runs(run_id, task_id, attempt_no, status, started_at)
+            VALUES (?, ?, COALESCE(
+                       (SELECT MAX(attempt_no) FROM task_runs WHERE task_id = ?), 0) + 1,
+                    'running', ?)
+            """,
+            (str(uuid4()), task_id, task_id, now),
+        )
+
+    _LATEST_RUN = (
+        "(SELECT run_id FROM task_runs WHERE task_id = ? ORDER BY attempt_no DESC LIMIT 1)"
+    )
 
     def _finish_run(self, task_id: str, result: dict[str, Any]) -> None:
         now = utc_now()
@@ -120,11 +142,11 @@ class TaskRepository:
         with self._database.connect() as connection:
             connection.execute("UPDATE tasks SET status = ? WHERE task_id = ?", (status, task_id))
             connection.execute(
-                """
+                f"""
                 UPDATE task_runs
                    SET status = ?, retry_count = ?, failed_chapters_json = ?,
                        result_json = ?, finished_at = ?
-                 WHERE run_id = ?
+                 WHERE run_id = {self._LATEST_RUN}
                 """,
                 (
                     status,
@@ -142,32 +164,47 @@ class TaskRepository:
         with self._database.connect() as connection:
             connection.execute("UPDATE tasks SET status = 'failed' WHERE task_id = ?", (task_id,))
             connection.execute(
-                """
+                f"""
                 UPDATE task_runs SET status = 'failed', error_type = ?, finished_at = ?
-                 WHERE run_id = ?
+                 WHERE run_id = {self._LATEST_RUN}
                 """,
                 (error_type, now, task_id),
             )
             connection.commit()
 
-    def _resume_run(self, task_id: str) -> None:
+    def _begin_attempt(self, task_id: str) -> None:
+        """「继续生成」：任务回到 running，并追加一条新的尝试记录。"""
+        now = utc_now()
         with self._database.connect() as connection:
             connection.execute(
                 "UPDATE tasks SET status = 'running' WHERE task_id = ?", (task_id,)
             )
-            connection.execute(
-                """
-                UPDATE task_runs
-                   SET status = 'running', finished_at = NULL, error_type = NULL,
-                       result_json = NULL, failed_chapters_json = NULL, retry_count = 0
-                 WHERE run_id = ?
-                """,
-                (task_id,),
-            )
+            self._insert_attempt(connection, task_id, now)
             connection.commit()
 
+    def _list_attempts(self, task_id: str) -> list[TaskAttempt]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT attempt_no, status, started_at, finished_at, error_type, retry_count
+                  FROM task_runs WHERE task_id = ? ORDER BY attempt_no
+                """,
+                (task_id,),
+            ).fetchall()
+        return [
+            TaskAttempt(
+                attempt_no=int(row["attempt_no"]),
+                status=row["status"],
+                started_at=row["started_at"],
+                finished_at=row["finished_at"],
+                error_type=row["error_type"],
+                retry_count=int(row["retry_count"] or 0),
+            )
+            for row in rows
+        ]
+
     def _cancel_run(self, task_id: str) -> None:
-        """把仍在运行的记录标记为已取消（幂等，不会覆盖已完成的结果）。"""
+        """把仍在运行的尝试标记为已取消（幂等，不会覆盖已完成的结果）。"""
         now = utc_now()
         with self._database.connect() as connection:
             connection.execute(
@@ -178,7 +215,7 @@ class TaskRepository:
                 """
                 UPDATE task_runs
                    SET status = 'cancelled', error_type = 'task_cancelled', finished_at = ?
-                 WHERE run_id = ? AND finished_at IS NULL
+                 WHERE task_id = ? AND finished_at IS NULL
                 """,
                 (now, task_id),
             )
@@ -209,7 +246,9 @@ class TaskRepository:
                 SELECT t.task_id, t.user_id, t.query, t.status, t.created_at,
                        r.finished_at, r.error_type, r.result_json
                   FROM tasks t
-                  LEFT JOIN task_runs r ON r.run_id = t.task_id
+                  LEFT JOIN task_runs r ON r.run_id = (
+                       SELECT run_id FROM task_runs
+                        WHERE task_id = t.task_id ORDER BY attempt_no DESC LIMIT 1)
                  WHERE t.task_id = ?
                 """,
                 (task_id,),
@@ -223,7 +262,9 @@ class TaskRepository:
                 SELECT t.task_id, t.user_id, t.query, t.status, t.created_at,
                        r.finished_at, r.error_type, r.result_json
                   FROM tasks t
-                  LEFT JOIN task_runs r ON r.run_id = t.task_id
+                  LEFT JOIN task_runs r ON r.run_id = (
+                       SELECT run_id FROM task_runs
+                        WHERE task_id = t.task_id ORDER BY attempt_no DESC LIMIT 1)
                  WHERE t.user_id = ?
                  ORDER BY t.created_at DESC, t.rowid DESC
                  LIMIT ?

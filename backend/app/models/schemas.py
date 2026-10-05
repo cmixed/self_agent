@@ -222,6 +222,17 @@ class DocumentListResponse(BaseModel):
     documents: list[DocumentInfo] = Field(default_factory=list)
 
 
+class TaskAttemptOut(BaseModel):
+    """任务的一次运行尝试（不含结果正文，保持响应轻量）。"""
+
+    attempt_no: int
+    status: str
+    started_at: str
+    finished_at: str | None = None
+    error_type: str | None = None
+    retry_count: int = 0
+
+
 class TaskDetailResponse(TaskResponse):
     """单个任务记录（含持久化元信息，AGENTS.md §18 的 GET /api/tasks/{id}）。"""
 
@@ -233,6 +244,8 @@ class TaskDetailResponse(TaskResponse):
     # 是否正在运行 / 是否可从断点继续（前端据此显示「继续生成」按钮）
     running: bool = False
     resumable: bool = False
+    # 全部运行尝试（首次执行 / 继续生成 …），保留每次的失败原因
+    attempts: list[TaskAttemptOut] = Field(default_factory=list)
 
 
 class DeleteDocumentResponse(BaseModel):

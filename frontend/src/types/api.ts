@@ -114,6 +114,15 @@ export interface TaskResult {
   final_answer: string
 }
 
+export interface TaskAttempt {
+  attempt_no: number
+  status: string
+  started_at: string
+  finished_at?: string | null
+  error_type?: string | null
+  retry_count: number
+}
+
 export interface TaskDetail extends TaskResult {
   user_id: string
   query: string
@@ -124,6 +133,8 @@ export interface TaskDetail extends TaskResult {
   running?: boolean
   /** 存在可用检查点，可从断点继续生成 */
   resumable?: boolean
+  /** 每次运行尝试（首次执行 / 继续生成 …） */
+  attempts?: TaskAttempt[]
 }
 
 /** 任务列表项（不含正文）。 */

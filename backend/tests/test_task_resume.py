@@ -121,29 +121,41 @@ async def test_resume_without_checkpoint_raises(tmp_path) -> None:
     await conn.close()
 
 
-async def test_resume_resets_run_record(tmp_path) -> None:
-    """续跑必须更新（而不是插入）运行记录：run_id == task_id，二次插入会主键冲突。"""
+async def test_resume_appends_attempt_and_keeps_previous_failure(tmp_path) -> None:
+    """续跑追加「第 2 次尝试」，第 1 次的失败原因必须保留。"""
     database = SqliteDatabase(tmp_path / "app.db")
     database.initialize()
     repository = TaskRepository(database)
     store, conn = await _checkpointer(tmp_path)
 
-    task_id = "task-run-reset"
+    task_id = "task-attempts"
     failing = FailingProvider([PLAN, OUTLINE_3], fail_after=1)
     service = TaskService(
         failing, checkpointer=store.saver, repository=repository, max_retries=0
     )
     _ = [event async for event in service.stream("写综述", task_id=task_id)]
-    record = await repository.get_task(task_id)
-    assert record is not None and record.status == "failed"
 
+    attempts = await repository.list_attempts(task_id)
+    assert [(a.attempt_no, a.status, a.error_type) for a in attempts] == [
+        (1, "failed", "llm_error")
+    ]
+
+    # 续跑 = 追加第 2 次尝试（不覆盖第 1 次）
     await repository.resume_run(task_id=task_id)
+    attempts = await repository.list_attempts(task_id)
+    assert [(a.attempt_no, a.status) for a in attempts] == [(1, "failed"), (2, "running")]
+    assert attempts[0].error_type == "llm_error"
+    assert attempts[0].finished_at is not None
+
+    # 第 2 次完成后，历史里两条记录都在
+    await repository.finish_run(
+        task_id=task_id,
+        result={"status": "completed", "retry_count": 0, "failed_chapters": []},
+    )
+    attempts = await repository.list_attempts(task_id)
+    assert [(a.attempt_no, a.status) for a in attempts] == [(1, "failed"), (2, "completed")]
     record = await repository.get_task(task_id)
-    assert record is not None
-    assert record.status == "running"
-    assert record.error_type is None
-    assert record.result is None
-    assert record.finished_at is None
+    assert record is not None and record.status == "completed"
     await conn.close()
 
 

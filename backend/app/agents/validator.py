@@ -27,13 +27,18 @@ from app.agents.chapters import (
     last_written_index,
     next_pending_index,
 )
+from app.agents.citations import (
+    citation_issue_text,
+    dangling_citation_indices,
+    find_chapters_with_dangling,
+)
 from app.agents.summarizer import assemble_document
 from app.agents.writer import chapter_char_target
 from app.core.limits import DEFAULT_TOTAL_CHARS
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, Section, StepResult, ValidationResult
-from app.rag.tools import format_context
+from app.rag.tools import dedupe_documents, format_context
 
 logger = get_logger(__name__)
 
@@ -154,6 +159,96 @@ def _normalize_action(model: ValidationModel, *, scope: str) -> str:
     return model.suggested_action
 
 
+def _citation_precheck(
+    state: AgentState, *, scope: str, index: int | None
+) -> tuple[str | None, list[str]]:
+    """确定性预检查：引用编号是否越界；返回 (问题章节 target, issues)。
+
+    章级 → 直接检查该章；整篇 → 定位到第一个有问题的章节（这样后续路由是
+    章级重写，而不是无法定位的整篇问题被升级成 replan）。
+    """
+    source_count = len(dedupe_documents(state.get("retrieved_documents") or []))
+    sections = state.get("sections") or []
+
+    if scope == "chapter" and index is not None:
+        content = str(sections[index].get("content") or "") if index < len(sections) else ""
+        dangling = dangling_citation_indices(content, source_count=source_count)
+        if dangling:
+            return chapter_target(index), [citation_issue_text(dangling, source_count=source_count)]
+        return None, []
+
+    offenders = find_chapters_with_dangling(sections, source_count=source_count)
+    if offenders:
+        index = offenders[0]
+        dangling = dangling_citation_indices(
+            str(sections[index].get("content") or ""), source_count=source_count
+        )
+        return chapter_target(index), [citation_issue_text(dangling, source_count=source_count)]
+    return None, []
+
+
+def _build_update(
+    state: AgentState,
+    *,
+    result: ValidationResult,
+    max_retries: int,
+    origin: str,
+) -> dict:
+    """把校验结论落成 state 更新（计数、预算、摘要、消息），两条路径共用。"""
+    target = result["target"]
+    passed = bool(result["passed"])
+    action = result["suggested_action"]
+
+    retry_counts = dict(state.get("retry_counts") or {})
+    replan_count = state.get("retry_count", 0)
+    if not passed:
+        if action == "replan":
+            replan_count += 1
+        else:
+            retry_counts[target] = retry_counts.get(target, 0) + 1
+    chapter_validations = {**(state.get("chapter_validations") or {}), target: result}
+    exhausted = (
+        not passed and action != "replan" and retry_counts.get(target, 0) >= max_retries
+    )
+
+    if passed:
+        summary = f"校验通过（{target}）"
+    else:
+        reason = "；".join(result["issues"]) or action
+        summary = f"校验未通过（{target}）：{reason}"
+        if exhausted:
+            summary = f"{summary}；该章节已达重试上限，跳过并继续其他章节"
+    if origin == "citation":
+        summary = f"[引用编号检查] {summary}"
+
+    logger.info(
+        "validator 完成",
+        extra={
+            "task_id": state.get("task_id"),
+            "node": "validator",
+            "event": "validator_completed",
+            "status": "ok" if passed else "failed",
+            "origin": origin,
+        },
+    )
+    return {
+        "validation_result": result,
+        "chapter_validations": chapter_validations,
+        "retry_counts": retry_counts,
+        "retry_count": replan_count,
+        "task_status": "validating",
+        "current_step": f"validate_{target}",
+        "messages": [ChatMessage(role="assistant", content=f"[validator] {summary}")],
+        "step_results": [
+            StepResult(
+                step_id=f"validate_{target}",
+                status="ok" if passed else "error",
+                summary=summary,
+            )
+        ],
+    }
+
+
 def make_validator_node(
     llm: LLMProvider,
     *,
@@ -168,6 +263,22 @@ def make_validator_node(
             state, max_retries=max_retries, max_sections=max_sections
         )
         sections = state.get("sections") or []
+
+        # --- 确定性预检查：引用编号越界 → 章级重试，不调用 LLM、不触发 replan ---
+        citation_target, citation_issues = _citation_precheck(state, scope=scope, index=index)
+        if citation_target is not None:
+            return _build_update(
+                state,
+                result=ValidationResult(
+                    passed=False,
+                    issues=citation_issues,
+                    suggested_action="retry_writer",  # type: ignore[typeddict-item]
+                    target=citation_target,
+                ),
+                max_retries=max_retries,
+                origin="citation",
+            )
+
         if scope == "chapter" and index is not None:
             target = chapter_target(index)
             content = _render_chapter(sections, index)
@@ -198,54 +309,7 @@ def make_validator_node(
             suggested_action=action,  # type: ignore[typeddict-item]
             target=target,
         )
-
-        # 计费：章节失败计入该章的独立预算；replan 计入全局次数
-        retry_counts = dict(state.get("retry_counts") or {})
-        replan_count = state.get("retry_count", 0)
-        if not model.passed:
-            if action == "replan":
-                replan_count += 1
-            else:
-                retry_counts[target] = retry_counts.get(target, 0) + 1
-        chapter_validations = {**(state.get("chapter_validations") or {}), target: result}
-
-        exhausted = (
-            not model.passed and action != "replan" and retry_counts.get(target, 0) >= max_retries
-        )
-
-        logger.info(
-            "validator 完成",
-            extra={
-                "task_id": state.get("task_id"),
-                "node": "validator",
-                "event": "validator_completed",
-                "status": "ok" if model.passed else "failed",
-            },
-        )
-        if model.passed:
-            summary = f"校验通过（{target}）"
-        else:
-            reason = "；".join(model.issues) or action
-            summary = f"校验未通过（{target}）：{reason}"
-            if exhausted:
-                summary = f"{summary}；该章节已达重试上限，跳过并继续其他章节"
-
-        return {
-            "validation_result": result,
-            "chapter_validations": chapter_validations,
-            "retry_counts": retry_counts,
-            "retry_count": replan_count,
-            "task_status": "validating",
-            "current_step": f"validate_{target}",
-            "messages": [ChatMessage(role="assistant", content=f"[validator] {summary}")],
-            "step_results": [
-                StepResult(
-                    step_id=f"validate_{target}",
-                    status="ok" if model.passed else "error",
-                    summary=summary,
-                )
-            ],
-        }
+        return _build_update(state, result=result, max_retries=max_retries, origin="llm")
 
     return validator_node
 

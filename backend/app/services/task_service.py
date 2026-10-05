@@ -34,7 +34,7 @@ from app.core.task_registry import TaskRegistry, get_task_registry
 from app.llm.base import LLMError, LLMProvider
 from app.memory.repository import TaskRepository
 from app.models.state import AgentState, RetrievedDocument, initial_state
-from app.rag.tools import RagTool
+from app.rag.tools import RagTool, dedupe_documents
 
 logger = get_logger(__name__)
 
@@ -54,14 +54,14 @@ _NODE_EVENTS: dict[str, tuple[str, str]] = {
 
 
 def _sources(documents: list[RetrievedDocument]) -> list[dict[str, Any]]:
-    """把检索结果整理为去重的来源列表，编号与正文引用 [n] 对应。"""
-    seen: set[str] = set()
+    """把检索结果整理为来源列表，编号与正文引用 [n] 严格对应。
+
+    去重规则统一在 :func:`app.rag.tools.dedupe_documents`，与作家看到的
+    ``format_context`` 和「参考来源」小节共用同一份编号。
+    """
     sources: list[dict[str, Any]] = []
-    for index, document in enumerate(documents, start=1):
+    for index, document in enumerate(dedupe_documents(documents), start=1):
         chunk_id = document.get("chunk_id", "")
-        if chunk_id and chunk_id in seen:
-            continue
-        seen.add(chunk_id)
         sources.append(
             {
                 "index": index,

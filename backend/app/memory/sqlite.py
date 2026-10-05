@@ -39,9 +39,12 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_at TEXT NOT NULL
 );
 
+-- 一个任务可以有多次运行记录（首次执行、继续生成、重新生成……）。
+-- attempt_no 从 1 递增，用于「保留每次尝试」与稳定排序。
 CREATE TABLE IF NOT EXISTS task_runs (
     run_id               TEXT PRIMARY KEY,
     task_id              TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE CASCADE,
+    attempt_no           INTEGER NOT NULL DEFAULT 1,
     status               TEXT NOT NULL,
     retry_count          INTEGER NOT NULL DEFAULT 0,
     failed_chapters_json TEXT,
@@ -92,6 +95,16 @@ CREATE TABLE IF NOT EXISTS app_meta (
 );
 """
 
+# 幂等迁移：仅新增列/表，不改写既有数据（本项目首个迁移，见 AGENTS.md §13）。
+# 形如 (表名, 列名, DDL)；执行前用 PRAGMA table_info 判断列是否已存在。
+MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    (
+        "task_runs",
+        "attempt_no",
+        "ALTER TABLE task_runs ADD COLUMN attempt_no INTEGER NOT NULL DEFAULT 1",
+    ),
+)
+
 
 class SqliteDatabase:
     """极简 SQLite 封装：每次操作使用独立连接（个人知识库场景足够）。"""
@@ -104,11 +117,22 @@ class SqliteDatabase:
         return self._path
 
     def initialize(self) -> None:
-        """建库建表。启动时调用一次；可重复执行。"""
+        """建库建表 + 幂等迁移。启动时调用一次；可重复执行。"""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            self._migrate(connection)
             connection.commit()
+
+    @staticmethod
+    def _migrate(connection: sqlite3.Connection) -> None:
+        """按需补列（既有库升级路径；旧数据保持可用）。"""
+        for table, column, ddl in MIGRATIONS:
+            columns = {
+                row["name"] for row in connection.execute(f"PRAGMA table_info({table})")
+            }
+            if column not in columns:
+                connection.execute(ddl)
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:

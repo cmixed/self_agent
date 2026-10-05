@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -94,3 +95,42 @@ async def test_users_row_is_created(repository: TaskRepository) -> None:
             "SELECT user_id FROM users WHERE user_id = ?", ("new-user",)
         ).fetchone()
     assert row is not None
+
+
+async def test_migration_adds_attempt_no_to_legacy_db(tmp_path: Path) -> None:
+    """旧库（无 attempt_no 列、run_id == task_id）升级后仍可用，旧行成为第 1 次尝试。"""
+    legacy = tmp_path / "legacy.db"
+    connection = sqlite3.connect(legacy)
+    connection.executescript(
+        """
+        CREATE TABLE tasks (task_id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
+                            query TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL);
+        CREATE TABLE task_runs (run_id TEXT PRIMARY KEY,
+                                task_id TEXT NOT NULL REFERENCES tasks(task_id),
+                                status TEXT NOT NULL, retry_count INTEGER NOT NULL DEFAULT 0,
+                                failed_chapters_json TEXT, result_json TEXT, error_type TEXT,
+                                started_at TEXT NOT NULL, finished_at TEXT);
+        INSERT INTO tasks VALUES ('t1','u1','旧任务','failed','2026-01-01T00:00:00+00:00');
+        INSERT INTO task_runs (run_id, task_id, status, started_at, error_type)
+        VALUES ('t1','t1','failed','2026-01-01T00:00:00+00:00','llm_quota_exhausted');
+        """
+    )
+    connection.commit()
+    connection.close()
+
+    database = SqliteDatabase(legacy)
+    database.initialize()
+    database.initialize()  # 幂等
+
+    repository = TaskRepository(database)
+    attempts = await repository.list_attempts("t1")
+    assert [(a.attempt_no, a.status, a.error_type) for a in attempts] == [
+        (1, "failed", "llm_quota_exhausted")
+    ]
+
+    # 续跑在旧库上追加第 2 次尝试
+    await repository.resume_run(task_id="t1")
+    attempts = await repository.list_attempts("t1")
+    assert [a.attempt_no for a in attempts] == [1, 2]
+    record = await repository.get_task("t1")
+    assert record is not None and record.status == "running"

@@ -310,3 +310,35 @@ def test_list_tasks_limit_is_validated() -> None:
     with make_client(_provider()) as client:
         assert client.get("/api/tasks?limit=0").status_code == 422
         assert client.get("/api/tasks?limit=101").status_code == 422
+
+
+def test_detail_includes_attempt_history(tmp_path) -> None:
+    """任务详情暴露每次尝试（首次失败 → 续跑成功），便于排查中断原因。"""
+    import asyncio
+
+    from fastapi.testclient import TestClient
+
+    from app.api.deps import build_task_repository
+    from app.main import create_app
+
+    with TestClient(create_app()) as client:
+        repository = build_task_repository()
+
+        async def _seed() -> None:
+            await repository.start_run(task_id="t-attempts", user_id="local-user", query="写综述")
+            await repository.fail_run(task_id="t-attempts", error_type="llm_quota_exhausted")
+            await repository.resume_run(task_id="t-attempts")
+            await repository.finish_run(
+                task_id="t-attempts",
+                result={"status": "completed", "retry_count": 0, "failed_chapters": []},
+            )
+
+        asyncio.run(_seed())
+
+        detail = client.get("/api/tasks/t-attempts").json()
+        assert [(a["attempt_no"], a["status"]) for a in detail["attempts"]] == [
+            (1, "failed"),
+            (2, "completed"),
+        ]
+        assert detail["attempts"][0]["error_type"] == "llm_quota_exhausted"
+        assert detail["status"] == "completed"

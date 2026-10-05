@@ -118,6 +118,7 @@ async def get_task(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
 
     snapshot = await store.snapshot(task_id) if store is not None else None
+    attempts = await repository.list_attempts(task_id)
     payload = dict(record.result or {})
     payload.update(
         {
@@ -130,6 +131,17 @@ async def get_task(
             "error_type": record.error_type,
             "running": record.status == "running",
             "resumable": _resumable(record.status, snapshot),
+            "attempts": [
+                {
+                    "attempt_no": item.attempt_no,
+                    "status": item.status,
+                    "started_at": item.started_at,
+                    "finished_at": item.finished_at,
+                    "error_type": item.error_type,
+                    "retry_count": item.retry_count,
+                }
+                for item in attempts
+            ],
         }
     )
     return TaskDetailResponse.model_validate(payload)

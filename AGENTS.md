@@ -636,6 +636,18 @@ task_runs
 memories
 ```
 
+`task_runs` 是**尝试表**：一个任务可以有多次运行记录（首次执行 / 继续生成 /
+重新生成），用 `attempt_no` 递增区分，**不得覆盖**此前的失败记录：
+
+```text
+task_runs(run_id=独立 uuid, task_id, attempt_no, status, error_type, ...)
+tasks.status          当前状态（取最新一次尝试）
+详情接口 attempts[]    每次尝试的状态与失败原因（前端「执行历史」）
+```
+
+表结构变更一律走 `app/memory/sqlite.py` 的幂等迁移（`MIGRATIONS` +
+`PRAGMA table_info` 判列）：只增列/增表，不改写既有数据，可重复执行。
+
 如果 LangGraph 使用 SQLite Checkpointer，应明确区分：
 
 ```text
@@ -774,6 +786,17 @@ Validator
  ├── 局部问题 → Writer retry
  └── 计划问题 → Planner re-plan
 ```
+
+**确定性预检查先于模型判断**（`app/agents/citations.py`）：
+
+```text
+正文引用 [n] 越界（n > 来源数）  →  直接判该章 retry_writer（不调用 LLM）
+整篇校验发现越界                →  定位到具体章节，仍按章级重写
+```
+
+理由：引用编号是否越界是**可机械判定**的事实，交给模型既不稳定、又容易在
+整篇作用域被 ``document + retry_writer → replan`` 升级成全文重写。引用问题
+**永远不得触发 replan**；重试耗尽后只报告（⚠️ 标记），不静默改写模型原文。
 
 必须限制最大 retry 次数。
 

@@ -119,6 +119,7 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
   const running = detail?.status === 'running'
   const interrupted = detail?.status === 'failed' || detail?.status === 'cancelled'
   const hint = failureHint(detail?.error_type)
+  const attempts = detail?.attempts ?? []
 
   // 运行中的任务静默轮询（不打 loading、失败忽略），结束后自动停止
   useEffect(() => {
@@ -248,6 +249,29 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
                 {detail.failed_chapters.length > 0 ? detail.failed_chapters.join(', ') : '无'}
               </Descriptions.Item>
             </Descriptions>
+
+            {attempts.length > 1 ? (
+              <Card size="small" title={`执行历史（${attempts.length} 次）`}>
+                <div className="entity-list">
+                  {attempts.map((attempt) => (
+                    <div className="entity-item" key={attempt.attempt_no}>
+                      <div className="entity-item__main">
+                        <Space size={8}>
+                          <Text strong>第 {attempt.attempt_no} 次</Text>
+                          <StatusTag status={attempt.status} />
+                          {attempt.error_type ? <Tag color="red">{attempt.error_type}</Tag> : null}
+                        </Space>
+                        <Text type="secondary" className="entity-item__meta">
+                          {formatDateTime(attempt.started_at)} →{' '}
+                          {attempt.finished_at ? formatDateTime(attempt.finished_at) : '进行中'}
+                          {attempt.retry_count > 0 ? ` · 重新规划 ${attempt.retry_count} 次` : ''}
+                        </Text>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            ) : null}
 
             <Card size="small" title="Agent Checkpoint 状态">
               {stateError ? (
