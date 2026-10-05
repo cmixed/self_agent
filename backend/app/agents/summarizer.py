@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
-from app.agents.chapters import chapter_target, failed_chapters
+from app.agents.chapters import MAX_SECTIONS, chapter_target, failed_chapters
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage
 from app.models.state import AgentState, StepResult
@@ -17,14 +17,18 @@ from app.rag.tools import render_references
 logger = get_logger(__name__)
 
 
-def assemble_document(state: AgentState, *, max_retries: int = 2) -> str:
+def assemble_document(
+    state: AgentState, *, max_retries: int = 2, max_sections: int = MAX_SECTIONS
+) -> str:
     """把章节汇总为整篇文档（含标题、「参考来源」与失败章节标记）。"""
     plan = state.get("plan")
     goal = (plan or {}).get("goal") or state.get("user_query", "")
     outline = state.get("outline") or []
     sections = state.get("sections") or []
     validations = state.get("chapter_validations") or {}
-    failed = set(failed_chapters(state, max_retries=max_retries))
+    failed = set(
+        failed_chapters(state, max_retries=max_retries, max_sections=max_sections)
+    )
 
     parts: list[str] = []
     if goal:
@@ -50,12 +54,18 @@ def assemble_document(state: AgentState, *, max_retries: int = 2) -> str:
     return f"{body}\n\n{references}".strip() if references else body
 
 
-def make_summarizer_node(*, max_retries: int = 2) -> Callable[[AgentState], Awaitable[dict]]:
+def make_summarizer_node(
+    *, max_retries: int = 2, max_sections: int = MAX_SECTIONS
+) -> Callable[[AgentState], Awaitable[dict]]:
     """构造 summarizer 节点。"""
 
     async def summarizer_node(state: AgentState) -> dict:
-        draft = assemble_document(state, max_retries=max_retries)
-        failed = failed_chapters(state, max_retries=max_retries)
+        draft = assemble_document(
+            state, max_retries=max_retries, max_sections=max_sections
+        )
+        failed = failed_chapters(
+            state, max_retries=max_retries, max_sections=max_sections
+        )
         summary = "已整合最终结果"
         if failed:
             summary += f"（{len(failed)} 个章节未通过校验）"

@@ -15,10 +15,16 @@ from langchain_core.runnables.config import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.errors import GraphRecursionError
 
-from app.agents.chapters import chapter_index_from_target, chapter_target, failed_chapters
+from app.agents.chapters import (
+    MAX_SECTIONS,
+    chapter_index_from_target,
+    chapter_target,
+    failed_chapters,
+)
 from app.agents.skills import CatalogEntry, pending_skill_step
 from app.core.agent_graph import build_graph, recursion_limit
 from app.core.errors import resolve_error
+from app.core.limits import DEFAULT_MAX_SECTIONS, DEFAULT_TARGET_SECTIONS
 from app.core.logging import get_logger
 from app.core.task_registry import TaskRegistry, get_task_registry
 from app.llm.base import LLMError, LLMProvider
@@ -61,9 +67,11 @@ def _sources(documents: list[RetrievedDocument]) -> list[dict[str, Any]]:
     return sources
 
 
-def task_result(state: AgentState, *, max_retries: int) -> dict[str, Any]:
+def task_result(
+    state: AgentState, *, max_retries: int, max_sections: int = MAX_SECTIONS
+) -> dict[str, Any]:
     """把最终状态整理为 API 结果结构（TaskResponse 的字段集合）。"""
-    failed = failed_chapters(state, max_retries=max_retries)
+    failed = failed_chapters(state, max_retries=max_retries, max_sections=max_sections)
     return {
         "task_id": state.get("task_id", ""),
         "status": state.get("task_status", "failed"),
@@ -114,14 +122,19 @@ class TaskService:
         checkpointer: BaseCheckpointSaver | None = None,
         registry: TaskRegistry | None = None,
         max_retries: int = 2,
+        target_sections: int = DEFAULT_TARGET_SECTIONS,
+        max_sections: int = DEFAULT_MAX_SECTIONS,
     ) -> None:
         self._catalog: list[CatalogEntry] = list(skill_catalog or [])
+        self._max_sections = max(1, max_sections)
         self._graph = build_graph(
             llm,
             rag_tool_provider=rag_tool_provider,
             skill_catalog=self._catalog,
             checkpointer=checkpointer,
             max_retries=max_retries,
+            target_sections=target_sections,
+            max_sections=self._max_sections,
         )
         self._max_retries = max_retries
         self._repository = repository
@@ -137,7 +150,11 @@ class TaskService:
 
     def _config_for(self, run_id: str) -> RunnableConfig:
         """图执行配置：超步上界 + （启用 Checkpoint 时）线程 id。"""
-        config: RunnableConfig = {"recursion_limit": recursion_limit(self._max_retries)}
+        config: RunnableConfig = {
+            "recursion_limit": recursion_limit(
+                self._max_retries, max_sections=self._max_sections
+            )
+        }
         if self._checkpointer is not None:
             config["configurable"] = {"thread_id": run_id}
         return config
@@ -224,7 +241,10 @@ class TaskService:
         if self._repository is None:
             return
         await self._repository.finish_run(
-            task_id=run_id, result=task_result(state, max_retries=self._max_retries)
+            task_id=run_id,
+            result=task_result(
+                state, max_retries=self._max_retries, max_sections=self._max_sections
+            ),
         )
 
     async def _mark_cancelled(self, run_id: str) -> None:
@@ -375,6 +395,12 @@ class TaskService:
                                 section.get("title", "")
                                 for section in (output.get("outline") or [])
                             ]
+                            # 章节被上限截断时，把说明并入完成消息（前端进度日志可见）
+                            for step_result in output.get("step_results") or []:
+                                step_summary = str(step_result.get("summary") or "")
+                                if "截断" in step_summary:
+                                    payload["message"] = step_summary
+                                    payload["truncated"] = True
                         if name == "writer":
                             payload["step"] = output.get("current_step") or name
                         if name == "validator":
@@ -469,7 +495,9 @@ class TaskService:
             "task_completed",
             status="completed",
             message="任务完成",
-            result=task_result(final_state, max_retries=self._max_retries),
+            result=task_result(
+                final_state, max_retries=self._max_retries, max_sections=self._max_sections
+            ),
         )
 
 

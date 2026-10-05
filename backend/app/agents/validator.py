@@ -22,6 +22,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.agents.chapters import (
+    MAX_SECTIONS,
     chapter_target,
     last_written_index,
     next_pending_index,
@@ -64,7 +65,9 @@ class ValidationModel(BaseModel):
     suggested_action: Literal["continue", "retry_writer", "replan"] = "continue"
 
 
-def resolve_scope(state: AgentState, *, max_retries: int) -> tuple[str, int | None]:
+def resolve_scope(
+    state: AgentState, *, max_retries: int, max_sections: int = MAX_SECTIONS
+) -> tuple[str, int | None]:
     """判断本次校验的范围。
 
     返回 ``("chapter", index)`` 或 ``("document", None)``。
@@ -80,7 +83,9 @@ def resolve_scope(state: AgentState, *, max_retries: int) -> tuple[str, int | No
     validations = state.get("chapter_validations") or {}
     latest = validations.get(chapter_target(current))
     chapter_done = isinstance(latest, dict) and bool(latest.get("passed"))
-    pending = next_pending_index(state, max_retries=max_retries)
+    pending = next_pending_index(
+        state, max_retries=max_retries, max_sections=max_sections
+    )
 
     if pending is not None or not chapter_done:
         return "chapter", current
@@ -133,12 +138,14 @@ def _normalize_action(model: ValidationModel, *, scope: str) -> str:
 
 
 def make_validator_node(
-    llm: LLMProvider, *, max_retries: int = 2
+    llm: LLMProvider, *, max_retries: int = 2, max_sections: int = MAX_SECTIONS
 ) -> Callable[[AgentState], Awaitable[dict]]:
     """构造 validator 节点。"""
 
     async def validator_node(state: AgentState) -> dict:
-        scope, index = resolve_scope(state, max_retries=max_retries)
+        scope, index = resolve_scope(
+            state, max_retries=max_retries, max_sections=max_sections
+        )
         sections = state.get("sections") or []
         if scope == "chapter" and index is not None:
             target = chapter_target(index)
@@ -217,7 +224,7 @@ def make_validator_node(
     return validator_node
 
 
-def make_route_after_validation(*, max_retries: int):
+def make_route_after_validation(*, max_retries: int, max_sections: int = MAX_SECTIONS):
     """构造 validator 之后的路由函数。
 
     可能的目标：``writer``（继续写 / 重写）、``planner``（replan）、
@@ -230,7 +237,9 @@ def make_route_after_validation(*, max_retries: int):
         is_document = target == "document"
         retry_counts = state.get("retry_counts") or {}
         replan_count = state.get("retry_count", 0)
-        pending = next_pending_index(state, max_retries=max_retries)
+        pending = next_pending_index(
+            state, max_retries=max_retries, max_sections=max_sections
+        )
 
         if result.get("passed"):
             if is_document:

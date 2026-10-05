@@ -11,19 +11,26 @@ from collections.abc import Awaitable, Callable
 
 from pydantic import BaseModel, Field
 
-from app.agents.chapters import MAX_SECTIONS
+from app.core.limits import (
+    DEFAULT_MAX_SECTIONS,
+    DEFAULT_TARGET_SECTIONS,
+    MIN_SECTIONS,
+    SCHEMA_SECTION_GUARD,
+)
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, Section, StepResult
 
 logger = get_logger(__name__)
 
-_OUTLINE_SYSTEM_PROMPT = """你是一个写作大纲设计者。请为用户的写作任务设计章节大纲。
+def _outline_system_prompt(target_sections: int) -> str:
+    """提示词中的章节数与配置同源（避免提示词与上限各写各的）。"""
+    return f"""你是一个写作大纲设计者。请为用户的写作任务设计章节大纲。
 
 要求：
 1. 只输出 JSON，不要输出解释文字或 Markdown 代码块。
-2. JSON 结构必须为：{"sections": [{"title": "章节标题"}]}
-3. 章节数量控制在 3-6 个，按逻辑顺序排列，标题简洁明确。
+2. JSON 结构必须为：{{"sections": [{{"title": "章节标题"}}]}}
+3. 章节数量控制在 {MIN_SECTIONS}-{target_sections} 个，按逻辑顺序排列，标题简洁明确。
 4. 如果提供了参考资料，请让大纲覆盖资料中的关键要点。
 """
 
@@ -33,7 +40,10 @@ class OutlineSectionModel(BaseModel):
 
 
 class OutlineModel(BaseModel):
-    sections: list[OutlineSectionModel] = Field(min_length=1, max_length=MAX_SECTIONS)
+    # 结构防爆上限远高于生成上限：模型多给几章时截断并说明，而不是校验失败
+    sections: list[OutlineSectionModel] = Field(
+        min_length=1, max_length=SCHEMA_SECTION_GUARD
+    )
 
 
 def _render_outline_input(state: AgentState, documents_context: str) -> str:
@@ -51,9 +61,18 @@ def _render_outline_input(state: AgentState, documents_context: str) -> str:
 
 
 def make_outline_node(
-    llm: LLMProvider, *, max_retries: int = 2
+    llm: LLMProvider,
+    *,
+    max_retries: int = 2,
+    target_sections: int = DEFAULT_TARGET_SECTIONS,
+    max_sections: int = DEFAULT_MAX_SECTIONS,
 ) -> Callable[[AgentState], Awaitable[dict]]:
-    """构造 outline 节点。"""
+    """构造 outline 节点。
+
+    ``target_sections`` 决定提示词里的目标篇幅，``max_sections`` 是实际生成上限：
+    模型给出更多章节时按上限截断，并把截断事实写入 step_result 与消息（可见，不静默）。
+    """
+    target = max(MIN_SECTIONS, min(target_sections, max_sections))
 
     async def outline_node(state: AgentState) -> dict:
         from app.agents.skills import render_skill_outputs
@@ -68,14 +87,28 @@ def make_outline_node(
             context_parts.append(f"已完成的技能分析结论：\n{skill_context}")
         context = "\n\n".join(context_parts)
         messages = [
-            ChatMessage(role="system", content=_OUTLINE_SYSTEM_PROMPT),
+            ChatMessage(role="system", content=_outline_system_prompt(target)),
             ChatMessage(role="user", content=_render_outline_input(state, context)),
         ]
         outline_model = await llm.chat_structured(
             messages, OutlineModel, temperature=0.2, max_retries=max_retries
         )
 
-        outline = [Section(title=section.title, content="") for section in outline_model.sections]
+        proposed = [Section(title=section.title, content="") for section in outline_model.sections]
+        outline = proposed[:max_sections]
+        truncated_from = len(proposed) if len(proposed) > max_sections else None
+        if truncated_from is not None:
+            logger.warning(
+                "大纲章节数超出上限，已截断",
+                extra={
+                    "task_id": state.get("task_id"),
+                    "node": "outline",
+                    "event": "outline_truncated",
+                    "status": "warning",
+                    "proposed_sections": truncated_from,
+                    "max_sections": max_sections,
+                },
+            )
         titles = [section["title"] for section in outline]
         # sections 与 outline 按下标对齐，供逐章填充 / 重写 / 跳过失败章节
         sections = [Section(title=title, content="") for title in titles]
@@ -89,6 +122,10 @@ def make_outline_node(
                 "status": "ok",
             },
         )
+        summary = f"生成 {len(outline)} 个章节"
+        if truncated_from is not None:
+            summary += f"（模型给出 {truncated_from} 章，已按上限 {max_sections} 截断）"
+
         return {
             "outline": outline,
             # replan 时重置生成与校验状态，确保从干净状态重新写作
@@ -101,15 +138,11 @@ def make_outline_node(
             "messages": [
                 ChatMessage(
                     role="assistant",
-                    content=f"[outline] 生成 {len(outline)} 个章节：{'、'.join(titles)}",
+                    content=f"[outline] {summary}：{'、'.join(titles)}",
                 )
             ],
             "step_results": [
-                StepResult(
-                    step_id="outline",
-                    status="ok",
-                    summary=f"生成 {len(outline)} 个章节",
-                )
+                StepResult(step_id="outline", status="ok", summary=summary)
             ],
         }
 

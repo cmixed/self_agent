@@ -12,6 +12,13 @@ from pathlib import Path
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.limits import (
+    DEFAULT_MAX_SECTIONS,
+    DEFAULT_TARGET_SECTIONS,
+    HARD_SECTION_CEILING,
+    MIN_SECTIONS,
+)
+
 # backend/app/core/config.py -> backend/ 与仓库根目录
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -76,6 +83,10 @@ class Settings(BaseSettings):
     # --- Agent ---
     # 单个节点的最大重试次数（Validator 重试见 Phase 4，§16）
     max_retries: int = 2
+    # 长文分章节预算（§15）：target 为提示词里的目标篇幅，max 为实际生成上限。
+    # 两者都会被夹到 [MIN_SECTIONS, HARD_SECTION_CEILING]，且 target ≤ max。
+    target_sections: int = DEFAULT_TARGET_SECTIONS
+    max_sections: int = DEFAULT_MAX_SECTIONS
 
     # --- Embedding（独立于 LLM Provider，§12）---
     embedding_provider: str = "local"
@@ -116,6 +127,16 @@ class Settings(BaseSettings):
             return False
         value = key.get_secret_value().strip()
         return bool(value) and not _is_placeholder(value)
+
+    @property
+    def effective_max_sections(self) -> int:
+        """实际生成上限：夹到 [MIN_SECTIONS, HARD_SECTION_CEILING]。"""
+        return max(MIN_SECTIONS, min(self.max_sections, HARD_SECTION_CEILING))
+
+    @property
+    def effective_target_sections(self) -> int:
+        """提示词目标篇幅：同样受下限约束，且不超过生成上限。"""
+        return max(MIN_SECTIONS, min(self.target_sections, self.effective_max_sections))
 
     def provider_model(self, provider: str) -> str:
         """返回 Provider 将使用的模型名（供设置快照展示）。"""

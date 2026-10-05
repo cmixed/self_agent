@@ -189,3 +189,27 @@ async def test_stream_includes_researcher_events(tmp_path) -> None:
     )
     chunk_ids = [source["chunk_id"] for source in researcher_done["sources"]]
     assert len(chunk_ids) == len(set(chunk_ids))
+
+
+async def test_stream_reports_outline_truncation() -> None:
+    """大纲被上限截断时，outline_completed 消息要说明清楚（不静默丢章节）。"""
+    import json as jsonlib
+
+    plan = {
+        "goal": "写综述",
+        "needs_retrieval": False,
+        "steps": [{"id": "w", "type": "writing", "description": "撰写"}],
+    }
+    outline = {"sections": [{"title": f"第 {i} 章"} for i in range(1, 11)]}
+    provider = ScriptedProvider(
+        [jsonlib.dumps(plan, ensure_ascii=False), jsonlib.dumps(outline, ensure_ascii=False)],
+        default_text="正文",
+    )
+    service = TaskService(provider, max_retries=0, target_sections=4, max_sections=5)
+
+    events = [event async for event in service.stream("写综述")]
+
+    outline_event = next(event for event in events if event["event"] == "outline_completed")
+    assert len(outline_event["outline"]) == 5
+    assert outline_event["truncated"] is True
+    assert "已按上限 5 截断" in outline_event["message"]

@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from app.agents.chapters import (
+    MAX_SECTIONS,
     chapter_index_from_target,
     chapter_target,
     ensure_aligned,
@@ -80,7 +81,9 @@ def _render_section_input(
     return "\n".join(lines)
 
 
-def resolve_target_index(state: AgentState, *, max_retries: int) -> tuple[int | None, bool]:
+def resolve_target_index(
+    state: AgentState, *, max_retries: int, max_sections: int = MAX_SECTIONS
+) -> tuple[int | None, bool]:
     """决定本次要写哪一章。
 
     返回 ``(章节下标, 是否重写)``；``None`` 表示没有需要撰写的内容。
@@ -103,11 +106,11 @@ def resolve_target_index(state: AgentState, *, max_retries: int) -> tuple[int | 
             if has_content and retry_counts.get(target, 0) < max_retries:
                 return index, True
 
-    return next_pending_index(state, max_retries=max_retries), False
+    return next_pending_index(state, max_retries=max_retries, max_sections=max_sections), False
 
 
 def make_writer_node(
-    llm: LLMProvider, *, max_retries: int = 2
+    llm: LLMProvider, *, max_retries: int = 2, max_sections: int = MAX_SECTIONS
 ) -> Callable[[AgentState], Awaitable[dict]]:
     """构造 writer 节点（每次撰写或重写一章）。"""
 
@@ -115,7 +118,9 @@ def make_writer_node(
         outline = state.get("outline") or []
         sections = ensure_aligned(list(state.get("sections") or []), outline)
 
-        index, rewrite = resolve_target_index(state, max_retries=max_retries)
+        index, rewrite = resolve_target_index(
+            state, max_retries=max_retries, max_sections=max_sections
+        )
         if index is None:
             # 没有需要撰写的内容（正常情况下路由不会再调用本节点）
             return {}

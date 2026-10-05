@@ -61,3 +61,24 @@ def test_placeholder_key_is_not_configured() -> None:
 
     ok = Settings(_env_file=None, deepseek_api_key="sk-real-looking-key")
     assert ok.provider_configured("deepseek") is True
+
+
+def test_section_budget_is_clamped() -> None:
+    """章节预算：夹到 [MIN_SECTIONS, HARD_SECTION_CEILING] 且 target ≤ max。"""
+    from app.core.limits import HARD_SECTION_CEILING, MIN_SECTIONS
+
+    default = Settings(_env_file=None)
+    assert default.effective_target_sections == 6
+    assert default.effective_max_sections == 12
+
+    too_small = Settings(_env_file=None, target_sections=1, max_sections=2)
+    assert too_small.effective_target_sections == MIN_SECTIONS
+    assert too_small.effective_max_sections == MIN_SECTIONS
+
+    too_large = Settings(_env_file=None, target_sections=99, max_sections=99)
+    assert too_large.effective_max_sections == HARD_SECTION_CEILING
+    assert too_large.effective_target_sections == HARD_SECTION_CEILING
+
+    target_over_max = Settings(_env_file=None, target_sections=18, max_sections=8)
+    assert target_over_max.effective_max_sections == 8
+    assert target_over_max.effective_target_sections == 8  # 不得高于生成上限

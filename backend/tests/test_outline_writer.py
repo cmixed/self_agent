@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 from fakes import (
     DRAFT_TEXT,
@@ -212,3 +214,74 @@ def test_validation_fail_json_helper_marks_failure() -> None:
     assert payload["passed"] is False
     assert payload["suggested_action"] == "replan"
     assert payload["issues"] == ["方向不对"]
+
+
+# --- 章节上限参数化（AGENTS.md §27 安全兜底 vs 产品预算）---
+
+
+async def test_outline_prompt_follows_target_sections() -> None:
+    """提示词里的章节数由配置生成，与上限同源。"""
+    provider = ScriptedProvider([OUTLINE_JSON])
+    node = make_outline_node(provider, max_retries=0, target_sections=5, max_sections=12)
+
+    await node(initial_state("写综述", task_id="t-prompt"))
+
+    system_prompt = provider.calls[0][0].content
+    assert "章节数量控制在 3-5 个" in system_prompt
+
+
+async def test_outline_truncates_extra_sections_with_visible_note() -> None:
+    """模型给出超过生成上限的章节：截断并说明，而不是整单任务失败。"""
+    payload = {"sections": [{"title": f"第 {i} 章"} for i in range(1, 11)]}
+    provider = ScriptedProvider([json.dumps(payload, ensure_ascii=False)])
+    node = make_outline_node(provider, max_retries=0, target_sections=4, max_sections=5)
+
+    update = await node(initial_state("写综述", task_id="t-truncate"))
+
+    assert len(update["outline"]) == 5
+    assert len(update["sections"]) == 5
+    summary = update["step_results"][0]["summary"]
+    assert "模型给出 10 章" in summary
+    assert "已按上限 5 截断" in summary
+
+
+async def test_outline_within_limit_has_no_truncation_note() -> None:
+    provider = ScriptedProvider([OUTLINE_JSON])  # 2 章
+    node = make_outline_node(provider, max_retries=0, target_sections=6, max_sections=12)
+
+    update = await node(initial_state("写综述", task_id="t-no-truncate"))
+
+    assert "截断" not in update["step_results"][0]["summary"]
+
+
+async def test_outline_over_schema_guard_still_retries_then_fails() -> None:
+    """超过结构防爆上限（50）属于异常输出，仍按格式错误处理。"""
+    from app.core.limits import SCHEMA_SECTION_GUARD
+
+    payload = {"sections": [{"title": f"c{i}"} for i in range(SCHEMA_SECTION_GUARD + 1)]}
+    provider = ScriptedProvider([json.dumps(payload, ensure_ascii=False)])
+    node = make_outline_node(provider, max_retries=0, max_sections=12)
+
+    with pytest.raises(LLMResponseFormatError):
+        await node(initial_state("写综述", task_id="t-guard"))
+
+
+def test_failed_chapters_respects_same_bound_as_writing() -> None:
+    """失败清单与撰写边界一致：不会被写的章节不该出现在失败清单里。"""
+    from app.agents.chapters import failed_chapters
+
+    state = initial_state("x", task_id="t")
+    state["outline"] = [{"title": f"s{i}", "content": ""} for i in range(15)]
+    state["sections"] = [{"title": f"s{i}", "content": ""} for i in range(15)]
+    state["chapter_validations"] = {
+        f"chapter_{i}": {
+            "passed": False,
+            "issues": ["未通过"],
+            "suggested_action": "retry_writer",
+            "target": f"chapter_{i}",
+        }
+        for i in range(1, 16)
+    }
+    state["retry_counts"] = {f"chapter_{i}": 9 for i in range(1, 16)}
+
+    assert failed_chapters(state, max_retries=2, max_sections=6) == list(range(6))

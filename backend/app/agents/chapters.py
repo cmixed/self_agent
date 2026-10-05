@@ -4,14 +4,19 @@
 
 约定：``sections`` 与 ``outline`` **按下标对齐**（outline 节点预填占位章节），
 因此「第几章」可以直接用下标表示。
+
+章节上限的语义边界见 :mod:`app.core.limits`：``max_sections`` 是本次任务的
+生成上限（配置可调），不是安全兜底；循环边界一律以它为界，避免出现
+「大纲有 N 章、只写 M 章、失败清单却按 N 章统计」这类不一致。
 """
 
 from __future__ import annotations
 
+from app.core.limits import DEFAULT_MAX_SECTIONS
 from app.models.state import AgentState, Section
 
-# 章节数硬上限：防止异常情况下无界循环（§27 禁止无限 Agent Loop）
-MAX_SECTIONS = 8
+# 兼容旧名：当前任务默认生成上限（真正的夹取在 config.effective_max_sections）
+MAX_SECTIONS = DEFAULT_MAX_SECTIONS
 
 
 def chapter_target(index: int) -> str:
@@ -46,11 +51,16 @@ def is_chapter_failed(state: AgentState, index: int, *, max_retries: int) -> boo
     return counts.get(target, 0) >= max_retries
 
 
-def next_pending_index(state: AgentState, *, max_retries: int) -> int | None:
-    """下一个还需要撰写的章节下标（跳过已写与已判定失败的章节）。"""
+def next_pending_index(
+    state: AgentState, *, max_retries: int, max_sections: int = MAX_SECTIONS
+) -> int | None:
+    """下一个还需要撰写的章节下标（跳过已写与已判定失败的章节）。
+
+    边界为 ``max_sections``：超出该上限的章节（模型多给的）一律不写。
+    """
     outline = state.get("outline") or []
     sections = state.get("sections") or []
-    for index in range(min(len(outline), MAX_SECTIONS)):
+    for index in range(min(len(outline), max_sections)):
         content = sections[index].get("content", "") if index < len(sections) else ""
         if content.strip():
             continue
@@ -60,12 +70,18 @@ def next_pending_index(state: AgentState, *, max_retries: int) -> int | None:
     return None
 
 
-def failed_chapters(state: AgentState, *, max_retries: int) -> list[int]:
-    """所有未通过校验且已达重试上限的章节下标。"""
+def failed_chapters(
+    state: AgentState, *, max_retries: int, max_sections: int = MAX_SECTIONS
+) -> list[int]:
+    """所有未通过校验且已达重试上限的章节下标。
+
+    与 :func:`next_pending_index` 用同一 ``max_sections`` 边界：只有会被
+    实际撰写/尝试的章节才可能出现在失败清单里。
+    """
     outline = state.get("outline") or []
     return [
         index
-        for index in range(len(outline))
+        for index in range(min(len(outline), max_sections))
         if is_chapter_failed(state, index, max_retries=max_retries)
     ]
 

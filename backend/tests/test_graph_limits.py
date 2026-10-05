@@ -5,19 +5,26 @@ from typing import Any
 from fakes import OUTLINE_JSON, PLAN_JSON, ScriptedProvider
 from langgraph.errors import GraphRecursionError
 
-from app.agents.chapters import MAX_SECTIONS
 from app.agents.skills import MAX_SKILL_STEPS
 from app.core.agent_graph import recursion_limit
+from app.core.limits import DEFAULT_MAX_SECTIONS, HARD_SECTION_CEILING
 from app.services.task_service import TaskService
 
 
 def test_recursion_limit_covers_worst_case() -> None:
     """上界必须显著高于实际可能用到的超步数（否则会误中断，见真实用例）。"""
-    for retries in (0, 1, 2, 5):
-        # 单次 pass 的最坏超步：3 个前置节点 + 技能步骤(逐个执行 + 收尾路由)
-        # + 每章(1 写 + R 次重写)*2 + 整篇校验 + 汇总
-        per_pass = 3 + (MAX_SKILL_STEPS + 1) + 2 * MAX_SECTIONS * (1 + retries) + 2
-        assert recursion_limit(retries) > (retries + 1) * per_pass
+    for sections in (DEFAULT_MAX_SECTIONS, HARD_SECTION_CEILING):
+        for retries in (0, 1, 2, 5):
+            # 单次 pass 的最坏超步：3 个前置节点 + 技能步骤(逐个执行 + 收尾路由)
+            # + 每章(1 写 + R 次重写)*2 + 整篇校验 + 汇总
+            per_pass = 3 + (MAX_SKILL_STEPS + 1) + 2 * sections * (1 + retries) + 2
+            assert recursion_limit(retries, max_sections=sections) > (retries + 1) * per_pass
+
+
+def test_recursion_limit_scales_with_section_budget() -> None:
+    assert recursion_limit(1, max_sections=6) < recursion_limit(1, max_sections=12)
+    at_ceiling = recursion_limit(1, max_sections=HARD_SECTION_CEILING)
+    assert at_ceiling > recursion_limit(1, max_sections=12)
 
 
 def test_recursion_limit_is_increasing() -> None:

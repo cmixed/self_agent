@@ -230,7 +230,17 @@ START → Planner ──(计划需要检索)──→ Researcher(RAG Tool) ─�
 - RAG 以 Tool 形式提供（`app/rag/tools.py`），Agent 不直接访问 ChromaDB
 - 检索结果保留来源元数据，正文用 `[n]` 标注，结果中返回 `sources` 列表
 - 长文先由 Outline 生成章节，再由 Writer **每次写一章**循环完成，最后 Summarizer 汇总
-  并统一追加「参考来源」（章节数上限 `MAX_SECTIONS`，杜绝无限循环）
+  并统一追加「参考来源」（章节预算见下表，杜绝无限循环）
+
+章节预算（`.env` 可调，见 `TARGET_SECTIONS` / `MAX_SECTIONS`）：
+
+| 配置 | 含义 | 默认 | 约束 |
+| --- | --- | --- | --- |
+| `TARGET_SECTIONS` | 提示词里的目标篇幅 | 6 | ≥3，且 ≤ `MAX_SECTIONS` |
+| `MAX_SECTIONS` | 实际生成上限 | 12 | 夹在 [3, 20]（安全兜底 20） |
+
+> 模型给出超过 `MAX_SECTIONS` 的章节时会**按上限截断并在进度日志中说明**，
+> 而不是让整个任务失败；`failed_chapters` 只统计真正尝试撰写过的章节。
 - Validator 先做**章节级**校验，全部章节写完后做**整篇**校验；
 - 重试预算**按章节独立**（`retry_counts`，上限 `MAX_RETRIES`）：未达上限则重写该章，
   已达上限则记录问题、**跳过该章**并继续其他章节，最终结果中明确标记未通过；

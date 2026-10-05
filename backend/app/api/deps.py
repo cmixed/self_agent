@@ -180,6 +180,8 @@ async def get_task_service(provider: LLMProvider = Depends(get_llm_provider)) ->
         repository=build_task_repository(),
         checkpointer=get_checkpointer(),
         max_retries=settings.max_retries,
+        target_sections=settings.effective_target_sections,
+        max_sections=settings.effective_max_sections,
     )
 
 

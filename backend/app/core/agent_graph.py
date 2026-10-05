@@ -30,7 +30,6 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from app.agents.chapters import MAX_SECTIONS
 from app.agents.outline import make_outline_node
 from app.agents.planner import make_planner_node, make_route_after_planner
 from app.agents.researcher import make_researcher_node
@@ -43,22 +42,24 @@ from app.agents.skills import (
 from app.agents.summarizer import make_summarizer_node
 from app.agents.validator import make_route_after_validation, make_validator_node
 from app.agents.writer import make_writer_node
+from app.core.limits import DEFAULT_MAX_SECTIONS, DEFAULT_TARGET_SECTIONS
 from app.llm.base import LLMProvider
 from app.models.state import AgentState
 from app.rag.tools import RagTool
 
 
-def recursion_limit(max_retries: int) -> int:
+def recursion_limit(max_retries: int, *, max_sections: int = DEFAULT_MAX_SECTIONS) -> int:
     """LangGraph 的最大超步数（安全兜底）。
 
-    图本身的循环都由「章节数上限 MAX_SECTIONS」与「重试预算」约束，这里给出一个
+    图本身的循环都由「章节数上限 max_sections」与「重试预算」约束，这里给出一个
     覆盖最坏情况的宽松上界，避免触发 LangGraph 默认值 25 而中断任务。
     """
     retries = max(0, max_retries)
+    sections = max(1, max_sections)
     per_pass = (
         5
         + (MAX_SKILL_STEPS + 1)  # 技能步骤逐个执行 + 最后一次路由
-        + 2 * MAX_SECTIONS * (1 + retries)
+        + 2 * sections * (1 + retries)
         + 2  # 整篇校验 + 汇总
     )  # planner/researcher/outline + 技能 + 各章 + 整篇校验
     return (retries + 1) * per_pass + 10
@@ -71,6 +72,8 @@ def build_graph(
     skill_catalog: Sequence[CatalogEntry] | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
     max_retries: int = 2,
+    target_sections: int = DEFAULT_TARGET_SECTIONS,
+    max_sections: int = DEFAULT_MAX_SECTIONS,
 ) -> CompiledStateGraph:
     """构建并编译 Agent 图。
 
@@ -83,10 +86,24 @@ def build_graph(
     graph.add_node(
         "planner", make_planner_node(llm, max_retries=max_retries, skill_catalog=catalog)
     )
-    graph.add_node("outline", make_outline_node(llm, max_retries=max_retries))
-    graph.add_node("writer", make_writer_node(llm, max_retries=max_retries))
-    graph.add_node("validator", make_validator_node(llm, max_retries=max_retries))
-    graph.add_node("summarizer", make_summarizer_node(max_retries=max_retries))
+    graph.add_node(
+        "outline",
+        make_outline_node(
+            llm,
+            max_retries=max_retries,
+            target_sections=target_sections,
+            max_sections=max_sections,
+        ),
+    )
+    graph.add_node(
+        "writer", make_writer_node(llm, max_retries=max_retries, max_sections=max_sections)
+    )
+    graph.add_node(
+        "validator", make_validator_node(llm, max_retries=max_retries, max_sections=max_sections)
+    )
+    graph.add_node(
+        "summarizer", make_summarizer_node(max_retries=max_retries, max_sections=max_sections)
+    )
 
     if catalog:
         graph.add_node("skills", make_skills_node(llm, catalog))
@@ -119,7 +136,7 @@ def build_graph(
     # 校验后：继续写 / 重写 / 进入整篇校验 / 重新规划 / 汇总（含安全结束）
     graph.add_conditional_edges(
         "validator",
-        make_route_after_validation(max_retries=max_retries),
+        make_route_after_validation(max_retries=max_retries, max_sections=max_sections),
         {
             "writer": "writer",
             "planner": "planner",
