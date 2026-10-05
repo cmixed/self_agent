@@ -60,12 +60,19 @@ _VALIDATOR_SYSTEM_PROMPT = """你是内容校验员。请检查给定内容是�
 可以进一步展开等非实质性改进空间。
 
 只输出 JSON，不要输出解释文字：
-{"passed": true/false, "issues": ["问题1"], "suggested_action": "continue|retry_writer|replan"}
+{"passed": true/false, "issues": ["问题1"],
+ "suggested_action": "continue|retry_writer|replan", "chapter": null 或 章节号}
 
 suggested_action 取值含义：
 - continue：内容合格（通过时固定用 continue）；
-- retry_writer：局部实质问题，重写当前章节即可；
+- retry_writer：局部实质问题，重写相关章节即可；
 - replan：计划本身方向或拆分有问题，需要重新规划。
+
+"chapter" 用法（**整篇校验时尤其重要**）：
+- 问题能定位到某一章 → 填写该章的序号（从 1 开始）并把 suggested_action 设为
+  retry_writer：系统只会重写这一章，代价远小于重新规划；
+- 只有计划/结构本身有问题（整体跑题、章节划分不合理、顺序错误）才用 replan；
+- 无法定位到具体章节时填 null。
 """
 
 
@@ -75,6 +82,8 @@ class ValidationModel(BaseModel):
     passed: bool
     issues: list[str] = Field(default_factory=list, max_length=8)
     suggested_action: Literal["continue", "retry_writer", "replan"] = "continue"
+    # 整篇校验时：问题可定位到的章节序号（1 基）。越界/缺失一律忽略（见 _resolve_action）
+    chapter: int | None = None
 
 
 def resolve_scope(
@@ -147,16 +156,26 @@ def _render_chapter(sections: list[Section], index: int) -> str:
     return f"## {section.get('title', '')}\n\n{section.get('content', '')}"
 
 
-def _normalize_action(model: ValidationModel, *, scope: str) -> str:
+def _resolve_action_and_target(
+    model: ValidationModel, *, scope: str, target: str, total_sections: int
+) -> tuple[str, str]:
+    """把模型判定归一化为 ``(action, target)``。
+
+    整篇校验的 ``retry_writer`` 原先一律升级为 ``replan``（全文重写），代价过大：
+    只要能定位到具体章节，就改成**章级重写**；只有确实定位不到（计划/结构问题）
+    才升级为 replan。章节序号非法（缺失/越界）时按原规则处理，模型输出不会破坏流程。
+    """
     if model.passed:
-        return "continue"
+        return "continue", target
     if model.suggested_action == "continue":
         # 模型自相矛盾（未通过却说 continue）时按重写处理，避免空转
-        return "retry_writer"
+        return "retry_writer", target
     if scope == "document" and model.suggested_action == "retry_writer":
-        # 整篇问题无法定位到具体章节，升级为重新规划
-        return "replan"
-    return model.suggested_action
+        chapter = model.chapter
+        if chapter is not None and 1 <= chapter <= total_sections:
+            return "retry_writer", chapter_target(chapter - 1)
+        return "replan", target
+    return model.suggested_action, target
 
 
 def _citation_precheck(
@@ -220,6 +239,8 @@ def _build_update(
             summary = f"{summary}；该章节已达重试上限，跳过并继续其他章节"
     if origin == "citation":
         summary = f"[引用编号检查] {summary}"
+    elif origin == "located":
+        summary = f"[整篇校验定位到 {target}] {summary}"
 
     logger.info(
         "validator 完成",
@@ -301,15 +322,26 @@ def make_validator_node(
         model = await llm.chat_structured(
             messages, ValidationModel, temperature=0.0, max_retries=max_retries
         )
-        action = _normalize_action(model, scope=scope)
+        action, resolved_target = _resolve_action_and_target(
+            model,
+            scope=scope,
+            target=target,
+            total_sections=len(state.get("outline") or []),
+        )
+        located = scope == "document" and resolved_target != target
 
         result = ValidationResult(
             passed=model.passed,
             issues=list(model.issues),
             suggested_action=action,  # type: ignore[typeddict-item]
-            target=target,
+            target=resolved_target,
         )
-        return _build_update(state, result=result, max_retries=max_retries, origin="llm")
+        return _build_update(
+            state,
+            result=result,
+            max_retries=max_retries,
+            origin="located" if located else "llm",
+        )
 
     return validator_node
 

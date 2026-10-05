@@ -175,3 +175,98 @@ async def test_real_case_skill_invented_numbering_becomes_chapter_retry() -> Non
     assert result["target"] == "chapter_1"
     assert "超出参考资料范围 [1]-[5]" in result["issues"][0]
     assert provider.calls == []
+
+
+# --- 整篇校验「定位优先」：能定位就章级重写，定位不到才 replan ---
+
+
+def _document_state(contents: list[str], *, sources: int = 5) -> dict:
+    """所有章节已写完且已通过 → resolve_scope 会进入整篇校验。"""
+    state = _state_with_chapters(contents, sources=sources)
+    state["chapter_validations"] = {
+        f"chapter_{index}": {
+            "passed": True,
+            "issues": [],
+            "suggested_action": "continue",
+            "target": f"chapter_{index}",
+        }
+        for index in range(1, len(contents) + 1)
+    }
+    return state
+
+
+def _validation_json(action: str, *, chapter: int | None = None, issues=None) -> str:
+    return json.dumps(
+        {
+            "passed": False,
+            "issues": issues or ["第二章内容重复冗余"],
+            "suggested_action": action,
+            "chapter": chapter,
+        },
+        ensure_ascii=False,
+    )
+
+
+async def test_document_retry_writer_with_chapter_rewrites_only_that_chapter() -> None:
+    """整篇问题能定位到章节 → 章级重写（不再全文 replan）。"""
+    provider = ScriptedProvider([_validation_json("retry_writer", chapter=2)])
+    node = make_validator_node(provider, max_retries=2)
+    state = _document_state(["第一章内容 [1]", "第二章内容 [2]", "第三章内容 [3]"])
+
+    update = await node(state)
+
+    result = update["validation_result"]
+    assert result["suggested_action"] == "retry_writer"
+    assert result["target"] == "chapter_2"
+    assert update["retry_counts"] == {"chapter_2": 1}
+    assert "[整篇校验定位到 chapter_2]" in update["step_results"][0]["summary"]
+
+
+async def test_document_retry_writer_without_chapter_still_replans() -> None:
+    """定位不到章节（计划/结构问题）→ 维持原有 replan 行为。"""
+    provider = ScriptedProvider([_validation_json("retry_writer")])
+    node = make_validator_node(provider, max_retries=2)
+    state = _document_state(["第一章内容 [1]", "第二章内容 [2]"])
+
+    update = await node(state)
+
+    result = update["validation_result"]
+    assert result["suggested_action"] == "replan"
+    assert result["target"] == "document"
+    assert update["retry_count"] == 1
+
+
+async def test_document_retry_writer_with_invalid_chapter_replans() -> None:
+    """章节号越界 → 忽略定位，回退 replan（模型乱填不破坏流程）。"""
+    provider = ScriptedProvider([_validation_json("retry_writer", chapter=99)])
+    node = make_validator_node(provider, max_retries=2)
+    state = _document_state(["第一章内容 [1]", "第二章内容 [2]"])
+
+    update = await node(state)
+
+    assert update["validation_result"]["suggested_action"] == "replan"
+    assert update["retry_count"] == 1
+
+
+async def test_document_explicit_replan_is_respected() -> None:
+    """模型明确判为计划问题 → 仍然 replan。"""
+    provider = ScriptedProvider([_validation_json("replan", issues=["整体跑题"])])
+    node = make_validator_node(provider, max_retries=2)
+    state = _document_state(["第一章内容 [1]"])
+
+    update = await node(state)
+
+    assert update["validation_result"]["suggested_action"] == "replan"
+    assert update["validation_result"]["target"] == "document"
+
+
+async def test_chapter_scope_unaffected_by_locate_rule() -> None:
+    """章级校验不受影响：仍是在该章上重写。"""
+    provider = ScriptedProvider([_validation_json("retry_writer", chapter=3)])
+    node = make_validator_node(provider, max_retries=2)
+    state = _state_with_chapters(["第一章内容 [1]"], sources=5)  # 只有一章，scope=chapter
+
+    update = await node(state)
+
+    assert update["validation_result"]["target"] == "chapter_1"
+    assert update["validation_result"]["suggested_action"] == "retry_writer"
