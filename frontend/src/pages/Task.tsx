@@ -15,7 +15,19 @@ import {
   ThunderboltOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons'
-import { Alert, Button, Card, Input, Result, Space, Tabs, Tag, Tooltip, Typography } from 'antd'
+import {
+  Alert,
+  Button,
+  Card,
+  Input,
+  Result,
+  Skeleton,
+  Space,
+  Tabs,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd'
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
@@ -28,10 +40,11 @@ import Section from '../components/Section'
 import SourceList from '../components/SourceList'
 import StatStrip from '../components/StatStrip'
 import StatusTag from '../components/StatusTag'
-import { listDocuments, listPresets, listTasks } from '../services/api'
+import { listDocuments, listTasks } from '../services/api'
+import { usePresets } from '../hooks/usePresets'
 import { useNav } from '../state/nav'
 import { useTaskRun } from '../state/taskRun'
-import type { DocumentInfo, PresetInfo, TaskSummary } from '../types/api'
+import type { DocumentInfo, TaskSummary } from '../types/api'
 import { formatDateTime, formatDuration } from '../utils/format'
 
 const { Text, Paragraph } = Typography
@@ -116,22 +129,21 @@ export default function TaskPage() {
     download,
   } = useTaskRun()
 
+  const { presets, loaded: presetsLoaded } = usePresets()
   const resultRef = useRef<HTMLDivElement | null>(null)
   const [documents, setDocuments] = useState<DocumentInfo[] | null>(null)
   const [recentTasks, setRecentTasks] = useState<TaskSummary[]>([])
-  const [presets, setPresets] = useState<PresetInfo[]>([])
   const [outputTab, setOutputTab] = useState('plan')
 
   // 闲置态：轻量读取资料与最近任务（环境感知；失败静默，不打扰主流程）
   useEffect(() => {
     if (hasStarted) return
     let cancelled = false
-    Promise.all([listDocuments(), listTasks(), listPresets()])
-      .then(([docs, tasks, presetData]) => {
+    Promise.all([listDocuments(), listTasks()])
+      .then(([docs, tasks]) => {
         if (cancelled) return
         setDocuments(docs.documents)
         setRecentTasks(tasks.tasks.slice(0, 4))
-        setPresets(presetData.presets)
       })
       .catch(() => {
         if (!cancelled) setDocuments([])
@@ -479,7 +491,15 @@ export default function TaskPage() {
           }
         />
 
-        {presets.length === 0 ? (
+        {!presetsLoaded ? (
+          <div className="ws-presets" aria-hidden="true">
+            {[0, 1, 2].map((index) => (
+              <Card key={index} size="small" className="ws-preset ws-preset--skeleton">
+                <Skeleton active title={false} paragraph={{ rows: 2 }} />
+              </Card>
+            ))}
+          </div>
+        ) : presets.length === 0 ? (
           <EmptyState
             compact
             title="还没有预设任务"

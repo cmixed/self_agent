@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -17,6 +18,7 @@ from app.api import chat, documents, health, memory, presets, skills, tasks
 from app.api import settings as settings_api
 from app.api.deps import (
     build_checkpoint_store,
+    build_chroma_store,
     build_database,
     build_preset_service,
     build_skill_service,
@@ -42,6 +44,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             f"已将 {reconciled} 条重启前遗留的「运行中」任务标记为已取消",
             extra={"event": "tasks_reconciled", "status": "ok"},
         )
+    # 预热向量库连接：Chroma 首次打开约 0.3-0.5s，放到启动阶段，
+    # 避免工作台/知识库的首个请求卡顿（失败不阻塞启动，首次请求再报错）
+    with contextlib.suppress(Exception):
+        await asyncio.to_thread(build_chroma_store)
+
     # 内置技能 seed（幂等：已存在的不覆盖，用户修改保留）
     await build_skill_service().ensure_seeded()
     await build_preset_service().ensure_seeded()

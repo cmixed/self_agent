@@ -1029,6 +1029,15 @@ html[data-theme='dark'] body {
   padding: var(--ws-space-3) var(--ws-space-4);
 }
 
+/* 骨架屏：同尺寸占位，避免加载完成后布局跳动 */
+.ws-preset--skeleton {
+  cursor: default;
+}
+
+.ws-preset--skeleton:hover {
+  border-color: var(--ant-color-border) !important;
+}
+
 /* 一行内展示，描述最多两行，避免预设区抢占工作台空间 */
 .ws-preset__desc {
   display: -webkit-box;
