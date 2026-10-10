@@ -117,6 +117,8 @@ export default function ProvidersPage() {
   const [discovering, setDiscovering] = useState(false)
   const [testing, setTesting] = useState(false)
   const [form] = Form.useForm<ProviderFormValues>()
+  // 观察协议选择：决定「关闭思考」是否可用（无需嵌套 render prop）
+  const flavor = Form.useWatch('flavor', form)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -369,6 +371,9 @@ export default function ProvidersPage() {
                   <Text strong>{record.label || record.id}</Text>
                   {record.managed ? <Tag color="blue">自定义</Tag> : <Tag>内置</Tag>}
                   {record.is_local ? <Tag color="purple">本地</Tag> : null}
+                  {record.managed && record.flavor === 'ollama' ? (
+                    <Tag color="cyan">原生 /api/chat</Tag>
+                  ) : null}
                   {record.managed && record.disable_thinking ? (
                     <Tag color="green">关闭思考</Tag>
                   ) : null}
@@ -558,27 +563,25 @@ export default function ProvidersPage() {
             />
           </Form.Item>
 
+          <Form.Item
+            name="disable_thinking"
+            valuePropName="checked"
+            label="思考模式"
+            tooltip={
+              flavor === 'ollama'
+                ? '本地小模型关闭思考可快数倍：走原生 /api/chat 并传 think=false'
+                : '仅当「接口协议」选 Ollama 原生时可用（/v1 兼容层不接受 think 字段）'
+            }
+            extra={
+              flavor === 'ollama'
+                ? '推荐本地小模型（如 qwen3）勾选：思考会占用大量时间与上下文'
+                : '需要先选择「Ollama 原生（/api/chat）」协议'
+            }
+          >
+            <Checkbox disabled={flavor !== 'ollama'}>关闭思考（更快）</Checkbox>
+          </Form.Item>
+
           <Space size="large" wrap>
-            <Form.Item
-              noStyle
-              shouldUpdate={(prev, next) => prev.flavor !== next.flavor}
-            >
-              {({ getFieldValue }) => (
-                <Form.Item
-                  name="disable_thinking"
-                  valuePropName="checked"
-                  tooltip={
-                    getFieldValue('flavor') === 'ollama'
-                      ? '本地小模型关闭思考可快数倍（原生协议 think=false）'
-                      : '仅对 Ollama 原生协议生效'
-                  }
-                >
-                  <Checkbox disabled={getFieldValue('flavor') !== 'ollama'}>
-                    关闭思考（更快）
-                  </Checkbox>
-                </Form.Item>
-              )}
-            </Form.Item>
             <Form.Item name="is_local" valuePropName="checked" tooltip="Ollama / LM Studio 等本机服务：不发送 Authorization 头">
               <Checkbox>本地服务（无需密钥）</Checkbox>
             </Form.Item>
