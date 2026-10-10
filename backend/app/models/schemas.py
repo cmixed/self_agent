@@ -61,6 +61,51 @@ class LlmProviderUpdate(BaseModel):
     provider: str = Field(min_length=1)
 
 
+class CategoryInfo(BaseModel):
+    """知识库类别（多标签）。"""
+
+    category_id: str
+    name: str
+    description: str = ""
+    document_count: int = 0
+    created_at: str
+    updated_at: str
+
+
+class CategoryListResponse(BaseModel):
+    categories: list[CategoryInfo]
+
+
+class CategoryCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    description: str = Field(default="", max_length=200)
+
+
+class CategoryUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=40)
+    description: str | None = Field(default=None, max_length=200)
+
+
+class DocumentCategoriesUpdate(BaseModel):
+    """整组替换某文档的类别。"""
+
+    category_ids: list[str] = Field(default_factory=list)
+
+
+class TaskScope(BaseModel):
+    """任务检索范围：类别与单文档的并集；都为空表示整个知识库。"""
+
+    category_ids: list[str] = Field(default_factory=list)
+    document_ids: list[str] = Field(default_factory=list)
+
+
+class TaskScopeInfo(BaseModel):
+    """结果中回显的范围（解析后的规模）。"""
+
+    label: str
+    document_count: int
+
+
 class SkillInfo(BaseModel):
     """一个技能（Agent 可调用的结构化指令模块）。"""
 
@@ -96,6 +141,8 @@ class TaskRequest(BaseModel):
 
     query: str = Field(min_length=1)
     user_preferences: dict[str, str] = Field(default_factory=dict)
+    # 检索范围（可选）：缺省或为空 = 整个知识库
+    scope: TaskScope | None = None
 
 
 class PlanStepOut(BaseModel):
@@ -154,6 +201,8 @@ class DocumentInfo(BaseModel):
     filename: str
     title: str
     chunks: int
+    # 所属类别（多标签）：列表接口一次性带出，避免前端逐文档查询
+    category_ids: list[str] = Field(default_factory=list)
 
 
 class TaskSummaryOut(BaseModel):

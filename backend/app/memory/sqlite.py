@@ -88,6 +88,27 @@ CREATE TABLE IF NOT EXISTS presets (
     updated_at  TEXT NOT NULL
 );
 
+-- 知识库分类（多标签）：文档本体在 Chroma，这里只存「组织关系」。
+-- category_id 外键级联：删除类别自动清理映射，文档不受影响。
+CREATE TABLE IF NOT EXISTS categories (
+    category_id TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_name ON categories(name);
+
+CREATE TABLE IF NOT EXISTS document_categories (
+    category_id TEXT NOT NULL REFERENCES categories(category_id) ON DELETE CASCADE,
+    document_id TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (category_id, document_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_categories_doc ON document_categories(document_id);
+
 -- 轻量元数据（如「默认预设是否已写入」）：让「删空预设」不会被重启后重新 seed
 CREATE TABLE IF NOT EXISTS app_meta (
     key   TEXT PRIMARY KEY,

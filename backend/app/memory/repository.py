@@ -608,6 +608,18 @@ class SkillRepository:
 
 
 @dataclass(frozen=True)
+class CategoryRecord:
+    """知识库类别（多标签）。"""
+
+    category_id: str
+    name: str
+    description: str
+    created_at: str
+    updated_at: str
+    document_count: int = 0
+
+
+@dataclass(frozen=True)
 class PresetRecord:
     """一条预设任务（工作台的输入快捷方式，可由用户增删改）。"""
 
@@ -617,6 +629,200 @@ class PresetRecord:
     query: str
     created_at: str
     updated_at: str
+
+
+class CategoryRepository:
+    """categories / document_categories 的读写（组织关系，不含文档本体）。"""
+
+    def __init__(self, database: SqliteDatabase) -> None:
+        self._database = database
+
+    async def list_categories(self) -> list[CategoryRecord]:
+        return await asyncio.to_thread(self._list_categories)
+
+    async def get_category(self, category_id: str) -> CategoryRecord | None:
+        return await asyncio.to_thread(self._get_category, category_id)
+
+    async def find_by_name(self, name: str) -> CategoryRecord | None:
+        return await asyncio.to_thread(self._find_by_name, name)
+
+    async def create_category(self, *, name: str, description: str) -> CategoryRecord:
+        return await asyncio.to_thread(self._create_category, name, description)
+
+    async def update_category(
+        self, category_id: str, *, name: str | None = None, description: str | None = None
+    ) -> CategoryRecord | None:
+        return await asyncio.to_thread(self._update_category, category_id, name, description)
+
+    async def delete_category(self, category_id: str) -> bool:
+        return await asyncio.to_thread(self._delete_category, category_id)
+
+    async def set_document_categories(self, document_id: str, category_ids: list[str]) -> None:
+        await asyncio.to_thread(self._set_document_categories, document_id, category_ids)
+
+    async def document_category_map(self) -> dict[str, list[str]]:
+        """``document_id -> [category_id]``（供文档列表一次性带出分类，避免 N+1）。"""
+        return await asyncio.to_thread(self._document_category_map)
+
+    async def purge_document(self, document_id: str) -> None:
+        """删除文档时清理其分类映射（类别本身保留）。"""
+        await asyncio.to_thread(self._purge_document, document_id)
+
+    async def resolve_scope(
+        self, *, category_ids: list[str], document_ids: list[str]
+    ) -> list[str]:
+        """把「类别 + 单文档」选择解析为去重后的 document_id 列表。"""
+        return await asyncio.to_thread(self._resolve_scope, category_ids, document_ids)
+
+    # --- 同步实现 ---
+
+    @staticmethod
+    def _record(row: Any) -> CategoryRecord:
+        return CategoryRecord(
+            category_id=row["category_id"],
+            name=row["name"],
+            description=row["description"] or "",
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            document_count=int(row["document_count"]) if "document_count" in row.keys() else 0,
+        )
+
+    def _list_categories(self) -> list[CategoryRecord]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT c.category_id, c.name, c.description, c.created_at, c.updated_at,
+                       COUNT(m.document_id) AS document_count
+                  FROM categories c
+                  LEFT JOIN document_categories m ON m.category_id = c.category_id
+                 GROUP BY c.category_id
+                 ORDER BY c.name
+                """
+            ).fetchall()
+        return [self._record(row) for row in rows]
+
+    def _get_category(self, category_id: str) -> CategoryRecord | None:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT c.category_id, c.name, c.description, c.created_at, c.updated_at,
+                       COUNT(m.document_id) AS document_count
+                  FROM categories c
+                  LEFT JOIN document_categories m ON m.category_id = c.category_id
+                 WHERE c.category_id = ?
+                 GROUP BY c.category_id
+                """,
+                (category_id,),
+            ).fetchone()
+        return self._record(row) if row is not None else None
+
+    def _find_by_name(self, name: str) -> CategoryRecord | None:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT category_id FROM categories WHERE name = ?", (name,)
+            ).fetchone()
+        return self._get_category(row["category_id"]) if row is not None else None
+
+    def _create_category(self, name: str, description: str) -> CategoryRecord:
+        now = utc_now()
+        category_id = str(uuid4())
+        with self._database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO categories(category_id, name, description, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (category_id, name, description, now, now),
+            )
+            connection.commit()
+        return CategoryRecord(
+            category_id=category_id,
+            name=name,
+            description=description,
+            created_at=now,
+            updated_at=now,
+            document_count=0,
+        )
+
+    def _update_category(
+        self, category_id: str, name: str | None, description: str | None
+    ) -> CategoryRecord | None:
+        assignments: list[str] = []
+        params: list[Any] = []
+        for column, value in (("name", name), ("description", description)):
+            if value is not None:
+                assignments.append(f"{column} = ?")
+                params.append(value)
+        if not assignments:
+            return self._get_category(category_id)
+
+        now = utc_now()
+        with self._database.connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE categories SET {', '.join(assignments)}, updated_at = ? "
+                "WHERE category_id = ?",
+                (*params, now, category_id),
+            )
+            connection.commit()
+            if cursor.rowcount == 0:
+                return None
+        return self._get_category(category_id)
+
+    def _delete_category(self, category_id: str) -> bool:
+        with self._database.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM categories WHERE category_id = ?", (category_id,)
+            )
+            connection.commit()
+        return cursor.rowcount > 0
+
+    def _set_document_categories(self, document_id: str, category_ids: list[str]) -> None:
+        now = utc_now()
+        with self._database.connect() as connection:
+            connection.execute(
+                "DELETE FROM document_categories WHERE document_id = ?", (document_id,)
+            )
+            for category_id in dict.fromkeys(category_ids):
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO document_categories(category_id, document_id, created_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (category_id, document_id, now),
+                )
+            connection.commit()
+
+    def _document_category_map(self) -> dict[str, list[str]]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                "SELECT document_id, category_id FROM document_categories"
+            ).fetchall()
+        mapping: dict[str, list[str]] = {}
+        for row in rows:
+            mapping.setdefault(row["document_id"], []).append(row["category_id"])
+        return mapping
+
+    def _purge_document(self, document_id: str) -> None:
+        with self._database.connect() as connection:
+            connection.execute(
+                "DELETE FROM document_categories WHERE document_id = ?", (document_id,)
+            )
+            connection.commit()
+
+    def _resolve_scope(self, category_ids: list[str], document_ids: list[str]) -> list[str]:
+        resolved: list[str] = list(dict.fromkeys(document_ids))
+        if category_ids:
+            placeholders = ",".join("?" for _ in category_ids)
+            with self._database.connect() as connection:
+                rows = connection.execute(
+                    f"SELECT DISTINCT document_id FROM document_categories "
+                    f"WHERE category_id IN ({placeholders})",
+                    tuple(category_ids),
+                ).fetchall()
+            for row in rows:
+                if row["document_id"] not in resolved:
+                    resolved.append(row["document_id"])
+        return resolved
 
 
 class PresetRepository:
