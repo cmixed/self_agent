@@ -1069,6 +1069,17 @@ html[data-theme='dark'] body {
   justify-content: flex-end;
 }
 
+.ws-compose__scope {
+  display: flex;
+  align-items: center;
+  gap: var(--ws-space-2);
+  flex-wrap: wrap;
+  padding: var(--ws-space-2) var(--ws-space-3);
+  border: 1px solid var(--ant-color-border);
+  border-radius: var(--ws-radius-sm);
+  background: var(--ant-color-fill-quaternary);
+}
+
 .ws-compose__actions {
   display: flex;
   align-items: center;

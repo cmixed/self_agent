@@ -36,15 +36,16 @@ import type { MacroStage } from '../components/AgentProgress'
 import EmptyState from '../components/EmptyState'
 import MarkdownReader from '../components/MarkdownReader'
 import PageContainer from '../components/PageContainer'
+import ScopePicker from '../components/ScopePicker'
 import Section from '../components/Section'
 import SourceList from '../components/SourceList'
 import StatStrip from '../components/StatStrip'
 import StatusTag from '../components/StatusTag'
-import { listDocuments, listTasks } from '../services/api'
+import { listCategories, listDocuments, listTasks } from '../services/api'
 import { usePresets } from '../hooks/usePresets'
 import { useNav } from '../state/nav'
 import { useTaskRun } from '../state/taskRun'
-import type { DocumentInfo, TaskSummary } from '../types/api'
+import type { CategoryInfo, DocumentInfo, TaskScope, TaskSummary } from '../types/api'
 import { formatDateTime, formatDuration } from '../utils/format'
 
 const { Text, Paragraph } = Typography
@@ -108,6 +109,7 @@ export default function TaskPage() {
     nodes,
     plannerNotes,
     skillNotes,
+    scopeLabel,
     chapterNotes,
     chapterList,
     writtenChapters,
@@ -133,17 +135,21 @@ export default function TaskPage() {
   const resultRef = useRef<HTMLDivElement | null>(null)
   const [documents, setDocuments] = useState<DocumentInfo[] | null>(null)
   const [recentTasks, setRecentTasks] = useState<TaskSummary[]>([])
+  const [categories, setCategories] = useState<CategoryInfo[]>([])
+  const [scope, setScope] = useState<TaskScope>({ category_ids: [], document_ids: [] })
+  const [scopePickerOpen, setScopePickerOpen] = useState(false)
   const [outputTab, setOutputTab] = useState('plan')
 
   // 闲置态：轻量读取资料与最近任务（环境感知；失败静默，不打扰主流程）
   useEffect(() => {
     if (hasStarted) return
     let cancelled = false
-    Promise.all([listDocuments(), listTasks()])
-      .then(([docs, tasks]) => {
+    Promise.all([listDocuments(), listTasks(), listCategories()])
+      .then(([docs, tasks, categoryData]) => {
         if (cancelled) return
         setDocuments(docs.documents)
         setRecentTasks(tasks.tasks.slice(0, 4))
+        setCategories(categoryData.categories)
       })
       .catch(() => {
         if (!cancelled) setDocuments([])
@@ -161,8 +167,14 @@ export default function TaskPage() {
   }, [finalAnswer])
 
   const handleStart = () => {
-    void startRun()
+    void startRun(undefined, scope)
   }
+
+  const scopeCount = scope.category_ids.length + scope.document_ids.length
+  const scopeSummary =
+    scopeCount === 0
+      ? '全部知识库'
+      : `${scope.category_ids.length} 个类别 + ${scope.document_ids.length} 篇文档`
 
   /** 预设任务：点击卡片 = 填充输入框并聚焦（用户确认后再运行）。 */
   const handlePresetFill = (presetQuery: string) => {
@@ -174,7 +186,7 @@ export default function TaskPage() {
   const handlePresetRun = (presetQuery: string) => {
     if (running) return
     setQuery(presetQuery)
-    void startRun(presetQuery)
+    void startRun(presetQuery, scope)
   }
 
   const handleReset = () => {
@@ -259,6 +271,7 @@ export default function TaskPage() {
   ]
 
   const metrics: string[] = []
+  if (scopeLabel) metrics.push(`范围：${scopeLabel}`)
   if (outline.length > 0) metrics.push(`${outline.length} 章`)
   if (retrievedCount !== null) metrics.push(`命中 ${retrievedCount} 条`)
   if (replans > 0) metrics.push(`重新规划 ${replans} 次`)
@@ -461,6 +474,27 @@ export default function TaskPage() {
             }}
           />
 
+          <div className="ws-compose__scope">
+            <Space size={8} wrap>
+              <Text type="secondary">检索范围：</Text>
+              <Tag color={scopeCount === 0 ? 'default' : 'green'}>{scopeSummary}</Tag>
+              <Button size="small" onClick={() => setScopePickerOpen(true)} disabled={running}>
+                选择范围
+              </Button>
+              {scopeCount > 0 ? (
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<CloseCircleOutlined />}
+                  disabled={running}
+                  onClick={() => setScope({ category_ids: [], document_ids: [] })}
+                >
+                  改为全部
+                </Button>
+              ) : null}
+            </Space>
+          </div>
+
           <div className="ws-compose__actions">
             <Text type="secondary" className="ws-compose__hint">
               Enter 运行任务 · Shift + Enter 换行 · 或从下方预设任务开始
@@ -538,6 +572,18 @@ export default function TaskPage() {
             ))}
           </div>
         )}
+
+        <ScopePicker
+          open={scopePickerOpen}
+          categories={categories}
+          documents={documents ?? []}
+          value={scope}
+          onCancel={() => setScopePickerOpen(false)}
+          onConfirm={(selection) => {
+            setScope(selection)
+            setScopePickerOpen(false)
+          }}
+        />
 
         <Section title="Agent 执行流程" description="运行时会按此顺序推进，并实时反馈当前阶段" />
 

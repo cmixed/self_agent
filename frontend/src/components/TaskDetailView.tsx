@@ -244,6 +244,11 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
               <Descriptions.Item label="结束" span={1}>
                 {formatDateTime(detail.finished_at)}
               </Descriptions.Item>
+              <Descriptions.Item label="检索范围">
+                {detail.scope?.label
+                  ? `${detail.scope.label}（${detail.scope.document_count} 篇）`
+                  : '全部知识库'}
+              </Descriptions.Item>
               <Descriptions.Item label="重新规划次数">{detail.retry_count}</Descriptions.Item>
               <Descriptions.Item label="未通过校验章节">
                 {detail.failed_chapters.length > 0 ? detail.failed_chapters.join(', ') : '无'}

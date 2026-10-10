@@ -8,7 +8,7 @@ import type {
   StageStatus,
 } from '../components/AgentProgress'
 import { ApiError, cancelTask, streamRerun, streamResume, streamTask } from '../services/api'
-import type { Plan, Source, TaskEvent, Validation } from '../types/api'
+import type { Plan, Source, TaskEvent, TaskScope, Validation } from '../types/api'
 import { downloadMarkdown } from '../utils/download'
 
 /** 图中可能出现的节点（skills 仅在存在启用技能时挂载） */
@@ -109,7 +109,9 @@ export interface TaskRunValue {
   activeTab: string
   setActiveTab: (key: string) => void
   copied: boolean
-  run: (overrideQuery?: string) => Promise<void>
+  run: (overrideQuery?: string, scope?: TaskScope | null) => Promise<void>
+  /** 本次运行实际使用的检索范围标签（来自事件/结果，仅用于展示） */
+  scopeLabel: string | null
   /** 从断点继续（同一任务） */
   resume: (taskId: string) => Promise<void>
   /** 用原任务内容重新生成（新任务） */
@@ -135,6 +137,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   const [nodes, setNodes] = useState<Record<NodeKey, StageStatus>>(INITIAL_NODES)
   const [plannerNotes, setPlannerNotes] = useState<string[]>([])
   const [skillNotes, setSkillNotes] = useState<string[]>([])
+  const [scopeLabel, setScopeLabel] = useState<string | null>(null)
   const [chapterNotes, setChapterNotes] = useState<Record<number, string[]>>({})
   const [round, setRound] = useState(1)
   const [log, setLog] = useState<LogEntry[]>([])
@@ -210,6 +213,10 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
 
       if (event.event === 'task_resumed') {
         pushLog('继续', event.message, 'info')
+        if (event.scope?.label) {
+          setScopeLabel(event.scope.label)
+          pushLog('范围', `沿用原检索范围：${event.scope.label}`, 'info')
+        }
         if (event.plan) {
           setPlan(event.plan)
           setNodes((prev) => ({ ...prev, planner: 'finish' }))
@@ -264,6 +271,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         if (event.result?.outline?.length) setOutline(event.result.outline)
         if (event.result?.validation) setValidation(event.result.validation)
         setReplans(event.result?.retry_count ?? 0)
+        if (event.result?.scope?.label) setScopeLabel(event.result.scope.label)
         for (const target of event.result?.failed_chapters ?? []) {
           const n = chapterNumber(target)
           if (n !== null) updateChapter(n, { validation: 'failed' })
@@ -404,6 +412,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     setNodes(INITIAL_NODES)
     setPlannerNotes([])
     setSkillNotes([])
+    setScopeLabel(null)
     setChapterNotes({})
     roundRef.current = 1
     setRound(1)
@@ -465,14 +474,14 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   )
 
   const run = useCallback(
-    async (overrideQuery?: string) => {
+    async (overrideQuery?: string, scope?: TaskScope | null) => {
       const trimmed = (overrideQuery ?? query).trim()
       if (!trimmed || running) return
       // 预设任务「直接运行」路径：把预设写入输入框，保持界面与实际执行一致
       if (overrideQuery !== undefined && overrideQuery !== query) {
         setQuery(overrideQuery)
       }
-      await runStream((onEvent, signal) => streamTask(trimmed, onEvent, signal))
+      await runStream((onEvent, signal) => streamTask(trimmed, onEvent, signal, scope))
     },
     [query, running, runStream, setQuery],
   )
@@ -568,6 +577,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     setActiveTab,
     copied,
     run,
+    scopeLabel,
     resume,
     rerun,
     abort,

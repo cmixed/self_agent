@@ -12,6 +12,7 @@ import type {
   PresetListResponse,
   SettingsResponse,
   SkillInfo,
+  TaskScope,
   SkillListResponse,
   TaskDetail,
   TaskEvent,
@@ -113,13 +114,16 @@ export async function streamTask(
   query: string,
   onEvent: (event: TaskEvent) => void,
   signal?: AbortSignal,
+  scope?: TaskScope | null,
 ): Promise<void> {
+  const hasScope = Boolean(scope && (scope.category_ids.length || scope.document_ids.length))
   return streamSse(
     '/tasks/stream',
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
+      // scope 缺省 = 全部知识库（后端不解析、不加过滤）
+      body: JSON.stringify(hasScope ? { query, scope } : { query }),
     },
     onEvent,
     signal,

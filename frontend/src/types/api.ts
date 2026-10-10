@@ -138,6 +138,8 @@ export interface TaskResult {
   /** 未通过校验的章节，如 ["chapter_3"] */
   failed_chapters: string[]
   final_answer: string
+  /** 本次检索范围（回显）；null 表示整个知识库 */
+  scope?: TaskScopeInfo | null
 }
 
 export interface TaskAttempt {
@@ -237,6 +239,8 @@ export interface TaskEvent {
   truncated?: boolean
   /** 断点续跑：task_resumed 事件 */
   resumed?: boolean
+  /** 本次检索范围（task_resumed 快照 / 结果回显） */
+  scope?: TaskScopeInfo | null
   chapters_written?: number
   /** 重新生成：task_started 事件指向的原任务 */
   rerun_of?: string
