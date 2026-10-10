@@ -1,6 +1,8 @@
 import type {
   ApiErrorBody,
   ChatMessage,
+  CategoryInfo,
+  CategoryListResponse,
   ChatResponse,
   DocumentInfo,
   HealthResponse,
@@ -284,6 +286,52 @@ export async function deletePreset(presetId: string): Promise<void> {
   if (!response.ok) {
     throw await toApiError(response)
   }
+}
+
+// --- 知识库类别（多标签组织）---
+
+export function listCategories(): Promise<CategoryListResponse> {
+  return request<CategoryListResponse>('/categories')
+}
+
+export function createCategory(payload: {
+  name: string
+  description?: string
+}): Promise<CategoryInfo> {
+  return request<CategoryInfo>('/categories', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateCategory(
+  categoryId: string,
+  payload: { name?: string; description?: string },
+): Promise<CategoryInfo> {
+  return request<CategoryInfo>(`/categories/${encodeURIComponent(categoryId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteCategory(categoryId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/categories/${encodeURIComponent(categoryId)}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    throw await toApiError(response)
+  }
+}
+
+/** 整组替换某文档的类别。 */
+export function setDocumentCategories(
+  documentId: string,
+  categoryIds: string[],
+): Promise<{ document_id: string; category_ids: string[] }> {
+  return request<{ document_id: string; category_ids: string[] }>(
+    `/documents/${encodeURIComponent(documentId)}/categories`,
+    { method: 'PUT', body: JSON.stringify({ category_ids: categoryIds }) },
+  )
 }
 
 // --- 长期记忆 ---

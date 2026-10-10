@@ -30,6 +30,32 @@ export interface SettingsResponse {
   providers: LlmProviderInfo[]
 }
 
+export interface CategoryInfo {
+  category_id: string
+  name: string
+  description: string
+  document_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface CategoryListResponse {
+  categories: CategoryInfo[]
+}
+
+/** 任务检索范围：类别与单文档的并集；都为空表示整个知识库。 */
+export interface TaskScope {
+  category_ids: string[]
+  document_ids: string[]
+}
+
+export interface TaskScopeInfo {
+  label: string
+  document_count: number
+  category_ids: string[]
+  selected_document_ids: string[]
+}
+
 export interface SkillInfo {
   skill_id: string
   name: string
@@ -171,6 +197,8 @@ export interface DocumentInfo {
   filename: string
   title: string
   chunks: number
+  /** 所属类别（多标签），由列表接口一次性带出 */
+  category_ids: string[]
 }
 
 export interface MemoryRecord {
