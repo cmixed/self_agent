@@ -331,27 +331,6 @@ export default function KnowledgeBasePage() {
         </Card>
 
         <div className="kb-main">
-          <Card title="上传知识文档">
-            <Dragger {...uploadProps}>
-              <p className="ant-upload-drag-icon">
-                <InboxOutlined />
-              </p>
-              <Paragraph style={{ marginBottom: 4 }}>点击或拖拽文件到此区域上传</Paragraph>
-              <Text type="secondary">
-                支持 PDF / TXT / Markdown；上传后自动完成文本解析、分块与向量索引
-              </Text>
-            </Dragger>
-
-            {uploading && (
-              <Space style={{ marginTop: 12 }} size="small">
-                <Spin size="small" />
-                <Text type="secondary">
-                  正在解析并建立索引…首次上传需加载本地 Embedding 模型（约 10 秒），请勿关闭页面
-                </Text>
-              </Space>
-            )}
-          </Card>
-
           <Card
             title={
               activeCategory === FILTER_ALL
@@ -364,7 +343,7 @@ export default function KnowledgeBasePage() {
             {documents.length === 0 && !loading ? (
               <EmptyState
                 title="还没有任何文档"
-                hint="上传一份论文或笔记，Agent 才能在任务中检索并标注来源"
+                hint="用下方「上传知识文档」区域上传一份论文或笔记，Agent 才能在任务中检索并标注来源"
                 action={
                   <Upload {...uploadProps}>
                     <Button type="primary" icon={<InboxOutlined />}>
@@ -377,7 +356,7 @@ export default function KnowledgeBasePage() {
               <EmptyState
                 compact
                 title="该类别下还没有文档"
-                hint="在上方文档行的「分类」里把资料归入这个类别"
+                hint="在文档行的「分类」里把已有资料归入这个类别，或先在下方上传"
               />
             ) : (
               <Table<DocumentInfo>
@@ -485,6 +464,26 @@ export default function KnowledgeBasePage() {
                   },
                 ]}
               />
+            )}
+          </Card>
+          <Card title="上传知识文档">
+            <Dragger {...uploadProps}>
+              <p className="ant-upload-drag-icon">
+                <InboxOutlined />
+              </p>
+              <Paragraph style={{ marginBottom: 4 }}>点击或拖拽文件到此区域上传</Paragraph>
+              <Text type="secondary">
+                支持 PDF / TXT / Markdown；上传后自动完成文本解析、分块与向量索引
+              </Text>
+            </Dragger>
+
+            {uploading && (
+              <Space style={{ marginTop: 12 }} size="small">
+                <Spin size="small" />
+                <Text type="secondary">
+                  正在解析并建立索引…首次上传需加载本地 Embedding 模型（约 10 秒），请勿关闭页面
+                </Text>
+              </Space>
             )}
           </Card>
         </div>
