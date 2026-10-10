@@ -67,6 +67,21 @@ cp backend/.env.example backend/.env
 > 留给外部工具（如 DeepSeek harness），本应用不读取它。`backend/.env` 已被
 > `.gitignore` 忽略，禁止提交；真实环境变量的优先级高于该文件。API Key 只从环境变量/该文件读取。
 
+### 接入自定义接口 / Kimi / 本地 Ollama
+
+| 方式 | 配置 | 说明 |
+| --- | --- | --- |
+| 自定义 OpenAI 兼容端点 | `CUSTOM_BASE_URL` + `CUSTOM_MODEL`(+`CUSTOM_API_KEY`) | 任意兼容服务：Kimi、vLLM、LM Studio… |
+| Kimi（Moonshot） | `CUSTOM_BASE_URL=https://api.moonshot.cn/v1`、`CUSTOM_MODEL=kimi-k3`、`MOONSHOT_API_KEY=…` | 官方 OpenAI 兼容，支持 JSON 模式与 `/v1/models` |
+| 本地 Ollama | `OLLAMA_MODEL=qwen3:4b`（默认 `http://127.0.0.1:11434/v1`） | 本地服务**无需密钥**，默认超时放宽到 300s |
+
+要点：
+
+- 三者与内置 DeepSeek/GLM **共用同一客户端**，不新增厂商 SDK；
+- 端点若不支持 `response_format`，客户端自动回退为纯提示词 JSON 模式（不会整单失败）；
+- 本地服务未启动时给出可读提示，而不是笼统的「上游异常」；
+- 自定义 Provider 也可以在 UI 里管理（存本地 SQLite，密钥环境变量优先）。
+
 ### 切换模型服务商（DeepSeek ↔ GLM）
 
 - 前端顶栏提供切换器（未配置密钥的服务商选项会被禁用），任务执行中禁止切换；

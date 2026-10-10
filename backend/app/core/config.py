@@ -80,6 +80,24 @@ class Settings(BaseSettings):
     glm_timeout_seconds: float = 60.0
     glm_max_retries: int = 2
 
+    # --- 自定义 OpenAI 兼容端点（.env 版本；UI 管理的条目存 SQLite，见 P3）---
+    custom_base_url: str = ""
+    custom_api_key: SecretStr | None = None
+    custom_model: str = ""
+    custom_label: str = "自定义接口"
+    custom_api_key_env: str = "CUSTOM_API_KEY"
+    custom_requires_api_key: bool = True
+    custom_is_local: bool = False
+    custom_timeout_seconds: float = 120.0
+    custom_max_retries: int = 2
+
+    # --- Ollama（本地模型，OpenAI 兼容端点）---
+    ollama_base_url: str = "http://127.0.0.1:11434/v1"
+    ollama_model: str = ""
+    # 本地推理慢，默认超时与重试都更宽松
+    ollama_timeout_seconds: float = 300.0
+    ollama_max_retries: int = 1
+
     # --- 运行时设置（前端切换 LLM Provider 的持久化，§18 /api/settings）---
     settings_path: Path = _REPO_ROOT / "data" / "settings.json"
 
@@ -120,13 +138,22 @@ class Settings(BaseSettings):
         return self.provider_configured(self.llm_provider)
 
     def provider_configured(self, provider: str) -> bool:
-        """按 Provider 名称检查密钥是否就绪（不校验可用性；占位符视为未配置）。"""
+        """按 Provider 名称检查配置是否就绪（不校验可用性；占位符视为未配置）。"""
         name = provider.strip().lower()
         key: SecretStr | None
         if name == "deepseek":
             key = self.deepseek_api_key
         elif name == "glm":
             key = self.glm_api_key
+        elif name == "custom":
+            if not self.custom_base_url.strip() or not self.custom_model.strip():
+                return False
+            if not self.custom_requires_api_key:
+                return True
+            key = self.custom_api_key
+        elif name == "ollama":
+            # 本地服务无需密钥，配置了模型名即视为就绪
+            return bool(self.ollama_base_url.strip() and self.ollama_model.strip())
         else:
             return False
         if key is None:
@@ -156,6 +183,10 @@ class Settings(BaseSettings):
             return self.deepseek_model
         if name == "glm":
             return self.glm_model
+        if name == "custom":
+            return self.custom_model
+        if name == "ollama":
+            return self.ollama_model
         return ""
 
 

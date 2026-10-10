@@ -78,11 +78,23 @@ def test_switch_to_unconfigured_provider_returns_409() -> None:
 
 def test_switch_to_unknown_provider_returns_422() -> None:
     with make_client() as client:
-        response = client.put("/api/settings/llm-provider", json={"provider": "ollama"})
+        response = client.put("/api/settings/llm-provider", json={"provider": "gemini"})
     assert response.status_code == 422
     body = response.json()
     assert body["error_type"] == "unknown_provider"
-    assert "ollama" in body["detail"]
+    assert "gemini" in body["detail"]
+
+
+def test_switch_to_known_but_unconfigured_provider_returns_409(monkeypatch) -> None:
+    """已知但未配置的 Provider（如未设模型的 Ollama）→ 409 且说明缺什么。"""
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen3:4b")
+    get_settings.cache_clear()
+
+    with make_client() as client:
+        response = client.put("/api/settings/llm-provider", json={"provider": "ollama"})
+    # Ollama 无需密钥：仅在未配置 base_url/model 时才不可用，这里 model 已设置 → 可切换
+    assert response.status_code == 200
+    assert response.json()["llm_provider"] == "ollama"
 
 
 def test_switch_rejects_blank_provider() -> None:

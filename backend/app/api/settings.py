@@ -15,8 +15,8 @@ from fastapi.responses import JSONResponse
 from app.core.config import get_settings
 from app.llm.base import LLMConfigError
 from app.llm.factory import (
-    SUPPORTED_PROVIDERS,
     current_llm_provider,
+    provider_configs,
     switch_llm_provider,
 )
 from app.models.schemas import ErrorResponse, LLMProviderInfo, LlmProviderUpdate, SettingsResponse
@@ -25,16 +25,24 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
 def _snapshot() -> SettingsResponse:
+    """全部可切换的 Provider（内置 + 自定义/本地；未配置完备的不出现）。
+
+    内置两项即使未配置密钥也保留（界面显示为"未配置"并禁用），
+    可选扩展（Ollama / 自定义）只在配置了端点与模型后才出现。
+    """
     settings = get_settings()
     active = current_llm_provider()
+    configs = provider_configs(settings)
+    ordered = ["deepseek", "glm", *[name for name in configs if name not in {"deepseek", "glm"}]]
     providers = [
         LLMProviderInfo(
             id=name,
-            model=settings.provider_model(name),
-            configured=settings.provider_configured(name),
+            model=configs[name].model,
+            configured=configs[name].available,
             active=name == active,
         )
-        for name in SUPPORTED_PROVIDERS
+        for name in ordered
+        if name in configs
     ]
     return SettingsResponse(llm_provider=active, providers=providers)
 
@@ -46,7 +54,7 @@ async def get_app_settings() -> SettingsResponse:
 
 @router.put("/llm-provider", response_model=SettingsResponse)
 async def update_llm_provider(payload: LlmProviderUpdate) -> SettingsResponse | JSONResponse:
-    if payload.provider.strip().lower() not in SUPPORTED_PROVIDERS:
+    if payload.provider.strip().lower() not in provider_configs(get_settings()):
         body = ErrorResponse(
             error="unknown_provider",
             error_type="unknown_provider",

@@ -462,8 +462,30 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-flash
 ```
 
-支持的第二 Provider（GLM，智谱 OpenAI 兼容接口；新增 Provider 只加
-`llm/<provider>.py` 与工厂分支，不改 Agent Graph，见 §4.3/§25）：
+支持的其它 Provider（均为 OpenAI 兼容，新增只改 `llm/` 与工厂分支，
+不改 Agent Graph，见 §4.3/§25）：
+
+```env
+# 自定义端点（Kimi / vLLM / LM Studio / 任意 OpenAI 兼容服务）
+LLM_PROVIDER=custom
+CUSTOM_BASE_URL=https://api.moonshot.cn/v1
+CUSTOM_MODEL=kimi-k3
+CUSTOM_LABEL=Kimi
+CUSTOM_API_KEY_ENV=MOONSHOT_API_KEY
+MOONSHOT_API_KEY=your_api_key
+
+# 本地模型（Ollama，无需密钥）
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
+OLLAMA_MODEL=qwen3:4b
+```
+
+- 自定义/本地端点与内置 Provider 共用同一客户端（`llm/openai_compat.py`）：
+  无密钥端点不发 Authorization；端点若不支持 `response_format`，
+  客户端会**自动回退为纯提示词 JSON 模式**（结构化仍由 Schema 校验兜底）。
+- 自定义 Provider 也可在 UI 管理（存 SQLite；密钥环境变量优先，见 README）。
+
+GLM（智谱）配置：
 
 ```env
 LLM_PROVIDER=glm

@@ -14,6 +14,7 @@ from collections.abc import Sequence
 
 import httpx
 
+from app.core.logging import get_logger
 from app.llm.base import (
     ChatMessage,
     LLMConfigError,
@@ -24,6 +25,8 @@ from app.llm.base import (
     LLMTimeoutError,
     LLMUpstreamError,
 )
+
+logger = get_logger(__name__)
 
 _CHAT_COMPLETIONS_PATH = "/chat/completions"
 _MAX_ERROR_BODY_CHARS = 300
@@ -40,6 +43,19 @@ _QUOTA_KEYWORDS = (
     "exceeded your current quota",
     "insufficient balance",
 )
+
+
+def _rejects_response_format(response: httpx.Response) -> bool:
+    """该 400 是否因为端点不支持 ``response_format``。
+
+    只在错误体明确提到 response_format 时才回退：否则会把真正的请求错误
+    （例如模型名拼错）也当成"参数不支持"，掩盖真实原因。
+    """
+    try:
+        text = response.text or ""
+    except Exception:  # pragma: no cover - 读取响应体失败时保守处理
+        return False
+    return "response_format" in text.lower()
 
 
 def _is_quota_exhausted(response: httpx.Response) -> bool:
@@ -81,16 +97,23 @@ class OpenAICompatProvider(LLMProvider):
         base_url: str,
         model: str,
         api_key_env: str = "API_KEY",
+        requires_api_key: bool = True,
+        is_local: bool = False,
         timeout_seconds: float = 60.0,
         max_retries: int = 2,
         retry_backoff_seconds: float = 0.5,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        if not api_key or not api_key.strip():
+        # 本地服务（Ollama 等）不需要密钥：requires_api_key=False 时不发 Authorization
+        if requires_api_key and (not api_key or not api_key.strip()):
             raise LLMConfigError(f"{api_key_env} 未配置")
 
-        self._api_key = api_key.strip()
+        self._api_key = (api_key or "").strip()
         self._model = model
+        # 本地服务的错误提示与默认超时不同，需要业务层能区分
+        self.is_local = is_local
+        # 部分自定义端点不支持 response_format：探测结果缓存到实例，避免每次多一次往返
+        self._json_mode_supported: bool | None = None
         self._max_retries = max(0, max_retries)
         self._retry_backoff_seconds = retry_backoff_seconds
         self._client = httpx.AsyncClient(
@@ -114,13 +137,17 @@ class OpenAICompatProvider(LLMProvider):
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
-        if json_mode:
+        # 已知该端点不支持 response_format 时不再携带（首次探测失败后置 False）
+        if json_mode and self._json_mode_supported is not False:
             payload["response_format"] = {"type": "json_object"}
 
-        headers = {"Authorization": f"Bearer {self._api_key}"}
+        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
 
         last_error: Exception | None = None
-        for attempt in range(self._max_retries + 1):
+        attempt = 0
+        # 「去掉 response_format 再试一次」不占用重试预算（自定义端点兼容性）
+        json_fallback_available = True
+        while attempt <= self._max_retries:
             try:
                 response = await self._client.post(
                     _CHAT_COMPLETIONS_PATH, json=payload, headers=headers
@@ -131,7 +158,25 @@ class OpenAICompatProvider(LLMProvider):
                 last_error = LLMUpstreamError(f"{self.display_name} 网络异常：{exc}")
             else:
                 if response.status_code == 200:
+                    if json_mode:
+                        self._json_mode_supported = "response_format" in payload
                     return self._parse_response(response)
+                if (
+                    response.status_code == 400
+                    and json_fallback_available
+                    and "response_format" in payload
+                    and _rejects_response_format(response)
+                ):
+                    # 该端点不支持 response_format：去掉参数后用纯提示词 JSON 模式重试，
+                    # 结构化仍由 Schema 校验 + 有限重试兜底（见 LLMProvider.chat_structured）
+                    payload.pop("response_format", None)
+                    json_fallback_available = False
+                    self._json_mode_supported = False
+                    logger.warning(
+                        "端点不支持 response_format，已回退为纯提示词 JSON 模式",
+                        extra={"node": self.display_name, "event": "json_mode_fallback"},
+                    )
+                    continue
                 if response.status_code == 429:
                     # 429 语义有两类：真限流（可退避重试）与账户余额/配额不足
                     # （重试无意义）。后者必须区分出来，否则前端会一直提示
@@ -151,6 +196,7 @@ class OpenAICompatProvider(LLMProvider):
 
             if attempt < self._max_retries:
                 await asyncio.sleep(self._retry_backoff_seconds * (2**attempt))
+            attempt += 1
 
         assert last_error is not None
         raise last_error
