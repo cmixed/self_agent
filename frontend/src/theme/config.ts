@@ -36,14 +36,17 @@ export const SAGE = {
 /** 中性表面：统一实色分层（无渐变 / 无毛玻璃 / 无发光）。 */
 export const SURFACE = {
   light: {
+    // 米黄阶（同一暖色相，按明度分层）：
+    // 页面茶色 91% < 次级底/表头 93% < 卡片 96% < 浮层 98%
+    // 即"白色面"改为比页面茶色更浅的淡米黄，而不是纯白。
     layout: '#f0e9df',
-    container: '#ffffff',
-    elevated: '#ffffff',
-    secondary: '#faf8f2',
-    border: '#e6ddcd',
-    borderSecondary: '#efe8db',
-    fill: '#f6f1e8',
-    tableHeader: '#f7f3ec',
+    container: '#fbf7f0',
+    elevated: '#fdfbf6',
+    secondary: '#f5efe4',
+    border: '#e3d8c4',
+    borderSecondary: '#ece2d2',
+    fill: '#f4eee3',
+    tableHeader: '#f5efe4',
     text: '#1f2320',
     textSecondary: '#5b625c',
     textTertiary: '#8b928c',
@@ -183,6 +186,9 @@ export function buildThemeConfig(mode: ThemeMode): ThemeConfig {
         headerHeight: 48,
         paddingLG: 20,
       },
+      // 输入类控件比卡片再浅一档，避免奶油底上的输入框"消失"（仍有描边兜底）
+      Input: { colorBgContainer: s.elevated },
+      Select: { colorBgContainer: s.elevated },
       Table: {
         headerBg: s.tableHeader,
         headerColor: s.textSecondary,
