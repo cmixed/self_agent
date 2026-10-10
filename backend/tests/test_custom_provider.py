@@ -169,15 +169,27 @@ def test_kimi_config_builds_custom_provider(monkeypatch) -> None:
     reset_llm()
 
 
-def test_custom_provider_hidden_until_configured_but_ollama_always_listed() -> None:
-    """自定义端点未配置即隐藏；Ollama 常驻（未选模型时标注为不可用）。"""
+def test_unconfigured_optional_providers_are_hidden() -> None:
+    """未配置的可选 Provider（自定义端点 / Ollama）不列出。
+
+    切换器只应出现真正可用的服务；未配置的灰项容易被误解为"坏了"，
+    发现入口统一放在「模型服务」页。
+    """
     settings = Settings(_env_file=None)
     configs = provider_configs(settings)
     assert "custom" not in configs
-    assert "ollama" in configs
-    assert configs["ollama"].available is False
-    assert configs["ollama"].api_key_env == "OLLAMA_MODEL"  # 提示缺的是模型名
-    assert configs["ollama"].is_local is True
+    assert "ollama" not in configs
+
+
+def test_ollama_listed_once_model_configured(monkeypatch) -> None:
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen3:4b")
+    get_settings.cache_clear()
+    config = provider_configs(get_settings())["ollama"]
+    assert config.is_local is True
+    assert config.requires_api_key is False
+    assert config.available is True
+    assert config.api_key_env == "OLLAMA_MODEL"  # 错误提示指向模型名而非密钥
+    reset_llm()
 
 
 def test_local_custom_provider_available_without_key(monkeypatch) -> None:

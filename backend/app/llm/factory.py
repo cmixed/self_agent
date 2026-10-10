@@ -61,22 +61,22 @@ def provider_configs(settings: Settings) -> dict[str, ProviderConfig]:
         ),
     }
 
-    # Ollama：**始终列出**（本地服务无需密钥）。未选模型时 configured=False，
-    # 界面上显示为「未配置」并禁用——这样用户能在切换器里直接发现本地模型能力，
-    # 而不是对着只有两个云端的列表猜。
-    configs["ollama"] = ProviderConfig(
-        id="ollama",
-        label="Ollama（本地）",
-        base_url=settings.ollama_base_url,
-        model=settings.ollama_model,
-        # 该字段此处仅用于「缺什么」的错误提示：Ollama 缺的是模型名而不是密钥
-        api_key_env="OLLAMA_MODEL",
-        requires_api_key=False,
-        is_local=True,
-        timeout_seconds=settings.ollama_timeout_seconds,
-        max_retries=settings.ollama_max_retries,
-        key_source="none",
-    )
+    # Ollama：本地服务无需密钥。**仅在配置了模型后列出**——未配置的条目在切换器里
+    # 只是一个灰掉的项，容易被误认为"坏了"；发现入口统一放在「模型服务」页。
+    if settings.ollama_model.strip():
+        configs["ollama"] = ProviderConfig(
+            id="ollama",
+            label="Ollama（本地）",
+            base_url=settings.ollama_base_url,
+            model=settings.ollama_model,
+            # 该字段此处仅用于「缺什么」的错误提示：Ollama 缺的是模型名而不是密钥
+            api_key_env="OLLAMA_MODEL",
+            requires_api_key=False,
+            is_local=True,
+            timeout_seconds=settings.ollama_timeout_seconds,
+            max_retries=settings.ollama_max_retries,
+            key_source="none",
+        )
 
     # 自定义 OpenAI 兼容端点（.env 版本；UI 版本在 P3 并入）
     if settings.custom_base_url.strip() or settings.custom_model.strip():

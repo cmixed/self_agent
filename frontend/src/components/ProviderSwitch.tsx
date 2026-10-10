@@ -1,4 +1,4 @@
-import { PlusOutlined } from '@ant-design/icons'
+import { SettingOutlined } from '@ant-design/icons'
 import { App as AntApp, Divider, Select, Space, Tooltip, Typography } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
@@ -33,7 +33,7 @@ interface ProviderSwitchProps {
  * 顶栏模型服务商切换器。
  *
  * - 选项来自 GET /api/settings（内置 + 自定义；未配置的项禁用并标注原因）；
- * - 下拉底部提供「添加 / 管理模型服务」入口：**未配置时也能发现新能力**
+ * - 下拉最后一项固定为「模型服务」：跳转到模型服务页添加/管理端点
  *   （Kimi / 本地 Ollama / 任意兼容端点）；
  * - 打开下拉时重新拉取：在「模型服务」页新增后无需刷新页面即可切换；
  * - 切换走 PUT /api/settings/llm-provider，失败时展示后端可读原因，受控 value 保持不变。
@@ -92,8 +92,6 @@ export default function ProviderSwitch({ activeProvider, running, onSwitched }: 
     }
   })
 
-  const customCount = settings.providers.filter((item) => item.managed).length
-
   return (
     <Tooltip title={running ? '任务执行中，暂不能切换模型' : '切换模型服务商（对后续任务生效）'}>
       <Select
@@ -118,10 +116,7 @@ export default function ProviderSwitch({ activeProvider, running, onSwitched }: 
               className="app-header-provider__manage"
               onClick={() => navigate('providers')}
             >
-              <PlusOutlined /> 添加 / 管理模型服务
-              {customCount === 0 ? (
-                <Text type="secondary">（Kimi、本地 Ollama…）</Text>
-              ) : null}
+              <SettingOutlined /> 模型服务
             </button>
           </>
         )}

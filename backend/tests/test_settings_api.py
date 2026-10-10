@@ -30,10 +30,8 @@ def test_get_settings_snapshot_lists_providers_without_secrets() -> None:
     assert body["llm_provider"] == "deepseek"
 
     by_id = {item["id"]: item for item in body["providers"]}
-    # Ollama 常驻列出（未配置模型 → configured=False，界面显示"未配置"并禁用）
-    assert set(by_id) == {"deepseek", "glm", "ollama"}
-    assert by_id["ollama"]["configured"] is False
-    assert by_id["ollama"]["is_local"] is True
+    # 未配置的可选 Provider 不出现在切换器数据源里（避免灰项）
+    assert set(by_id) == {"deepseek", "glm"}
     assert by_id["deepseek"]["configured"] is True
     assert by_id["deepseek"]["active"] is True
     assert by_id["deepseek"]["model"] == "deepseek-flash"

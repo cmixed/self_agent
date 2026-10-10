@@ -54,9 +54,9 @@ const PAGE_META: Array<{ key: string; label: string; icon: ReactNode }> = [
   { key: 'knowledge', label: '知识库', icon: <DatabaseOutlined /> },
   { key: 'skills', label: '技能', icon: <ApiOutlined /> },
   { key: 'presets', label: '预设任务', icon: <TagsOutlined /> },
-  { key: 'providers', label: '模型服务', icon: <CloudServerOutlined /> },
   { key: 'history', label: '任务历史', icon: <HistoryOutlined /> },
   { key: 'memory', label: '长期记忆', icon: <BulbOutlined /> },
+  { key: 'providers', label: '模型服务', icon: <CloudServerOutlined /> },
 ]
 
 export default function App() {
