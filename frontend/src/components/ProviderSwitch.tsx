@@ -1,15 +1,21 @@
-import { App as AntApp, Select, Tooltip } from 'antd'
+import { PlusOutlined } from '@ant-design/icons'
+import { App as AntApp, Divider, Select, Space, Tooltip, Typography } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
 import { ApiError, getSettings, updateLlmProvider } from '../services/api'
-import type { SettingsResponse } from '../types/api'
+import { useNav } from '../state/nav'
+import type { LlmProviderOption, SettingsResponse } from '../types/api'
 
-/** Provider 显示名；未知名兜底为首字母大写。 */
-export function providerLabelOf(id: string): string {
+const { Text } = Typography
+
+/** Provider 显示名：优先用后端给的 label（自定义 Provider 用用户起的名字）。 */
+export function providerLabelOf(id: string, label?: string): string {
+  if (label) return label
   const labels: Record<string, string> = {
     deepseek: 'DeepSeek',
     glm: 'GLM',
-    ollama: 'Ollama',
+    ollama: 'Ollama（本地）',
+    custom: '自定义接口',
   }
   return labels[id] ?? id.charAt(0).toUpperCase() + id.slice(1)
 }
@@ -26,28 +32,29 @@ interface ProviderSwitchProps {
 /**
  * 顶栏模型服务商切换器。
  *
- * 选项来自 GET /api/settings（含 configured 状态，未配置密钥的项禁用）；
- * 切换走 PUT /api/settings/llm-provider，失败时展示后端可读原因，
- * 受控 value 不变，自动保持原选择。
+ * - 选项来自 GET /api/settings（内置 + 自定义；未配置的项禁用并标注原因）；
+ * - 下拉底部提供「添加 / 管理模型服务」入口：**未配置时也能发现新能力**
+ *   （Kimi / 本地 Ollama / 任意兼容端点）；
+ * - 打开下拉时重新拉取：在「模型服务」页新增后无需刷新页面即可切换；
+ * - 切换走 PUT /api/settings/llm-provider，失败时展示后端可读原因，受控 value 保持不变。
  */
 export default function ProviderSwitch({ activeProvider, running, onSwitched }: ProviderSwitchProps) {
   const { message } = AntApp.useApp()
+  const { navigate } = useNav()
   const [settings, setSettings] = useState<SettingsResponse | null>(null)
   const [switching, setSwitching] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    getSettings()
-      .then((data) => {
-        if (!cancelled) setSettings(data)
-      })
-      .catch(() => {
-        if (!cancelled) setSettings(null)
-      })
-    return () => {
-      cancelled = true
+  const load = useCallback(async () => {
+    try {
+      setSettings(await getSettings())
+    } catch {
+      setSettings(null)
     }
   }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
 
   const handleSwitch = useCallback(
     async (next: string) => {
@@ -70,16 +77,25 @@ export default function ProviderSwitch({ activeProvider, running, onSwitched }: 
 
   if (!settings) return null
 
-  const options = settings.providers.map((item) => ({
-    value: item.id,
-    label: providerLabelOf(item.id),
-    disabled: !item.configured && item.id !== settings.llm_provider,
-  }))
+  const options = settings.providers.map((item: LlmProviderOption) => {
+    const unconfigured = !item.configured && item.id !== settings.llm_provider
+    return {
+      value: item.id,
+      label: (
+        <Space size={6}>
+          <span>{providerLabelOf(item.id, item.label)}</span>
+          {item.is_local ? <Text type="secondary">本地</Text> : null}
+          {unconfigured ? <Text type="secondary">未配置</Text> : null}
+        </Space>
+      ),
+      disabled: unconfigured,
+    }
+  })
+
+  const customCount = settings.providers.filter((item) => item.managed).length
 
   return (
-    <Tooltip
-      title={running ? '任务执行中，暂不能切换模型' : '切换模型服务商（对后续任务生效）'}
-    >
+    <Tooltip title={running ? '任务执行中，暂不能切换模型' : '切换模型服务商（对后续任务生效）'}>
       <Select
         size="small"
         className="app-header-provider"
@@ -87,8 +103,28 @@ export default function ProviderSwitch({ activeProvider, running, onSwitched }: 
         value={activeProvider || settings.llm_provider}
         loading={switching}
         disabled={running || switching}
+        onOpenChange={(open) => {
+          // 在「模型服务」页刚添加的 Provider 需要立刻可切换：打开时重新拉取
+          if (open) void load()
+        }}
         onChange={(value) => void handleSwitch(value)}
         options={options}
+        popupRender={(menu) => (
+          <>
+            {menu}
+            <Divider style={{ margin: '4px 0' }} />
+            <button
+              type="button"
+              className="app-header-provider__manage"
+              onClick={() => navigate('providers')}
+            >
+              <PlusOutlined /> 添加 / 管理模型服务
+              {customCount === 0 ? (
+                <Text type="secondary">（Kimi、本地 Ollama…）</Text>
+              ) : null}
+            </button>
+          </>
+        )}
       />
     </Tooltip>
   )
