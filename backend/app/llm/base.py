@@ -74,6 +74,17 @@ class LLMUpstreamError(LLMError):
     error_type = "llm_upstream_error"
 
 
+class LLMLocalServiceUnavailableError(LLMUpstreamError):
+    """本地模型服务（Ollama 等）未启动或无法连接。
+
+    单独建模的理由与 :class:`LLMQuotaError` 相同：这类失败**重试无意义**，
+    且用户需要的是"去启动本地服务"这种可操作的提示，而不是笼统的
+    「上游模型服务异常」。
+    """
+
+    error_type = "llm_local_unavailable"
+
+
 class LLMResponseFormatError(LLMError):
     """结构化输出无法通过 Schema 校验。"""
 

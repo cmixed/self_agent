@@ -12,6 +12,7 @@ from app.embedding.base import EmbeddingConfigError, EmbeddingError
 from app.llm.base import (
     LLMConfigError,
     LLMError,
+    LLMLocalServiceUnavailableError,
     LLMQuotaError,
     LLMRateLimitError,
     LLMResponseFormatError,
@@ -27,6 +28,10 @@ _ERROR_STATUS: dict[type[Exception], tuple[int, str]] = {
     LLMQuotaError: (
         status.HTTP_402_PAYMENT_REQUIRED,
         "模型账户余额或配额不足，请充值或更换 Provider",
+    ),
+    LLMLocalServiceUnavailableError: (
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "本地模型服务未启动或无法连接，请先启动本地服务（如 Ollama）或改用云端 Provider",
     ),
     LLMTimeoutError: (status.HTTP_504_GATEWAY_TIMEOUT, "上游模型服务超时"),
     LLMRateLimitError: (status.HTTP_429_TOO_MANY_REQUESTS, "上游模型服务限流，请稍后重试"),

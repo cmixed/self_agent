@@ -18,6 +18,7 @@ from app.core.logging import get_logger
 from app.llm.base import (
     ChatMessage,
     LLMConfigError,
+    LLMLocalServiceUnavailableError,
     LLMProvider,
     LLMQuotaError,
     LLMRateLimitError,
@@ -122,6 +123,9 @@ class OpenAICompatProvider(LLMProvider):
             transport=transport,
         )
 
+    def _local_unavailable(self, exc: Exception) -> LLMLocalServiceUnavailableError:
+        return LLMLocalServiceUnavailableError(f"{self.display_name} 无法连接：{exc}")
+
     async def chat(
         self,
         messages: Sequence[ChatMessage],
@@ -153,7 +157,14 @@ class OpenAICompatProvider(LLMProvider):
                     _CHAT_COMPLETIONS_PATH, json=payload, headers=headers
                 )
             except httpx.TimeoutException as exc:
+                if self.is_local and isinstance(exc, httpx.ConnectTimeout):
+                    raise self._local_unavailable(exc) from exc
                 last_error = LLMTimeoutError(f"{self.display_name} 请求超时：{exc}")
+            except httpx.ConnectError as exc:
+                # 本地服务连不上（未启动/端口不对）：重试无意义，直接给出可操作提示
+                if self.is_local:
+                    raise self._local_unavailable(exc) from exc
+                last_error = LLMUpstreamError(f"{self.display_name} 网络异常：{exc}")
             except httpx.HTTPError as exc:
                 last_error = LLMUpstreamError(f"{self.display_name} 网络异常：{exc}")
             else:

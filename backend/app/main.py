@@ -14,7 +14,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api import categories, chat, documents, health, memory, presets, skills, tasks
+from app.api import (
+    categories,
+    chat,
+    documents,
+    health,
+    memory,
+    presets,
+    providers,
+    skills,
+    tasks,
+)
 from app.api import settings as settings_api
 from app.api.deps import (
     build_checkpoint_store,
@@ -90,6 +100,7 @@ def create_app() -> FastAPI:
     app.include_router(skills.router)
     app.include_router(presets.router)
     app.include_router(categories.router)
+    app.include_router(providers.router)
     app.include_router(chat.router)
     app.include_router(tasks.router)
     app.include_router(documents.router)

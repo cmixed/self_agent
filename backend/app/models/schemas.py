@@ -61,6 +61,33 @@ class LlmProviderUpdate(BaseModel):
     provider: str = Field(min_length=1)
 
 
+class ProviderProbeRequest(BaseModel):
+    """测试 Provider 连通性（编辑中的配置可直接传，已保存的传 provider_id）。"""
+
+    base_url: str = ""
+    model: str = ""
+    provider_id: str | None = None
+    # 编辑态前端可临时传入密钥；已保存的 Provider 一律用服务端配置
+    api_key: str | None = None
+    requires_api_key: bool = True
+    is_local: bool = False
+    timeout_seconds: float = 20.0
+
+
+class ProviderProbeResponse(BaseModel):
+    ok: bool
+    detail: str = ""
+    latency_ms: int = 0
+    reply: str = ""
+
+
+class ModelListResponse(BaseModel):
+    ok: bool
+    detail: str = ""
+    models: list[str] = Field(default_factory=list)
+    latency_ms: int = 0
+
+
 class CategoryInfo(BaseModel):
     """知识库类别（多标签）。"""
 
