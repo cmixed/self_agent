@@ -12,6 +12,7 @@ from app.embedding.base import EmbeddingConfigError, EmbeddingError
 from app.llm.base import (
     LLMConfigError,
     LLMError,
+    LLMLocalInferenceError,
     LLMLocalServiceUnavailableError,
     LLMQuotaError,
     LLMRateLimitError,
@@ -32,6 +33,11 @@ _ERROR_STATUS: dict[type[Exception], tuple[int, str]] = {
     LLMLocalServiceUnavailableError: (
         status.HTTP_503_SERVICE_UNAVAILABLE,
         "本地模型服务未启动或无法连接，请先启动本地服务（如 Ollama）或改用云端 Provider",
+    ),
+    LLMLocalInferenceError: (
+        status.HTTP_502_BAD_GATEWAY,
+        "本地模型推理失败：常见原因是上下文不足（可设置 OLLAMA_CONTEXT_LENGTH=16384）"
+        "或显存不足，请调整后「继续生成」",
     ),
     LLMTimeoutError: (status.HTTP_504_GATEWAY_TIMEOUT, "上游模型服务超时"),
     LLMRateLimitError: (status.HTTP_429_TOO_MANY_REQUESTS, "上游模型服务限流，请稍后重试"),

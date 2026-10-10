@@ -493,6 +493,10 @@ OLLAMA_MODEL=qwen3:4b
   且**不重试**（重试无意义）。远端连不上仍走通用上游异常，不得误报。
 - 结构化模型（Planner 等）对本地小模型要**宽容**：可选字段缺省化
   （如 `needs_retrieval` 默认 True），而不是让整单任务失败。
+- 本地模型 5xx 多为**上下文不足**（Ollama 默认 `num_ctx=4096`，长提示词会
+  context shift 后返回 500）或显存不足：抛 `LLMLocalInferenceError`
+  （`llm_local_inference_failed`）并提示 `OLLAMA_CONTEXT_LENGTH`，
+  且**不重试**（重试无用）。云端 5xx 仍走通用上游异常 + 有限重试。
 
 GLM（智谱）配置：
 
@@ -869,6 +873,17 @@ MAX_RETRIES=2
 ```
 
 超过限制后进入安全结束流程，不允许无限循环。
+
+**「重试耗尽」必须在所有路径上真正放行**（已两次踩坑，均有回归测试）：
+
+```text
+章级校验耗尽            → 该章跳过并继续其他章节（不得再次章级校验同一章）
+整篇校验定位到已耗尽章节 → 降级为「整篇报告后收尾」（target 必须是 document）
+```
+
+理由：路由只能看到 `validation_result.target`，**无法区分「章级判决」与
+「整篇判决定位到某章」**（两者 target 都是 `chapter_N`）。若定位到已耗尽的章节
+仍返回 `target=chapter_N`，路由会再次进入 validator 形成空转到递归上限。
 
 ---
 

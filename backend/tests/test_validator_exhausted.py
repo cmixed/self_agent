@@ -95,3 +95,61 @@ async def test_exhausted_chapter_then_other_chapters_still_written(tmp_path) -> 
     sections = final.get("sections") or []
     assert len(sections) >= 2
     assert (sections[1].get("content") or "").strip(), "第二章应被继续撰写"
+
+
+# 整篇校验定位到「已耗尽重试」的章节 → 必须报告后收尾（真实本地模型触发的第二条循环路径）
+DOC_LOCATED_FAIL = (
+    '{"passed": false, "issues": ["定位到第 1 章引用越界"], '
+    '"suggested_action": "retry_writer", "chapter": 1}'
+)
+
+
+async def _run_with_document_located_failure(tmp_path, *, max_retries: int):
+    from app.services.document_service import DocumentService
+
+    store = ChromaStore(
+        persist_dir=tmp_path / "chroma",
+        collection_name="exhaust_doc_kb",
+        embedding_signature=FakeEmbeddingProvider().signature(),
+    )
+    service = DocumentService(
+        provider_factory=lambda: FakeEmbeddingProvider(),
+        store=store,
+        documents_dir=tmp_path / "documents",
+        chunk_size=200,
+        chunk_overlap=20,
+    )
+    await service.ingest(filename="a.md", content="RAG 使用向量检索增强生成能力。".encode())
+
+    provider = ScriptedProvider(
+        [PLAN_JSON, OUTLINE_JSON, DOC_LOCATED_FAIL],
+        default_text=CHAPTER_BAD,
+        default_json=DOC_LOCATED_FAIL,
+    )
+    graph = build_graph(
+        provider,
+        rag_tool_provider=lambda: RagTool(Retriever(FakeEmbeddingProvider(), store, top_k=3)),
+        max_retries=max_retries,
+        max_sections=3,
+    )
+    config = {
+        "configurable": {"thread_id": f"doc-located-{max_retries}"},
+        "recursion_limit": recursion_limit(max_retries, max_sections=3),
+    }
+    final = await graph.ainvoke(initial_state("写综述", task_id="doc-located"), config)
+    return final, provider
+
+
+async def test_document_validation_locating_exhausted_chapter_finishes(tmp_path) -> None:
+    """整篇校验把问题定位到已耗尽的章节时，不能再回到 validator 空转。
+
+    真实场景（本地小模型）：三章都引用越界、章级重试耗尽，
+    整篇校验又给出 retry_writer + chapter=1；此时既不该重写（已无额度），
+    也不该回 validator，而应「报告后收尾」。
+    """
+    final, provider = await _run_with_document_located_failure(tmp_path, max_retries=1)
+
+    assert final.get("task_status") != "error", "不应以递归上限结束"
+    assert final.get("final_answer"), "应产出最终文档（含 ⚠️ 标记）"
+    assert "⚠️" in final.get("final_answer", "")
+    assert len(provider.calls) < 20, f"调用次数异常，疑似空转：{len(provider.calls)}"

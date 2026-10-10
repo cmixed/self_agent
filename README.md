@@ -75,6 +75,21 @@ cp backend/.env.example backend/.env
 | Kimi（Moonshot） | `CUSTOM_BASE_URL=https://api.moonshot.cn/v1`、`CUSTOM_MODEL=kimi-k3`、`MOONSHOT_API_KEY=…` | 官方 OpenAI 兼容，支持 JSON 模式与 `/v1/models` |
 | 本地 Ollama | `OLLAMA_MODEL=qwen3:4b`（默认 `http://127.0.0.1:11434/v1`） | 本地服务**无需密钥**，默认超时放宽到 300s |
 
+**本地模型的两个必备设置**（否则长任务会在整篇校验/摘要阶段失败）：
+
+```bash
+# 1) 上下文：Ollama 默认仅 4096，而本项目的提示词（大纲+整篇校验+思考过程）会超过它，
+#    表现为 /v1/chat/completions 返回 500（服务端日志可见 slot context shift）
+export OLLAMA_CONTEXT_LENGTH=16384     # 8GB 显存下 qwen3:4b 可用；更小显存可配合下方 KV 量化
+# 2) GPU 效率（可选但推荐）
+export OLLAMA_FLASH_ATTENTION=1
+export OLLAMA_KV_CACHE_TYPE=q8_0
+```
+
+用 `ollama ps` 确认实际生效：`PROCESSOR` 应为 `100% GPU`、`CONTEXT` 应为 16384。
+注意：**被强制在 CPU 上加载过一次后**（例如手工传过 `num_gpu=0`），Ollama 会在
+`keep_alive` 期间复用该 CPU 实例——先 `ollama stop <模型>` 再重试即可回到 GPU。
+
 **也可以在界面上管理**（左侧「模型服务」页）：
 
 - 添加任意 OpenAI 兼容端点；内置 Kimi / Ollama / 通用兼容模板一键填充；

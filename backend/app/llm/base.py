@@ -85,6 +85,19 @@ class LLMLocalServiceUnavailableError(LLMUpstreamError):
     error_type = "llm_local_unavailable"
 
 
+class LLMLocalInferenceError(LLMUpstreamError):
+    """本地模型推理失败（HTTP 5xx）。
+
+    与云端 5xx 不同，本地这类失败有明确的常见原因，值得给出可操作提示：
+    - 上下文不足：长提示词（整篇校验/摘要）超过 ``num_ctx``，
+      Ollama 默认仅 4096，需设置 ``OLLAMA_CONTEXT_LENGTH``（如 16384）；
+    - 显存不足：模型 + KV cache 超过显卡容量。
+    云端 5xx 仍用通用上游异常提示，不误报。
+    """
+
+    error_type = "llm_local_inference_failed"
+
+
 class LLMResponseFormatError(LLMError):
     """结构化输出无法通过 Schema 校验。"""
 

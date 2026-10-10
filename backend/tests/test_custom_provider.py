@@ -8,7 +8,12 @@ import httpx
 import pytest
 
 from app.core.config import Settings, get_settings
-from app.llm.base import ChatMessage, LLMConfigError
+from app.llm.base import (
+    ChatMessage,
+    LLMConfigError,
+    LLMLocalInferenceError,
+    LLMUpstreamError,
+)
 from app.llm.custom import CustomProvider
 from app.llm.factory import (
     ProviderConfig,
@@ -261,3 +266,54 @@ async def test_planner_tolerates_missing_needs_retrieval(monkeypatch) -> None:
         {"goal": "g", "steps": [{"id": "s", "type": "writing", "description": "d"}]}
     )
     assert model.needs_retrieval is True
+
+
+# --- 本地推理失败（5xx）：单独建模并给出可操作提示 ---
+
+
+async def test_local_5xx_raises_actionable_error_without_retry() -> None:
+    """本地 5xx 多为上下文/显存问题：立即抛出（重试无用），并映射为可操作文案。"""
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(500, json={"error": "context length exceeded"})
+
+    provider = make_provider(
+        handler, api_key="", requires_api_key=False, is_local=True,
+        base_url="http://127.0.0.1:11434/v1", max_retries=2,
+    )
+    try:
+        with pytest.raises(LLMLocalInferenceError):
+            await provider.chat([ChatMessage(role="user", content="hi")])
+        assert len(calls) == 1, "本地推理失败不应浪费重试预算"
+    finally:
+        await provider.aclose()
+
+
+async def test_remote_5xx_stays_generic_upstream_error() -> None:
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(500, json={"error": "internal"})
+
+    provider = make_provider(handler, max_retries=1)
+    try:
+        with pytest.raises(LLMUpstreamError) as exc_info:
+            await provider.chat([ChatMessage(role="user", content="hi")])
+        assert not isinstance(exc_info.value, LLMLocalInferenceError)
+        assert len(calls) == 2, "云端 5xx 仍按配置重试"
+    finally:
+        await provider.aclose()
+
+
+def test_local_inference_error_maps_to_context_hint() -> None:
+    from app.core.errors import error_type_of, resolve_error
+    from app.llm.base import LLMLocalInferenceError
+
+    status_code, detail = resolve_error(LLMLocalInferenceError("boom"))
+    assert status_code == 502
+    assert "OLLAMA_CONTEXT_LENGTH" in detail
+    assert "显存" in detail
+    assert error_type_of(LLMLocalInferenceError("x")) == "llm_local_inference_failed"

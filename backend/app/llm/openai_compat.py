@@ -18,6 +18,7 @@ from app.core.logging import get_logger
 from app.llm.base import (
     ChatMessage,
     LLMConfigError,
+    LLMLocalInferenceError,
     LLMLocalServiceUnavailableError,
     LLMProvider,
     LLMQuotaError,
@@ -198,6 +199,18 @@ class OpenAICompatProvider(LLMProvider):
                         )
                     last_error = LLMRateLimitError(f"{self.display_name} 触发限流（429）")
                 elif response.status_code >= 500:
+                    detail = self._describe_http_error(response)
+                    if self.is_local:
+                        # 本地 5xx 多为上下文/显存问题：直接抛出，不浪费重试预算
+                        logger.warning(
+                            "本地模型推理失败",
+                            extra={
+                                "node": self.display_name,
+                                "event": "local_inference_failed",
+                                "status": str(response.status_code),
+                            },
+                        )
+                        raise LLMLocalInferenceError(detail)
                     last_error = LLMUpstreamError(
                         f"{self.display_name} 服务异常（{response.status_code}）"
                     )

@@ -162,13 +162,24 @@ def _render_chapter(sections: list[Section], index: int) -> str:
 
 
 def _resolve_action_and_target(
-    model: ValidationModel, *, scope: str, target: str, total_sections: int
+    model: ValidationModel,
+    *,
+    scope: str,
+    target: str,
+    total_sections: int,
+    state: AgentState,
+    max_retries: int,
 ) -> tuple[str, str]:
     """把模型判定归一化为 ``(action, target)``。
 
     整篇校验的 ``retry_writer`` 原先一律升级为 ``replan``（全文重写），代价过大：
     只要能定位到具体章节，就改成**章级重写**；只有确实定位不到（计划/结构问题）
     才升级为 replan。章节序号非法（缺失/越界）时按原规则处理，模型输出不会破坏流程。
+
+    **定位到的章节若已耗尽重试**：重写不会发生，此时必须降级为「整篇报告后收尾」
+    （``action=continue`` 且 ``target=document``）。否则结果里的 target 是 ``chapter_N``，
+    路由无法区分「章级判决」与「整篇判决定位到章」，会再次回到 validator，
+    形成 validator↔validator 空转直到递归上限（真实本地模型上已复现）。
     """
     if model.passed:
         return "continue", target
@@ -178,7 +189,10 @@ def _resolve_action_and_target(
     if scope == "document" and model.suggested_action == "retry_writer":
         chapter = model.chapter
         if chapter is not None and 1 <= chapter <= total_sections:
-            return "retry_writer", chapter_target(chapter - 1)
+            index = chapter - 1
+            if is_chapter_failed(state, index, max_retries=max_retries):
+                return "continue", "document"
+            return "retry_writer", chapter_target(index)
         return "replan", target
     return model.suggested_action, target
 
@@ -348,6 +362,8 @@ def make_validator_node(
             scope=scope,
             target=target,
             total_sections=len(state.get("outline") or []),
+            state=state,
+            max_retries=max_retries,
         )
         located = scope == "document" and resolved_target != target
 

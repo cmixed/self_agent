@@ -128,8 +128,10 @@ async def probe_chat(
 
     started = time.perf_counter()
     try:
+        # 32 tokens 足以验证一次往返；思考型模型（qwen3 等）会先把预算花在
+        # reasoning 上，预算给太小会拿到空 content（连接其实没问题）
         response = await provider.chat(
-            [ChatMessage(role="user", content="ping")], temperature=0.0, max_tokens=8
+            [ChatMessage(role="user", content="ping")], temperature=0.0, max_tokens=32
         )
     except LLMLocalServiceUnavailableError:
         # 本地服务未启动是最常见的失败：给出可操作的具体提示，而不是底层异常文本
@@ -144,12 +146,12 @@ async def probe_chat(
         await provider.aclose()
 
     latency_ms = int((time.perf_counter() - started) * 1000)
-    return ProbeResult(
-        ok=True,
-        detail=f"连接成功（{latency_ms} ms）",
-        latency_ms=latency_ms,
-        reply=_short(response.content, limit=60),
-    )
+    reply = _short(response.content, limit=60)
+    detail = f"连接成功（{latency_ms} ms）"
+    if not reply:
+        # 思考型模型可能只输出了思考内容：连接没问题，但要如实说明
+        detail = f"连接成功（{latency_ms} ms，模型只输出了思考内容，未返回正文）"
+    return ProbeResult(ok=True, detail=detail, latency_ms=latency_ms, reply=reply)
 
 
 def _network_detail(base_url: str, exc: httpx.HTTPError | None) -> str:

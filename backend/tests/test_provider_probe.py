@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 
 from app.llm.probe import list_remote_models, probe_chat
@@ -245,3 +247,48 @@ async def test_task_failed_event_reports_local_unavailable(tmp_path) -> None:
     assert failed["status"] == "error"
     assert failed["error_type"] == "llm_local_unavailable"
     assert "本地模型服务未启动" in failed["message"]
+
+
+async def test_probe_reports_thinking_only_reply() -> None:
+    """思考型模型（qwen3 等）可能只输出思考内容：连接成功但要如实说明。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": ""}, "finish_reason": "length"}],
+                "usage": {"total_tokens": 32},
+            },
+        )
+
+    result = await probe_chat(
+        base_url="http://127.0.0.1:11434/v1",
+        model="qwen3:4b",
+        requires_api_key=False,
+        is_local=True,
+        transport=httpx.MockTransport(handler),
+    )
+    assert result.ok is True
+    assert result.reply == ""
+    assert "思考内容" in result.detail
+
+
+async def test_probe_requests_enough_tokens_for_thinking_models() -> None:
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.read()))
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "pong"}, "finish_reason": "stop"}]},
+        )
+
+    provider_result = await probe_chat(
+        base_url="http://127.0.0.1:11434/v1",
+        model="qwen3:4b",
+        requires_api_key=False,
+        is_local=True,
+        transport=httpx.MockTransport(handler),
+    )
+    assert provider_result.ok is True
+    assert seen[-1]["max_tokens"] >= 32, "预算过小会被思考过程吃光，拿不到正文"
