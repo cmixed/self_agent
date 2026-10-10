@@ -104,13 +104,20 @@ async def test_local_provider_needs_no_key(service: ProviderService) -> None:
 
 
 async def test_requires_key_provider_rejects_empty_key(service: ProviderService) -> None:
+    """既没有密钥、也没有指定环境变量名 → 拒绝（否则建出来必然不可用）。"""
     with pytest.raises(ProviderValidationError):
         await service.create_provider(**kimi_payload(api_key="", api_key_env=""))
 
 
+async def test_label_defaults_to_model_name(service: ProviderService) -> None:
+    """名称留空 → 默认用模型名（不把 custom-xxxxxxxx 这种内部 id 暴露给用户）。"""
+    view = await service.create_provider(**kimi_payload(label=""))
+    assert view.label == "kimi-k3"
+
+
 async def test_validation_rejects_bad_values(service: ProviderService) -> None:
     with pytest.raises(ProviderValidationError):
-        await service.create_provider(**kimi_payload(label="  "))
+        await service.create_provider(**kimi_payload(model="  "))  # 模型名必填
     with pytest.raises(ProviderValidationError):
         await service.create_provider(**kimi_payload(base_url="api.moonshot.cn"))
     with pytest.raises(ProviderValidationError):
@@ -207,6 +214,62 @@ def test_switch_to_custom_provider_and_delete_fallback(client: TestClient) -> No
     after = client.get("/api/settings").json()
     assert after["llm_provider"] in {"deepseek", "glm", "ollama", "custom"}
     assert after["llm_provider"] != provider_id
+
+
+def test_health_reports_local_provider_as_configured(client: TestClient) -> None:
+    """本地 Provider 不需要密钥：健康检查必须报「已就绪」而不是「尚未配置 API Key」。
+
+    回归背景：llm_configured 曾按 Provider 名字查环境变量，而 UI 创建的
+    Provider id 是动态的（custom-xxxxxxxx），于是本地服务被误报缺密钥，
+    左下角状态也直接显示了内部 id。
+    """
+    created = client.post(
+        "/api/providers",
+        json={
+            "label": "",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen3:4b",
+            "requires_api_key": False,
+            "is_local": True,
+        },
+    ).json()
+    assert created["label"] == "qwen3:4b"  # 默认取模型名
+
+    switched = client.put(
+        "/api/settings/llm-provider", json={"provider": created["provider_id"]}
+    )
+    assert switched.status_code == 200
+
+    health = client.get("/api/health").json()
+    assert health["llm_provider"] == created["provider_id"]
+    assert health["llm_configured"] is True, "本地服务无需密钥，应视为已配置"
+    assert health["llm_local"] is True
+    assert health["llm_model"] == "qwen3:4b"
+    assert health["llm_label"] == "qwen3:4b"
+
+
+def test_remote_provider_without_key_cannot_be_activated(client: TestClient) -> None:
+    """只填了未设置的环境变量名 → 该 Provider 不可用，切换被拒绝并说明缺什么。"""
+    created = client.post(
+        "/api/providers",
+        json={
+            "label": "Kimi",
+            "base_url": "https://api.moonshot.cn/v1",
+            "model": "kimi-k3",
+            "api_key_env": "MOONSHOT_UNSET_KEY",
+            "requires_api_key": True,
+        },
+    ).json()
+    assert created["key_source"] == "none"
+    assert created["key_hint"] == ""
+
+    refused = client.put(
+        "/api/settings/llm-provider", json={"provider": created["provider_id"]}
+    )
+    assert refused.status_code == 409
+    assert "MOONSHOT_UNSET_KEY" in refused.json()["detail"]
+    # 当前 Provider 不被改动（不允许自动降级/悬空）
+    assert client.get("/api/health").json()["llm_provider"] != created["provider_id"]
 
 
 def test_switch_to_unknown_custom_provider_is_rejected(client: TestClient) -> None:

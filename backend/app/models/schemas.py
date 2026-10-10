@@ -37,6 +37,10 @@ class HealthResponse(BaseModel):
     app_env: str
     llm_provider: str
     llm_configured: bool
+    # --- 展示用：界面按「图标 + 模型名」显示，而不是内部 provider id ---
+    llm_label: str = ""
+    llm_model: str = ""
+    llm_local: bool = False
 
 
 class LLMProviderInfo(BaseModel):
@@ -91,7 +95,8 @@ class ProviderListResponse(BaseModel):
 
 
 class ProviderCreateRequest(BaseModel):
-    label: str = Field(min_length=1, max_length=40)
+    # 留空则默认使用模型名（界面上不该出现 custom-xxxxxxxx 这种内部 id）
+    label: str | None = Field(default=None, max_length=40)
     base_url: str = Field(min_length=1, max_length=300)
     model: str = Field(min_length=1, max_length=120)
     api_key: str | None = None

@@ -91,13 +91,23 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
   const menuTheme = mode === 'dark' ? 'dark' : 'light'
   const healthy = health?.status === 'ok'
   const healthColor = !loaded ? 'default' : healthy ? 'success' : 'error'
-  const providerKey = (health?.llm_provider ?? '').toLowerCase()
-  const providerLabel = providerLabelOf(providerKey)
-  const healthText = !loaded ? '检查中…' : healthy ? `${providerLabel} 已连接` : '后端未连接'
+  // 展示「模型名」而不是内部 provider id（如 custom-ba45f8fa）
+  const displayName =
+    health?.llm_model || health?.llm_label || providerLabelOf(health?.llm_provider ?? '')
+  const isLocalModel = Boolean(health?.llm_local)
+  const healthText = !loaded
+    ? '检查中…'
+    : healthy
+      ? `${isLocalModel ? '本地 · ' : ''}${displayName} 已连接`
+      : '后端未连接'
   const healthDetail = healthy
     ? health?.llm_configured
-      ? '后端与模型配置正常'
-      : '后端正常，但尚未配置模型 API Key'
+      ? isLocalModel
+        ? '本地模型服务已就绪（无需 API Key）'
+        : '后端与模型配置正常'
+      : isLocalModel
+        ? '本地模型服务尚未选择模型，请到「模型服务」页设置'
+        : '后端正常，但尚未配置模型 API Key'
     : '无法连接后端（请确认 FastAPI 已启动）'
 
   const menuItems = PAGE_META.map((item) => ({
@@ -216,7 +226,11 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
               </Tooltip>
             ) : null}
             {healthy ? (
-              <ProviderSwitch activeProvider={providerKey} running={running} onSwitched={reload} />
+              <ProviderSwitch
+                activeProvider={health?.llm_provider ?? ''}
+                running={running}
+                onSwitched={reload}
+              />
             ) : null}
             <Tooltip title={mode === 'dark' ? '切换到浅色' : '切换到深色'}>
               <Button

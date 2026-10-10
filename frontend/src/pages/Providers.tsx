@@ -243,7 +243,7 @@ export default function ProvidersPage() {
     try {
       if (editing) {
         await updateProvider(editing.provider_id, {
-          label: values.label,
+          label: values.label?.trim() ? values.label : undefined,
           base_url: values.base_url,
           model: values.model,
           api_key: values.api_key ? values.api_key : undefined,
@@ -256,7 +256,7 @@ export default function ProvidersPage() {
         message.success(`已更新「${values.label}」`)
       } else {
         await createProvider({
-          label: values.label,
+          label: values.label?.trim() ? values.label : undefined,
           base_url: values.base_url,
           model: values.model,
           api_key: values.api_key || undefined,
@@ -484,8 +484,13 @@ export default function ProvidersPage() {
             </Form.Item>
           ) : null}
 
-          <Form.Item name="label" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
-            <Input placeholder="例如：Kimi / 本地 Qwen" />
+          <Form.Item
+            name="label"
+            label="名称"
+            rules={[{ max: 40 }]}
+            tooltip="只用于界面显示；留空则自动使用模型名"
+          >
+            <Input placeholder="留空则使用模型名，例如 kimi-k3 / qwen3:4b" />
           </Form.Item>
 
           <Form.Item
@@ -520,7 +525,7 @@ export default function ProvidersPage() {
           </Form.Item>
 
           <Space size="large" wrap>
-            <Form.Item name="is_local" valuePropName="checked">
+            <Form.Item name="is_local" valuePropName="checked" tooltip="Ollama / LM Studio 等本机服务：不发送 Authorization 头">
               <Checkbox>本地服务（无需密钥）</Checkbox>
             </Form.Item>
             <Form.Item

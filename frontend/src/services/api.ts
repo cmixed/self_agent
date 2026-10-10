@@ -303,7 +303,8 @@ export function listProviders(): Promise<ProviderListResponse> {
 }
 
 export function createProvider(payload: {
-  label: string
+  /** 留空则由后端默认使用模型名 */
+  label?: string
   base_url: string
   model: string
   api_key?: string

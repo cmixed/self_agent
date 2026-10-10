@@ -62,7 +62,7 @@ async def create_provider(
 ) -> ProviderResponse | JSONResponse:
     try:
         view = await service.create_provider(
-            label=payload.label,
+            label=payload.label or "",
             base_url=payload.base_url,
             model=payload.model,
             api_key=payload.api_key or "",

@@ -245,9 +245,10 @@ class ProviderService:
 
     @staticmethod
     def _validate(label: str, base_url: str, model: str) -> tuple[str, str, str]:
-        cleaned_label = label.strip()
         cleaned_base = base_url.strip().rstrip("/")
         cleaned_model = model.strip()
+        # 名称留空 → 用模型名兜底（避免把 custom-xxxxxxxx 这种内部 id 显示给用户）
+        cleaned_label = label.strip() or cleaned_model
         if not cleaned_label:
             raise ProviderValidationError("名称不能为空")
         if not cleaned_base.startswith(_ALLOWED_SCHEMES):

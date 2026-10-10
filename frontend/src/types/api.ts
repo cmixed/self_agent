@@ -16,6 +16,12 @@ export interface HealthResponse {
   app_env: string
   llm_provider: string
   llm_configured: boolean
+  /** 展示用：Provider 名称（自定义 Provider 为用户命名或模型名） */
+  llm_label?: string
+  /** 展示用：当前模型名（界面按「图标 + 模型名」显示） */
+  llm_model?: string
+  /** 是否本地模型服务（决定图标与提示文案） */
+  llm_local?: boolean
 }
 
 export interface ProviderInfo {

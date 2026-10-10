@@ -1,4 +1,4 @@
-import { SettingOutlined } from '@ant-design/icons'
+import { CloudServerOutlined, HddOutlined, SettingOutlined } from '@ant-design/icons'
 import { App as AntApp, Divider, Select, Space, Tooltip, Typography } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
@@ -77,14 +77,22 @@ export default function ProviderSwitch({ activeProvider, running, onSwitched }: 
 
   if (!settings) return null
 
-  const options = settings.providers.map((item: LlmProviderOption) => {
+  // 本地模型服务排在前面，云端在后；同组内保持后端顺序
+  const ordered = [
+    ...settings.providers.filter((item: LlmProviderOption) => item.is_local),
+    ...settings.providers.filter((item: LlmProviderOption) => !item.is_local),
+  ]
+
+  const options = ordered.map((item: LlmProviderOption) => {
     const unconfigured = !item.configured && item.id !== settings.llm_provider
+    // 展示「图标 + 模型名」：本地用硬盘图标，云端用服务图标
+    const name = item.model || providerLabelOf(item.id, item.label)
     return {
       value: item.id,
       label: (
         <Space size={6}>
-          <span>{providerLabelOf(item.id, item.label)}</span>
-          {item.is_local ? <Text type="secondary">本地</Text> : null}
+          {item.is_local ? <HddOutlined /> : <CloudServerOutlined />}
+          <span>{name}</span>
           {unconfigured ? <Text type="secondary">未配置</Text> : null}
         </Space>
       ),
