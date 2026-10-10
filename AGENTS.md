@@ -483,7 +483,16 @@ OLLAMA_MODEL=qwen3:4b
 - 自定义/本地端点与内置 Provider 共用同一客户端（`llm/openai_compat.py`）：
   无密钥端点不发 Authorization；端点若不支持 `response_format`，
   客户端会**自动回退为纯提示词 JSON 模式**（结构化仍由 Schema 校验兜底）。
-- 自定义 Provider 也可在 UI 管理（存 SQLite；密钥环境变量优先，见 README）。
+- **Provider 是配置，不是代码**：`llm/provider_config.py` 的 `ProviderConfig`
+  描述一个端点；工厂按配置构造，新增厂商**不需要新类**（DeepSeek/GLM 保留
+  子类只是为了默认值）。用户自定义 Provider 存 SQLite（`llm_providers`），
+  由 `llm/registry.py` 在启动时与每次变更后装入内存 —— 工厂是同步调用，
+  不能直接查库（§11 性能约定）。
+- 本地服务（Ollama 等）连不上时抛 `LLMLocalServiceUnavailableError`
+  （`llm_local_unavailable`，503），给出「启动本地服务」这类可操作提示，
+  且**不重试**（重试无意义）。远端连不上仍走通用上游异常，不得误报。
+- 结构化模型（Planner 等）对本地小模型要**宽容**：可选字段缺省化
+  （如 `needs_retrieval` 默认 True），而不是让整单任务失败。
 
 GLM（智谱）配置：
 
@@ -923,6 +932,13 @@ POST /api/tasks/{id}/rerun
 
 GET  /api/settings
 PUT  /api/settings/llm-provider
+
+GET  /api/providers
+POST /api/providers
+PUT  /api/providers/{id}
+DELETE /api/providers/{id}
+GET  /api/providers/models
+POST /api/providers/test
 
 GET  /api/health
 ```

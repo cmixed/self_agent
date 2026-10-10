@@ -203,3 +203,45 @@ def test_provider_config_available_rules() -> None:
         ).available
         is True
     )
+
+
+async def test_planner_tolerates_missing_needs_retrieval(monkeypatch) -> None:
+    """本地小模型常省略 needs_retrieval：应按「需要检索」处理而不是整单失败。"""
+    import httpx as _httpx
+
+    from app.agents.planner import PlanModel, make_planner_node
+    from app.models.state import initial_state
+
+    payload = {
+        "model": "local",
+        "choices": [
+            {
+                "message": {
+                    "content": '{"goal": "写综述", "steps": ['
+                    '{"id": "write", "type": "writing", "description": "写正文"}]}'
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"total_tokens": 5},
+    }
+
+    def handler(request: _httpx.Request) -> _httpx.Response:
+        return _httpx.Response(200, json=payload)
+
+    provider = make_provider(
+        handler, api_key="", requires_api_key=False, is_local=True,
+        base_url="http://127.0.0.1:11434/v1",
+    )
+    try:
+        node = make_planner_node(provider)
+        update = await node(initial_state("写综述", task_id="t"))
+        assert update["plan"]["needs_retrieval"] is True
+    finally:
+        await provider.aclose()
+
+    # 缺省值语义直接断言（避免只靠集成路径）
+    model = PlanModel.model_validate(
+        {"goal": "g", "steps": [{"id": "s", "type": "writing", "description": "d"}]}
+    )
+    assert model.needs_retrieval is True

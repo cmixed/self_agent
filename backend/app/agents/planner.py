@@ -43,10 +43,14 @@ class PlanStepModel(BaseModel):
 
 
 class PlanModel(BaseModel):
-    """Planner 输出的结构化计划。"""
+    """Planner 输出的结构化计划。
+
+    ``needs_retrieval`` 缺省为 True：本地小模型常省略该字段，
+    缺失时按「需要检索」处理比整单任务失败更合适（只是多一次检索）。
+    """
 
     goal: str = Field(min_length=1)
-    needs_retrieval: bool
+    needs_retrieval: bool = True
     steps: list[PlanStepModel] = Field(min_length=1)
 
 

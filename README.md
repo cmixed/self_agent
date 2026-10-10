@@ -75,6 +75,14 @@ cp backend/.env.example backend/.env
 | Kimi（Moonshot） | `CUSTOM_BASE_URL=https://api.moonshot.cn/v1`、`CUSTOM_MODEL=kimi-k3`、`MOONSHOT_API_KEY=…` | 官方 OpenAI 兼容，支持 JSON 模式与 `/v1/models` |
 | 本地 Ollama | `OLLAMA_MODEL=qwen3:4b`（默认 `http://127.0.0.1:11434/v1`） | 本地服务**无需密钥**，默认超时放宽到 300s |
 
+**也可以在界面上管理**（左侧「模型服务」页）：
+
+- 添加任意 OpenAI 兼容端点；内置 Kimi / Ollama / 通用兼容模板一键填充；
+- 「发现模型」从端点拉取模型列表（`/v1/models`），「测试连接」真实发一条极小请求；
+- 密钥：**环境变量优先**（填变量名即可），也可直接填在界面里（存本机 SQLite，
+  明文、仅本地；接口只回显末 4 位，前端永远拿不到完整密钥）；
+- 删除正在使用的服务会自动回退到环境默认值，不会悬空。
+
 要点：
 
 - 三者与内置 DeepSeek/GLM **共用同一客户端**，不新增厂商 SDK；
@@ -369,6 +377,12 @@ uv run python -m app.evaluation.run --suite compare --real --top-k 5 \
 | `PUT` | `/api/categories/{id}` | 重命名 / 改描述 |
 | `DELETE` | `/api/categories/{id}` | 删除类别（仅解绑，文档保留） |
 | `PUT` | `/api/documents/{id}/categories` | 整组替换某文档的类别（多标签） |
+| `GET` | `/api/providers` | 自定义模型服务列表（**不含密钥**，仅来源与末 4 位） |
+| `POST` | `/api/providers` | 添加模型服务（任意 OpenAI 兼容端点） |
+| `PUT` | `/api/providers/{id}` | 修改（`api_key` 缺省=不变，空串=清空） |
+| `DELETE` | `/api/providers/{id}` | 删除（若正在使用则回退到环境默认值） |
+| `GET` | `/api/providers/models` | 发现端点可用模型（后端代理，避免跨域） |
+| `POST` | `/api/providers/test` | 测试连接（真实发一条极小请求） |
 | `GET` | `/api/settings` | 应用设置快照（各 Provider 配置状态，不含密钥） |
 | `PUT` | `/api/settings/llm-provider` | 运行时切换 LLM Provider（未配置密钥返回 409） |
 | `POST` | `/api/tasks/{id}/resume` | **继续生成**：从断点续跑（SSE；无检查点返回 409） |
