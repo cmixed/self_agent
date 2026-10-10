@@ -621,6 +621,8 @@ class ProviderRecord:
     is_local: bool
     timeout_seconds: float
     max_retries: int
+    flavor: str
+    disable_thinking: bool
     created_at: str
     updated_at: str
 
@@ -678,6 +680,8 @@ class ProviderRepository:
         is_local: bool = False,
         timeout_seconds: float = 120.0,
         max_retries: int = 2,
+        flavor: str = "openai",
+        disable_thinking: bool = False,
     ) -> ProviderRecord:
         return await asyncio.to_thread(
             self._create_provider,
@@ -691,6 +695,8 @@ class ProviderRepository:
             is_local,
             timeout_seconds,
             max_retries,
+            flavor,
+            disable_thinking,
         )
 
     async def update_provider(self, provider_id: str, **fields: Any) -> ProviderRecord | None:
@@ -714,6 +720,10 @@ class ProviderRepository:
             is_local=bool(row["is_local"]),
             timeout_seconds=float(row["timeout_seconds"]),
             max_retries=int(row["max_retries"]),
+            flavor=(row["flavor"] or "openai") if "flavor" in row.keys() else "openai",
+            disable_thinking=bool(row["disable_thinking"])
+            if "disable_thinking" in row.keys()
+            else False,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -744,6 +754,8 @@ class ProviderRepository:
         is_local: bool,
         timeout_seconds: float,
         max_retries: int,
+        flavor: str,
+        disable_thinking: bool,
     ) -> ProviderRecord:
         now = utc_now()
         with self._database.connect() as connection:
@@ -752,13 +764,13 @@ class ProviderRepository:
                 INSERT INTO llm_providers(
                     provider_id, label, base_url, model, api_key, api_key_env,
                     requires_api_key, is_local, timeout_seconds, max_retries,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    flavor, disable_thinking, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     provider_id, label, base_url, model, api_key, api_key_env,
                     int(requires_api_key), int(is_local), timeout_seconds, max_retries,
-                    now, now,
+                    flavor, int(disable_thinking), now, now,
                 ),
             )
             connection.commit()
@@ -770,6 +782,7 @@ class ProviderRepository:
         allowed = {
             "label", "base_url", "model", "api_key", "api_key_env",
             "requires_api_key", "is_local", "timeout_seconds", "max_retries",
+            "flavor", "disable_thinking",
         }
         assignments = [f"{key} = ?" for key in fields if key in allowed]
         params = [fields[key] for key in fields if key in allowed]

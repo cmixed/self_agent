@@ -90,6 +90,9 @@ class Settings(BaseSettings):
     custom_is_local: bool = False
     custom_timeout_seconds: float = 120.0
     custom_max_retries: int = 2
+    # 线路协议：openai = /v1 兼容；ollama = 原生 /api/chat（可关闭思考）
+    custom_flavor: str = "openai"
+    custom_disable_thinking: bool = False
 
     # --- Ollama（本地模型，OpenAI 兼容端点）---
     ollama_base_url: str = "http://127.0.0.1:11434/v1"

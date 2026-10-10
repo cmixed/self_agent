@@ -497,6 +497,12 @@ OLLAMA_MODEL=qwen3:4b
   context shift 后返回 500）或显存不足：抛 `LLMLocalInferenceError`
   （`llm_local_inference_failed`）并提示 `OLLAMA_CONTEXT_LENGTH`，
   且**不重试**（重试无用）。云端 5xx 仍走通用上游异常 + 有限重试。
+- **线路协议是配置的一部分**（`ProviderConfig.flavor`）：`openai` = `/v1` 兼容；
+  `ollama` = 原生 `/api/chat`（`llm/ollama_native.py`）。需要单独一条线路的原因是
+  Ollama 的 `/v1` **不接受 `think` 字段**（Qwen3 的 `/no_think` 软开关也无效，已实测），
+  无法关闭思考模式——而思考模式会让本地小模型慢数倍、甚至吃光输出预算导致正文为空。
+  原生 Provider 复用 `OpenAICompatProvider` 的重试/超时/错误分类，只覆写
+  「请求体 / 解析 / 线路」；思考内容（`message.thinking`）**不并入正文**（§17）。
 
 GLM（智谱）配置：
 

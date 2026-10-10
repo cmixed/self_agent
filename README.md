@@ -86,6 +86,25 @@ export OLLAMA_FLASH_ATTENTION=1
 export OLLAMA_KV_CACHE_TYPE=q8_0
 ```
 
+**「关闭思考（更快）」开关**（模型服务页 → 编辑）：Ollama 原生协议才能关闭思考模式。
+
+```text
+Ollama 的 OpenAI 兼容层（/v1）不接受 think 字段，Qwen3 的 /no_think 软开关也无效（均已实测）
+→ 因此勾选后该 Provider 改走原生 /api/chat（think=false），其它端点仍走 /v1
+```
+
+实测效果（qwen3:4b / 同一提示词）：
+
+| 模式 | 思考内容 | 正文 | 说明 |
+| --- | --- | --- | --- |
+| 默认（思考开） | 1350 字 | **0 字** | 小 `max_tokens` 时预算被思考吃光（这就是"测试连接"reply 为空的原因） |
+| 关闭思考 | 0 | 1293 字 | 10.4s，67.6 tok/s |
+
+- 新建/编辑时「接口协议」可选 `OpenAI 兼容（/v1）` 或 `Ollama 原生（/api/chat）`；
+  **base_url 含 `11434` 的既有配置会在启动迁移时自动标为 Ollama 原生**。
+- Ollama 模板默认勾选「关闭思考（更快）」；非思考模型（如 qwen2.5）不必勾选。
+- 原生协议还会记录每次推理的 tok/s（后端日志 `event=local_inference`），便于观察本地速度。
+
 用 `ollama ps` 确认实际生效：`PROCESSOR` 应为 `100% GPU`、`CONTEXT` 应为 16384。
 注意：**被强制在 CPU 上加载过一次后**（例如手工传过 `num_gpu=0`），Ollama 会在
 `keep_alive` 期间复用该 CPU 实例——先 `ollama stop <模型>` 再重试即可回到 GPU。

@@ -102,6 +102,10 @@ CREATE TABLE IF NOT EXISTS llm_providers (
     is_local         INTEGER NOT NULL DEFAULT 0,
     timeout_seconds  REAL NOT NULL DEFAULT 120,
     max_retries      INTEGER NOT NULL DEFAULT 2,
+    -- 线路协议：openai = OpenAI 兼容 /v1；ollama = Ollama 原生 /api/chat
+    flavor           TEXT NOT NULL DEFAULT 'openai',
+    -- 关闭思考模式（仅 flavor=ollama 生效）
+    disable_thinking INTEGER NOT NULL DEFAULT 0,
     created_at       TEXT NOT NULL,
     updated_at       TEXT NOT NULL
 );
@@ -142,6 +146,23 @@ MIGRATIONS: tuple[tuple[str, str, str], ...] = (
         "attempt_no",
         "ALTER TABLE task_runs ADD COLUMN attempt_no INTEGER NOT NULL DEFAULT 1",
     ),
+    (
+        "llm_providers",
+        "flavor",
+        "ALTER TABLE llm_providers ADD COLUMN flavor TEXT NOT NULL DEFAULT 'openai'",
+    ),
+    (
+        "llm_providers",
+        "disable_thinking",
+        "ALTER TABLE llm_providers ADD COLUMN disable_thinking INTEGER NOT NULL DEFAULT 0",
+    ),
+)
+
+# 一次性回填：把明显指向 Ollama 的既有配置标成原生协议（否则它们的"关闭思考"
+# 开关不会生效，因为 /v1 端点不接受 think 字段）。
+_BACKFILL_OLLAMA_FLAVOR = (
+    "UPDATE llm_providers SET flavor = 'ollama' "
+    "WHERE flavor = 'openai' AND base_url LIKE '%11434%'"
 )
 
 
@@ -172,6 +193,7 @@ class SqliteDatabase:
             }
             if column not in columns:
                 connection.execute(ddl)
+        connection.execute(_BACKFILL_OLLAMA_FLAVOR)
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:

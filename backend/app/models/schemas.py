@@ -55,6 +55,8 @@ class LLMProviderInfo(BaseModel):
     base_url: str = ""
     is_local: bool = False
     managed: bool = False
+    flavor: str = "openai"
+    disable_thinking: bool = False
     key_source: str = ""
     key_hint: str = ""
 
@@ -86,6 +88,9 @@ class ProviderResponse(BaseModel):
     is_local: bool = False
     timeout_seconds: float = 120.0
     max_retries: int = 2
+    # 线路协议：openai（/v1 兼容）或 ollama（原生 /api/chat，可关闭思考）
+    flavor: str = "openai"
+    disable_thinking: bool = False
     created_at: str = ""
     updated_at: str = ""
 
@@ -105,6 +110,8 @@ class ProviderCreateRequest(BaseModel):
     is_local: bool = False
     timeout_seconds: float = 120.0
     max_retries: int = 2
+    flavor: str = "openai"
+    disable_thinking: bool = False
 
 
 class ProviderUpdateRequest(BaseModel):
@@ -119,6 +126,8 @@ class ProviderUpdateRequest(BaseModel):
     is_local: bool | None = None
     timeout_seconds: float | None = None
     max_retries: int | None = None
+    flavor: str | None = None
+    disable_thinking: bool | None = None
 
 
 class ProviderProbeRequest(BaseModel):

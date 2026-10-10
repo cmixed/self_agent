@@ -28,6 +28,9 @@ logger = get_logger(__name__)
 
 _ALLOWED_SCHEMES = ("http://", "https://")
 
+# 线路协议：openai = OpenAI 兼容 /v1；ollama = Ollama 原生 /api/chat（可关闭思考）
+_ALLOWED_FLAVORS = ("openai", "ollama")
+
 
 class ProviderNotFoundError(Exception):
     """自定义 Provider 不存在。"""
@@ -52,6 +55,8 @@ class ProviderView:
     is_local: bool
     timeout_seconds: float
     max_retries: int
+    flavor: str
+    disable_thinking: bool
     created_at: str
     updated_at: str
 
@@ -98,6 +103,8 @@ def to_config(record: ProviderRecord, settings: Settings) -> ProviderConfig:
         is_local=record.is_local,
         timeout_seconds=record.timeout_seconds,
         max_retries=record.max_retries,
+        flavor=record.flavor,
+        disable_thinking=record.disable_thinking,
         managed=True,
         key_source=resolve_api_key(record, settings)[1],
         key_hint=mask_api_key(api_key),
@@ -118,6 +125,8 @@ def to_view(record: ProviderRecord, settings: Settings) -> ProviderView:
         is_local=record.is_local,
         timeout_seconds=record.timeout_seconds,
         max_retries=record.max_retries,
+        flavor=record.flavor,
+        disable_thinking=record.disable_thinking,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
@@ -149,8 +158,11 @@ class ProviderService:
         is_local: bool = False,
         timeout_seconds: float = 120.0,
         max_retries: int = 2,
+        flavor: str = "openai",
+        disable_thinking: bool = False,
     ) -> ProviderView:
         label, base_url, model = self._validate(label, base_url, model)
+        flavor = self._validate_flavor(flavor)
         if requires_api_key and not api_key.strip() and not api_key_env.strip():
             raise ProviderValidationError(
                 "需要密钥的 Provider 必须填写 API Key，或指定环境变量名（如 MOONSHOT_API_KEY）"
@@ -168,6 +180,8 @@ class ProviderService:
             is_local=is_local,
             timeout_seconds=max(5.0, float(timeout_seconds)),
             max_retries=max(0, int(max_retries)),
+            flavor=flavor,
+            disable_thinking=bool(disable_thinking),
         )
         await self.refresh_registry()
         return to_view(record, get_settings())
@@ -185,6 +199,8 @@ class ProviderService:
         is_local: bool | None = None,
         timeout_seconds: float | None = None,
         max_retries: int | None = None,
+        flavor: str | None = None,
+        disable_thinking: bool | None = None,
     ) -> ProviderView:
         current = await self._require(provider_id)
         merged_label, merged_base, merged_model = self._validate(
@@ -210,6 +226,10 @@ class ProviderService:
             fields["timeout_seconds"] = max(5.0, float(timeout_seconds))
         if max_retries is not None:
             fields["max_retries"] = max(0, int(max_retries))
+        if flavor is not None:
+            fields["flavor"] = self._validate_flavor(flavor)
+        if disable_thinking is not None:
+            fields["disable_thinking"] = int(bool(disable_thinking))
 
         record = await self._repository.update_provider(provider_id, **fields)
         if record is None:
@@ -256,6 +276,15 @@ class ProviderService:
         if not cleaned_model:
             raise ProviderValidationError("模型名不能为空")
         return cleaned_label, cleaned_base, cleaned_model
+
+    @staticmethod
+    def _validate_flavor(flavor: str) -> str:
+        cleaned = (flavor or "openai").strip().lower()
+        if cleaned not in _ALLOWED_FLAVORS:
+            raise ProviderValidationError(
+                f"不支持的接口协议：{flavor}（可选：{'/'.join(_ALLOWED_FLAVORS)}）"
+            )
+        return cleaned
 
     async def _deactivate_if_active(self, provider_id: str) -> None:
         """删掉正在使用的 Provider 时，回退到环境默认值（不允许悬空）。"""

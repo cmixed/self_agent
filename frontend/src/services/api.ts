@@ -313,6 +313,8 @@ export function createProvider(payload: {
   is_local: boolean
   timeout_seconds?: number
   max_retries?: number
+  flavor?: string
+  disable_thinking?: boolean
 }): Promise<ProviderInfo> {
   return request<ProviderInfo>('/providers', { method: 'POST', body: JSON.stringify(payload) })
 }
@@ -329,6 +331,8 @@ export function updateProvider(
     is_local: boolean
     timeout_seconds: number
     max_retries: number
+    flavor: string
+    disable_thinking: boolean
   }>,
 ): Promise<ProviderInfo> {
   return request<ProviderInfo>(`/providers/${encodeURIComponent(providerId)}`, {

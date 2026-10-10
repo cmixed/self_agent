@@ -54,6 +54,8 @@ const PRESETS = [
   {
     key: 'kimi',
     label: 'Kimi（Moonshot）',
+    flavor: 'openai',
+    disable_thinking: false,
     base_url: 'https://api.moonshot.cn/v1',
     model: 'kimi-k3',
     api_key_env: 'MOONSHOT_API_KEY',
@@ -69,11 +71,15 @@ const PRESETS = [
     api_key_env: '',
     requires_api_key: false,
     is_local: true,
-    hint: '本地推理无需密钥；先执行 ollama serve 并 ollama pull 模型',
+    flavor: 'ollama',
+    disable_thinking: true,
+    hint: '本地推理无需密钥；走原生 /api/chat 可关闭思考（快数倍）',
   },
   {
     key: 'custom',
     label: '通用 OpenAI 兼容',
+    flavor: 'openai',
+    disable_thinking: false,
     base_url: 'http://127.0.0.1:8080/v1',
     model: '',
     api_key_env: 'CUSTOM_API_KEY',
@@ -85,6 +91,8 @@ const PRESETS = [
 
 interface ProviderFormValues {
   preset?: string
+  flavor: string
+  disable_thinking: boolean
   label: string
   base_url: string
   model: string
@@ -142,6 +150,8 @@ export default function ProvidersPage() {
       is_local: false,
       timeout_seconds: 120,
       max_retries: 2,
+      flavor: 'openai',
+      disable_thinking: false,
     })
     setModalOpen(true)
   }
@@ -159,6 +169,8 @@ export default function ProvidersPage() {
       is_local: provider.is_local,
       timeout_seconds: provider.timeout_seconds,
       max_retries: provider.max_retries,
+      flavor: provider.flavor ?? 'openai',
+      disable_thinking: provider.disable_thinking ?? false,
     })
     setModalOpen(true)
   }
@@ -175,6 +187,8 @@ export default function ProvidersPage() {
       is_local: preset.is_local,
       timeout_seconds: preset.is_local ? 300 : 120,
       max_retries: preset.is_local ? 1 : 2,
+      flavor: preset.flavor,
+      disable_thinking: preset.disable_thinking,
     })
   }
 
@@ -252,6 +266,8 @@ export default function ProvidersPage() {
           is_local: values.is_local,
           timeout_seconds: values.timeout_seconds,
           max_retries: values.max_retries,
+          flavor: values.flavor,
+          disable_thinking: values.disable_thinking,
         })
         message.success(`已更新「${values.label}」`)
       } else {
@@ -265,6 +281,8 @@ export default function ProvidersPage() {
           is_local: values.is_local,
           timeout_seconds: values.timeout_seconds,
           max_retries: values.max_retries,
+          flavor: values.flavor,
+          disable_thinking: values.disable_thinking,
         })
         message.success(`已添加「${values.label}」`)
       }
@@ -351,6 +369,9 @@ export default function ProvidersPage() {
                   <Text strong>{record.label || record.id}</Text>
                   {record.managed ? <Tag color="blue">自定义</Tag> : <Tag>内置</Tag>}
                   {record.is_local ? <Tag color="purple">本地</Tag> : null}
+                  {record.managed && record.disable_thinking ? (
+                    <Tag color="green">关闭思考</Tag>
+                  ) : null}
                 </Space>
               ),
             },
@@ -524,7 +545,40 @@ export default function ProvidersPage() {
             </Space.Compact>
           </Form.Item>
 
+          <Form.Item
+            name="flavor"
+            label="接口协议"
+            tooltip="Ollama 原生协议才能关闭思考模式；其它服务保持 OpenAI 兼容 (/v1)"
+          >
+            <Select
+              options={[
+                { label: 'OpenAI 兼容（/v1/chat/completions）', value: 'openai' },
+                { label: 'Ollama 原生（/api/chat）', value: 'ollama' },
+              ]}
+            />
+          </Form.Item>
+
           <Space size="large" wrap>
+            <Form.Item
+              noStyle
+              shouldUpdate={(prev, next) => prev.flavor !== next.flavor}
+            >
+              {({ getFieldValue }) => (
+                <Form.Item
+                  name="disable_thinking"
+                  valuePropName="checked"
+                  tooltip={
+                    getFieldValue('flavor') === 'ollama'
+                      ? '本地小模型关闭思考可快数倍（原生协议 think=false）'
+                      : '仅对 Ollama 原生协议生效'
+                  }
+                >
+                  <Checkbox disabled={getFieldValue('flavor') !== 'ollama'}>
+                    关闭思考（更快）
+                  </Checkbox>
+                </Form.Item>
+              )}
+            </Form.Item>
             <Form.Item name="is_local" valuePropName="checked" tooltip="Ollama / LM Studio 等本机服务：不发送 Authorization 头">
               <Checkbox>本地服务（无需密钥）</Checkbox>
             </Form.Item>

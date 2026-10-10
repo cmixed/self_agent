@@ -39,6 +39,8 @@ def _response(view: ProviderView) -> ProviderResponse:
         is_local=view.is_local,
         timeout_seconds=view.timeout_seconds,
         max_retries=view.max_retries,
+        flavor=view.flavor,
+        disable_thinking=view.disable_thinking,
         created_at=view.created_at,
         updated_at=view.updated_at,
     )
@@ -71,6 +73,8 @@ async def create_provider(
             is_local=payload.is_local,
             timeout_seconds=payload.timeout_seconds,
             max_retries=payload.max_retries,
+            flavor=payload.flavor,
+            disable_thinking=payload.disable_thinking,
         )
     except ProviderValidationError as exc:
         return _error(400, "invalid_provider", str(exc))
@@ -95,6 +99,8 @@ async def update_provider(
             is_local=payload.is_local,
             timeout_seconds=payload.timeout_seconds,
             max_retries=payload.max_retries,
+            flavor=payload.flavor,
+            disable_thinking=payload.disable_thinking,
         )
     except ProviderNotFoundError as exc:
         return _error(404, "provider_not_found", str(exc))

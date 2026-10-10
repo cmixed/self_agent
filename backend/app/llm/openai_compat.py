@@ -47,17 +47,17 @@ _QUOTA_KEYWORDS = (
 )
 
 
-def _rejects_response_format(response: httpx.Response) -> bool:
-    """该 400 是否因为端点不支持 ``response_format``。
+def _rejects_json_mode(response: httpx.Response, field: str) -> bool:
+    """该 400 是否因为端点不支持给定的 JSON 模式字段。
 
-    只在错误体明确提到 response_format 时才回退：否则会把真正的请求错误
-    （例如模型名拼错）也当成"参数不支持"，掩盖真实原因。
+    只在错误体明确提到该字段时才回退：否则会把真正的请求错误
+    （例如模型名拼错）也当成「参数不支持」，掩盖真实原因。
     """
     try:
         text = response.text or ""
     except Exception:  # pragma: no cover - 读取响应体失败时保守处理
         return False
-    return "response_format" in text.lower()
+    return field.lower() in text.lower()
 
 
 def _is_quota_exhausted(response: httpx.Response) -> bool:
@@ -92,6 +92,11 @@ class OpenAICompatProvider(LLMProvider):
     # 面向用户的显示名（错误信息前缀），子类必须覆盖
     display_name = "OpenAI 兼容服务"
 
+    # --- 线路协议（子类覆写这几个属性即可复用本类的重试/超时/错误分类）---
+    _chat_path: str = _CHAT_COMPLETIONS_PATH
+    _json_mode_field: str = "response_format"
+    _json_mode_value: object = {"type": "json_object"}
+
     def __init__(
         self,
         *,
@@ -124,6 +129,27 @@ class OpenAICompatProvider(LLMProvider):
             transport=transport,
         )
 
+    def _build_payload(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        temperature: float,
+        max_tokens: int | None,
+        json_mode: bool,
+    ) -> dict[str, object]:
+        """构造请求体（OpenAI 兼容格式；子类覆写成其它协议）。"""
+        payload: dict[str, object] = {
+            "model": self._model,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "temperature": temperature,
+        }
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+        # 已知该端点不支持该 JSON 模式字段时不再携带（首次探测失败后置 False）
+        if json_mode and self._json_mode_supported is not False:
+            payload[self._json_mode_field] = self._json_mode_value
+        return payload
+
     def _local_unavailable(self, exc: Exception) -> LLMLocalServiceUnavailableError:
         return LLMLocalServiceUnavailableError(f"{self.display_name} 无法连接：{exc}")
 
@@ -135,17 +161,9 @@ class OpenAICompatProvider(LLMProvider):
         max_tokens: int | None = None,
         json_mode: bool = False,
     ) -> LLMResponse:
-        payload: dict[str, object] = {
-            "model": self._model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
-            "temperature": temperature,
-        }
-        if max_tokens is not None:
-            payload["max_tokens"] = max_tokens
-        # 已知该端点不支持 response_format 时不再携带（首次探测失败后置 False）
-        if json_mode and self._json_mode_supported is not False:
-            payload["response_format"] = {"type": "json_object"}
-
+        payload = self._build_payload(
+            messages, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode
+        )
         headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
 
         last_error: Exception | None = None
@@ -155,7 +173,7 @@ class OpenAICompatProvider(LLMProvider):
         while attempt <= self._max_retries:
             try:
                 response = await self._client.post(
-                    _CHAT_COMPLETIONS_PATH, json=payload, headers=headers
+                    self._chat_path, json=payload, headers=headers
                 )
             except httpx.TimeoutException as exc:
                 if self.is_local and isinstance(exc, httpx.ConnectTimeout):
@@ -171,21 +189,21 @@ class OpenAICompatProvider(LLMProvider):
             else:
                 if response.status_code == 200:
                     if json_mode:
-                        self._json_mode_supported = "response_format" in payload
+                        self._json_mode_supported = self._json_mode_field in payload
                     return self._parse_response(response)
                 if (
                     response.status_code == 400
                     and json_fallback_available
-                    and "response_format" in payload
-                    and _rejects_response_format(response)
+                    and self._json_mode_field in payload
+                    and _rejects_json_mode(response, self._json_mode_field)
                 ):
                     # 该端点不支持 response_format：去掉参数后用纯提示词 JSON 模式重试，
                     # 结构化仍由 Schema 校验 + 有限重试兜底（见 LLMProvider.chat_structured）
-                    payload.pop("response_format", None)
+                    payload.pop(self._json_mode_field, None)
                     json_fallback_available = False
                     self._json_mode_supported = False
                     logger.warning(
-                        "端点不支持 response_format，已回退为纯提示词 JSON 模式",
+                        f"端点不支持 {self._json_mode_field}，已回退为纯提示词 JSON 模式",
                         extra={"node": self.display_name, "event": "json_mode_fallback"},
                     )
                     continue

@@ -23,6 +23,12 @@ class ProviderConfig:
     is_local: bool = False
     timeout_seconds: float = 60.0
     max_retries: int = 2
+    # --- 线路协议与运行时行为 ---
+    # "openai" = OpenAI 兼容 /v1；"ollama" = Ollama 原生 /api/chat
+    # （原生协议才能关闭思考模式，见 llm/ollama_native.py）
+    flavor: str = "openai"
+    # 关闭思考模式：仅对 flavor="ollama" 生效（本地小模型可快数倍）
+    disable_thinking: bool = False
     # --- 展示用元数据（不含密钥本身）---
     managed: bool = False  # True = 用户自定义（可在 UI 编辑/删除）
     key_source: str = "env"  # env / db / none

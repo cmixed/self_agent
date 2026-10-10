@@ -19,6 +19,7 @@ from app.llm.base import LLMConfigError, LLMProvider
 from app.llm.custom import CustomProvider
 from app.llm.deepseek import DeepSeekProvider
 from app.llm.glm import GLMProvider
+from app.llm.ollama_native import OllamaNativeProvider
 from app.llm.provider_config import ProviderConfig, mask_api_key
 
 logger = get_logger(__name__)
@@ -73,6 +74,7 @@ def provider_configs(settings: Settings) -> dict[str, ProviderConfig]:
             api_key_env="OLLAMA_MODEL",
             requires_api_key=False,
             is_local=True,
+            flavor="ollama",
             timeout_seconds=settings.ollama_timeout_seconds,
             max_retries=settings.ollama_max_retries,
             key_source="none",
@@ -92,6 +94,8 @@ def provider_configs(settings: Settings) -> dict[str, ProviderConfig]:
             timeout_seconds=settings.custom_timeout_seconds,
             max_retries=settings.custom_max_retries,
             key_hint=mask_api_key(_secret(settings.custom_api_key)),
+            flavor=settings.custom_flavor,
+            disable_thinking=settings.custom_disable_thinking,
         )
 
     # UI 管理的自定义 Provider（内存注册表，由 ProviderService 在变更后刷新）
@@ -133,7 +137,15 @@ def _build_provider(config: ProviderConfig) -> LLMProvider:
             timeout_seconds=config.timeout_seconds,
             max_retries=config.max_retries,
         )
-    # Ollama 与自定义端点共用配置驱动的实现
+    if config.flavor == "ollama":
+        # 原生协议：可关闭思考（本地小模型快数倍），并自带推理速度日志
+        return OllamaNativeProvider(
+            base_url=config.base_url,
+            model=config.model,
+            think=not config.disable_thinking,
+            timeout_seconds=config.timeout_seconds,
+            max_retries=config.max_retries,
+        )
     return CustomProvider(
         provider_id=config.id,
         label=config.label,

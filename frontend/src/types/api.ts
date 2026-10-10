@@ -30,6 +30,10 @@ export interface ProviderInfo {
   base_url: string
   model: string
   api_key_env: string
+  /** 线路协议：openai（/v1 兼容）或 ollama（原生 /api/chat） */
+  flavor: string
+  /** 关闭思考模式（仅 flavor=ollama 生效） */
+  disable_thinking: boolean
   /** 密钥来源：env（环境变量优先）/ db（本地保存）/ none（无需密钥） */
   key_source: string
   /** 仅末 4 位提示，绝不含完整密钥 */
@@ -70,6 +74,10 @@ export interface LlmProviderOption {
   is_local: boolean
   /** true = 用户自定义（可在「模型服务」页编辑/删除） */
   managed: boolean
+  /** 线路协议：openai（/v1）或 ollama（原生 /api/chat） */
+  flavor: string
+  /** 是否已关闭思考模式（仅 ollama 协议生效） */
+  disable_thinking: boolean
   key_source: string
   key_hint: string
 }

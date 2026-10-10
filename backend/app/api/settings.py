@@ -44,6 +44,8 @@ def _snapshot() -> SettingsResponse:
             base_url=configs[name].base_url,
             is_local=configs[name].is_local,
             managed=configs[name].managed,
+            flavor=configs[name].flavor,
+            disable_thinking=configs[name].disable_thinking,
             key_source=configs[name].key_source,
             key_hint=configs[name].key_hint,
         )
