@@ -28,7 +28,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import AgentProgress from '../components/AgentProgress'
@@ -171,10 +171,33 @@ export default function TaskPage() {
   }
 
   const scopeCount = scope.category_ids.length + scope.document_ids.length
+  // 范围内实际涉及的文档数（类别下的文档 + 单独选择的文档，去重）
+  const scopeDocumentCount = useMemo(() => {
+    const ids = new Set(scope.document_ids)
+    for (const document of documents ?? []) {
+      if ((document.category_ids ?? []).some((id) => scope.category_ids.includes(id))) {
+        ids.add(document.document_id)
+      }
+    }
+    return ids.size
+  }, [scope, documents])
+  const scopeCategoryNames = scope.category_ids
+    .map((id) => categories.find((item) => item.category_id === id)?.name)
+    .filter((name): name is string => Boolean(name))
   const scopeSummary =
     scopeCount === 0
       ? '全部知识库'
-      : `${scope.category_ids.length} 个类别 + ${scope.document_ids.length} 篇文档`
+      : `${
+          scopeCategoryNames.length > 0
+            ? scopeCategoryNames.length <= 2
+              ? scopeCategoryNames.join('、')
+              : `${scopeCategoryNames.length} 个类别`
+            : ''
+        }${
+          scopeCategoryNames.length > 0 && scope.document_ids.length > 0 ? ' + ' : ''
+        }${
+          scope.document_ids.length > 0 ? `${scope.document_ids.length} 篇单独选择` : ''
+        }（共 ${scopeDocumentCount} 篇）`
 
   /** 预设任务：点击卡片 = 填充输入框并聚焦（用户确认后再运行）。 */
   const handlePresetFill = (presetQuery: string) => {

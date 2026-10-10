@@ -26,11 +26,42 @@ interface ScopePickerProps {
 /**
  * 任务检索范围选择器。
  *
- * 采用 `checkStrictly`（父子独立勾选），语义清晰且与后端协议一一对应：
- * - 勾选**类别** = 整个类别（后端按类别解析）；
- * - 单独勾选**文档** = 只加这一篇（未分类文档只能这样选）；
- * - 两者可叠加（后端取并集）；都不勾 = 全部知识库。
+ * 采用**级联勾选**：勾选类别时其下所有文档一并勾选（能直接看到包含哪些文件），
+ * 取消其中某篇则类别变为半选。
+ *
+ * 提交时再回推成后端协议：
+ * - 完全勾选的类别 → `category_ids`（保留"整类"语义，重跑时新加入的文档会被纳入）；
+ * - 未被已选类别覆盖的文档 → `document_ids`（单篇选择 / 未分类文档）；
+ * - 都不勾 = 全部知识库。
  */
+
+/** 由勾选状态回推后端协议（纯函数，便于审阅）。 */
+export function deriveSelection(
+  checkedKeys: string[],
+  documents: DocumentInfo[],
+): ScopeSelection {
+  const checkedCategoryIds = checkedKeys
+    .filter((key) => key.startsWith('cat:'))
+    .map((key) => key.slice(4))
+  const checkedDocumentIds = new Set(
+    checkedKeys.filter((key) => key.startsWith('doc:')).map((key) => key.slice(4)),
+  )
+
+  const selectedCategories = new Set(checkedCategoryIds)
+  // 已被"整类"覆盖的文档不再重复计入 document_ids（后端取并集，这里保持精确）
+  const covered = new Set<string>()
+  for (const document of documents) {
+    const ids = document.category_ids ?? []
+    if (ids.some((id) => selectedCategories.has(id))) {
+      covered.add(document.document_id)
+    }
+  }
+
+  return {
+    category_ids: checkedCategoryIds,
+    document_ids: [...checkedDocumentIds].filter((id) => !covered.has(id)),
+  }
+}
 export default function ScopePicker({
   open,
   categories,
@@ -43,11 +74,18 @@ export default function ScopePicker({
 
   useEffect(() => {
     if (!open) return
-    setCheckedKeys([
+    const keys = new Set<string>([
       ...value.category_ids.map((id) => `cat:${id}`),
       ...value.document_ids.map((id) => `doc:${id}`),
     ])
-  }, [open, value])
+    // 级联显示：整类被选中时，其下文档也要呈勾选态
+    for (const document of documents) {
+      if ((document.category_ids ?? []).some((id) => value.category_ids.includes(id))) {
+        keys.add(`doc:${document.document_id}`)
+      }
+    }
+    setCheckedKeys([...keys])
+  }, [open, value, documents])
 
   const treeData = useMemo<TreeDataNode[]>(() => {
     const byCategory = new Map<string, DocumentInfo[]>()
@@ -93,15 +131,19 @@ export default function ScopePicker({
   }, [categories, documents])
 
   const handleConfirm = () => {
-    const keys = checkedKeys.map(String)
-    onConfirm({
-      category_ids: keys.filter((key) => key.startsWith('cat:')).map((key) => key.slice(4)),
-      document_ids: keys.filter((key) => key.startsWith('doc:')).map((key) => key.slice(4)),
-    })
+    onConfirm(deriveSelection(checkedKeys.map(String), documents))
   }
 
-  const selectedCategories = checkedKeys.filter((key) => String(key).startsWith('cat:')).length
-  const selectedDocuments = checkedKeys.filter((key) => String(key).startsWith('doc:')).length
+  const selection = useMemo(
+    () => deriveSelection(checkedKeys.map(String), documents),
+    [checkedKeys, documents],
+  )
+  const selectedCategories = selection.category_ids.length
+  const selectedDocuments = selection.document_ids.length
+  const coveredDocuments = documents.filter((document) =>
+    (document.category_ids ?? []).some((id) => selection.category_ids.includes(id)),
+  ).length
+  const effectiveDocuments = coveredDocuments + selectedDocuments
 
   return (
     <Modal
@@ -116,7 +158,8 @@ export default function ScopePicker({
     >
       <Space orientation="vertical" size="small" style={{ width: '100%' }}>
         <Text type="secondary">
-          勾选类别表示整个类别；只想用某一篇时单独勾选该文档。什么都不勾 = 使用全部知识库。
+          勾选类别会连同其下所有文档一起选中（可再单独取消某篇）；只选个别文件时直接展开勾选。
+          什么都不勾 = 使用全部知识库。
         </Text>
         {treeData.length === 0 ? (
           <Text type="secondary">知识库还没有文档，先去「知识库」上传并分类。</Text>
@@ -124,7 +167,6 @@ export default function ScopePicker({
           <Tree
             checkable
             selectable={false}
-            checkStrictly
             defaultExpandAll
             treeData={treeData}
             checkedKeys={checkedKeys}
@@ -135,7 +177,9 @@ export default function ScopePicker({
           />
         )}
         <Text type="secondary">
-          已选：{selectedCategories} 个类别、{selectedDocuments} 篇文档
+          已选：{selectedCategories > 0 ? `${selectedCategories} 个类别、` : ''}
+          {selectedDocuments} 篇单独选择的文档
+          {effectiveDocuments > 0 ? `（共涉及 ${effectiveDocuments} 篇）` : ''}
         </Text>
       </Space>
     </Modal>
