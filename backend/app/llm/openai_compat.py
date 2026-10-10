@@ -48,7 +48,12 @@ _QUOTA_KEYWORDS = (
 
 
 def _rejects_json_mode(response: httpx.Response, field: str) -> bool:
-    """该 400 是否因为端点不支持给定的 JSON 模式字段。
+    """该 400 是否因为端点不支持给定的 JSON 模式字段。"""
+    return _rejects_field(response, field)
+
+
+def _rejects_field(response: httpx.Response, field: str) -> bool:
+    """该 400 是否明确指向某个不被接受的字段。
 
     只在错误体明确提到该字段时才回退：否则会把真正的请求错误
     （例如模型名拼错）也当成「参数不支持」，掩盖真实原因。
@@ -170,6 +175,10 @@ class OpenAICompatProvider(LLMProvider):
         attempt = 0
         # 「去掉 response_format 再试一次」不占用重试预算（自定义端点兼容性）
         json_fallback_available = True
+        # 某些模型/IP 不接受可选的"开关类"字段（如 Ollama 的 think）：
+        # 去掉后重试一次，避免把整个任务卡在一个可选参数上
+        optional_fields = ("think",)
+        dropped_optional_fields: set[str] = set()
         while attempt <= self._max_retries:
             try:
                 response = await self._client.post(
@@ -191,6 +200,28 @@ class OpenAICompatProvider(LLMProvider):
                     if json_mode:
                         self._json_mode_supported = self._json_mode_field in payload
                     return self._parse_response(response)
+                if response.status_code == 400:
+                    rejected = next(
+                        (
+                            field
+                            for field in optional_fields
+                            if field in payload
+                            and field not in dropped_optional_fields
+                            and _rejects_field(response, field)
+                        ),
+                        None,
+                    )
+                    if rejected is not None:
+                        payload.pop(rejected, None)
+                        dropped_optional_fields.add(rejected)
+                        logger.warning(
+                            f"端点不接受 {rejected} 参数，已去掉后重试",
+                            extra={
+                                "node": self.display_name,
+                                "event": "optional_field_fallback",
+                            },
+                        )
+                        continue
                 if (
                     response.status_code == 400
                     and json_fallback_available

@@ -223,3 +223,26 @@ def test_ollama_flavor_keeps_thinking_by_default() -> None:
     assert isinstance(provider, OllamaNativeProvider)
     assert provider._think is True  # noqa: SLF001
     assert provider_configs  # 保持导入使用
+
+
+async def test_think_field_rejection_falls_back_without_it() -> None:
+    """模型不接受 think 参数时，去掉该字段重试一次（不占重试预算）。"""
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.read())
+        seen.append(body)
+        if "think" in body:
+            return httpx.Response(
+                400, json={"error": "this model does not support thinking"}
+            )
+        return httpx.Response(200, json=native_body("普通模型的正文"))
+
+    provider = make_native(handler, max_retries=0)
+    try:
+        response = await provider.chat([ChatMessage(role="user", content="hi")])
+        assert response.content == "普通模型的正文"
+        assert len(seen) == 2, "应恰好回退一次"
+        assert "think" not in seen[-1]
+    finally:
+        await provider.aclose()
