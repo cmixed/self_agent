@@ -88,6 +88,24 @@ CREATE TABLE IF NOT EXISTS presets (
     updated_at  TEXT NOT NULL
 );
 
+-- 用户自定义 LLM Provider（UI 管理）。
+-- api_key 允许存本地明文（单机自用），**绝不回传前端**；
+-- 若 api_key_env 指向的环境变量存在，则环境变量优先（更安全）。
+CREATE TABLE IF NOT EXISTS llm_providers (
+    provider_id      TEXT PRIMARY KEY,
+    label            TEXT NOT NULL,
+    base_url         TEXT NOT NULL,
+    model            TEXT NOT NULL,
+    api_key          TEXT NOT NULL DEFAULT '',
+    api_key_env      TEXT NOT NULL DEFAULT '',
+    requires_api_key INTEGER NOT NULL DEFAULT 1,
+    is_local         INTEGER NOT NULL DEFAULT 0,
+    timeout_seconds  REAL NOT NULL DEFAULT 120,
+    max_retries      INTEGER NOT NULL DEFAULT 2,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+);
+
 -- 知识库分类（多标签）：文档本体在 Chroma，这里只存「组织关系」。
 -- category_id 外键级联：删除类别自动清理映射，文档不受影响。
 CREATE TABLE IF NOT EXISTS categories (

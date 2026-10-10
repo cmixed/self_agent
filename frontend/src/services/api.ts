@@ -10,6 +10,10 @@ import type {
   MemoryRecord,
   PresetInfo,
   PresetListResponse,
+  ModelListResponse,
+  ProviderInfo,
+  ProviderListResponse,
+  ProviderProbeResponse,
   SettingsResponse,
   SkillInfo,
   TaskScope,
@@ -290,6 +294,81 @@ export async function deletePreset(presetId: string): Promise<void> {
   if (!response.ok) {
     throw await toApiError(response)
   }
+}
+
+// --- 模型服务（自定义 Provider）---
+
+export function listProviders(): Promise<ProviderListResponse> {
+  return request<ProviderListResponse>('/providers')
+}
+
+export function createProvider(payload: {
+  label: string
+  base_url: string
+  model: string
+  api_key?: string
+  api_key_env?: string
+  requires_api_key: boolean
+  is_local: boolean
+  timeout_seconds?: number
+  max_retries?: number
+}): Promise<ProviderInfo> {
+  return request<ProviderInfo>('/providers', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function updateProvider(
+  providerId: string,
+  payload: Partial<{
+    label: string
+    base_url: string
+    model: string
+    api_key: string
+    api_key_env: string
+    requires_api_key: boolean
+    is_local: boolean
+    timeout_seconds: number
+    max_retries: number
+  }>,
+): Promise<ProviderInfo> {
+  return request<ProviderInfo>(`/providers/${encodeURIComponent(providerId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteProvider(providerId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/providers/${encodeURIComponent(providerId)}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    throw await toApiError(response)
+  }
+}
+
+/** 发现端点可用模型（后端代理，避免跨域）。 */
+export function discoverModels(
+  baseUrl: string,
+  providerId?: string,
+): Promise<ModelListResponse> {
+  const params = new URLSearchParams({ base_url: baseUrl })
+  if (providerId) params.set('provider_id', providerId)
+  return request<ModelListResponse>(`/providers/models?${params.toString()}`)
+}
+
+/** 测试连接（真实发一条极小请求）。 */
+export function testProvider(payload: {
+  base_url: string
+  model: string
+  provider_id?: string
+  api_key?: string
+  requires_api_key: boolean
+  is_local: boolean
+  timeout_seconds?: number
+}): Promise<ProviderProbeResponse> {
+  return request<ProviderProbeResponse>('/providers/test', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
 }
 
 // --- 知识库类别（多标签组织）---

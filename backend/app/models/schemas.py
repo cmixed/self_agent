@@ -46,6 +46,13 @@ class LLMProviderInfo(BaseModel):
     model: str
     configured: bool
     active: bool
+    # --- 展示用（不含密钥）---
+    label: str = ""
+    base_url: str = ""
+    is_local: bool = False
+    managed: bool = False
+    key_source: str = ""
+    key_hint: str = ""
 
 
 class SettingsResponse(BaseModel):
@@ -59,6 +66,54 @@ class LlmProviderUpdate(BaseModel):
     """切换当前 LLM Provider 的请求体。"""
 
     provider: str = Field(min_length=1)
+
+
+class ProviderResponse(BaseModel):
+    """自定义 Provider 视图（**不含密钥**）。"""
+
+    provider_id: str
+    label: str
+    base_url: str
+    model: str
+    api_key_env: str = ""
+    key_source: str = "none"
+    key_hint: str = ""
+    requires_api_key: bool = True
+    is_local: bool = False
+    timeout_seconds: float = 120.0
+    max_retries: int = 2
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class ProviderListResponse(BaseModel):
+    providers: list[ProviderResponse]
+
+
+class ProviderCreateRequest(BaseModel):
+    label: str = Field(min_length=1, max_length=40)
+    base_url: str = Field(min_length=1, max_length=300)
+    model: str = Field(min_length=1, max_length=120)
+    api_key: str | None = None
+    api_key_env: str | None = None
+    requires_api_key: bool = True
+    is_local: bool = False
+    timeout_seconds: float = 120.0
+    max_retries: int = 2
+
+
+class ProviderUpdateRequest(BaseModel):
+    """只传需要修改的字段；``api_key`` 缺省=保持不变，空串=清空。"""
+
+    label: str | None = Field(default=None, min_length=1, max_length=40)
+    base_url: str | None = Field(default=None, min_length=1, max_length=300)
+    model: str | None = Field(default=None, min_length=1, max_length=120)
+    api_key: str | None = None
+    api_key_env: str | None = None
+    requires_api_key: bool | None = None
+    is_local: bool | None = None
+    timeout_seconds: float | None = None
+    max_retries: int | None = None
 
 
 class ProviderProbeRequest(BaseModel):

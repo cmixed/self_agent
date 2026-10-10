@@ -1,5 +1,6 @@
 import {
   ApiOutlined,
+  CloudServerOutlined,
   BulbOutlined,
   DatabaseOutlined,
   HistoryOutlined,
@@ -37,6 +38,7 @@ import HistoryPage from './pages/History'
 import KnowledgeBasePage from './pages/KnowledgeBase'
 import MemoryPage from './pages/Memory'
 import PresetsPage from './pages/Presets'
+import ProvidersPage from './pages/Providers'
 import SkillsPage from './pages/Skills'
 import TaskPage from './pages/Task'
 import { NavProvider, useNav } from './state/nav'
@@ -52,6 +54,7 @@ const PAGE_META: Array<{ key: string; label: string; icon: ReactNode }> = [
   { key: 'knowledge', label: '知识库', icon: <DatabaseOutlined /> },
   { key: 'skills', label: '技能', icon: <ApiOutlined /> },
   { key: 'presets', label: '预设任务', icon: <TagsOutlined /> },
+  { key: 'providers', label: '模型服务', icon: <CloudServerOutlined /> },
   { key: 'history', label: '任务历史', icon: <HistoryOutlined /> },
   { key: 'memory', label: '长期记忆', icon: <BulbOutlined /> },
 ]
@@ -235,6 +238,7 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
               {page === 'knowledge' && <KnowledgeBasePage />}
               {page === 'skills' && <SkillsPage />}
               {page === 'presets' && <PresetsPage />}
+              {page === 'providers' && <ProvidersPage />}
               {page === 'history' && <HistoryPage />}
               {page === 'memory' && <MemoryPage />}
             </div>

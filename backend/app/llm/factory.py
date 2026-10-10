@@ -11,15 +11,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from app.core.config import Settings, get_settings
 from app.core.logging import get_logger
 from app.core.provider_store import ProviderStore
+from app.llm import registry
 from app.llm.base import LLMConfigError, LLMProvider
 from app.llm.custom import CustomProvider
 from app.llm.deepseek import DeepSeekProvider
 from app.llm.glm import GLMProvider
+from app.llm.provider_config import ProviderConfig, mask_api_key
 
 logger = get_logger(__name__)
 
@@ -28,34 +28,6 @@ logger = get_logger(__name__)
 BUILTIN_PROVIDERS: tuple[str, ...] = ("deepseek", "glm", "ollama", "custom")
 # 向后兼容：旧代码/测试引用的名字
 SUPPORTED_PROVIDERS = BUILTIN_PROVIDERS
-
-
-@dataclass(frozen=True)
-class ProviderConfig:
-    """一个可用的 LLM 端点配置（内置与自定义共用同一结构）。
-
-    P1 的条目全部来自 .env；P3 会把 SQLite 中的自定义条目也转成这个结构，
-    因此工厂、切换逻辑、设置快照都不需要为两种来源各写一套。
-    """
-
-    id: str
-    label: str
-    base_url: str
-    model: str
-    api_key: str = ""
-    api_key_env: str = "API_KEY"
-    requires_api_key: bool = True
-    is_local: bool = False
-    timeout_seconds: float = 60.0
-    max_retries: int = 2
-
-    @property
-    def available(self) -> bool:
-        """是否具备调用条件（密钥就绪 / 本地服务无需密钥）。"""
-        if not self.requires_api_key:
-            return bool(self.base_url.strip() and self.model.strip())
-        value = (self.api_key or "").strip()
-        return bool(self.base_url.strip() and self.model.strip() and value)
 
 
 def _secret(value) -> str:
@@ -74,6 +46,7 @@ def provider_configs(settings: Settings) -> dict[str, ProviderConfig]:
             api_key_env="DEEPSEEK_API_KEY",
             timeout_seconds=settings.deepseek_timeout_seconds,
             max_retries=settings.deepseek_max_retries,
+            key_hint=mask_api_key(_secret(settings.deepseek_api_key)),
         ),
         "glm": ProviderConfig(
             id="glm",
@@ -84,6 +57,7 @@ def provider_configs(settings: Settings) -> dict[str, ProviderConfig]:
             api_key_env="GLM_API_KEY",
             timeout_seconds=settings.glm_timeout_seconds,
             max_retries=settings.glm_max_retries,
+            key_hint=mask_api_key(_secret(settings.glm_api_key)),
         ),
     }
 
@@ -98,6 +72,7 @@ def provider_configs(settings: Settings) -> dict[str, ProviderConfig]:
             is_local=True,
             timeout_seconds=settings.ollama_timeout_seconds,
             max_retries=settings.ollama_max_retries,
+            key_source="none",
         )
 
     # 自定义 OpenAI 兼容端点（.env 版本；UI 版本在 P3 并入）
@@ -113,7 +88,12 @@ def provider_configs(settings: Settings) -> dict[str, ProviderConfig]:
             is_local=settings.custom_is_local,
             timeout_seconds=settings.custom_timeout_seconds,
             max_retries=settings.custom_max_retries,
+            key_hint=mask_api_key(_secret(settings.custom_api_key)),
         )
+
+    # UI 管理的自定义 Provider（内存注册表，由 ProviderService 在变更后刷新）
+    for provider_id, config in registry.custom_provider_configs().items():
+        configs.setdefault(provider_id, config)
     return configs
 
 _provider: LLMProvider | None = None

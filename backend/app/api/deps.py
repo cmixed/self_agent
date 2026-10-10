@@ -28,6 +28,7 @@ from app.services.category_service import CategoryService
 from app.services.document_service import DocumentService
 from app.services.memory_service import MemoryService
 from app.services.preset_service import PresetService
+from app.services.provider_service import ProviderService
 from app.services.skill_service import SkillService
 from app.services.task_service import TaskService
 
@@ -158,6 +159,10 @@ def build_category_service() -> CategoryService:
     return CategoryService(build_database())
 
 
+def build_provider_service() -> ProviderService:
+    return ProviderService(build_database())
+
+
 def get_user_id(x_user_id: str | None = Header(default=None, alias="X-User-Id")) -> str:
     """无复杂用户系统（§31）：默认单用户，可通过请求头覆盖。"""
     settings = get_settings()
@@ -214,6 +219,10 @@ def get_preset_service() -> PresetService:
 
 def get_category_service() -> CategoryService:
     return build_category_service()
+
+
+def get_provider_service() -> ProviderService:
+    return build_provider_service()
 
 
 def get_memory_service(

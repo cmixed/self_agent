@@ -24,6 +24,8 @@ from pydantic import BaseModel, Field
 from app.agents.chapters import (
     MAX_SECTIONS,
     chapter_target,
+    failed_chapters,
+    is_chapter_failed,
     last_written_index,
     next_pending_index,
 )
@@ -104,11 +106,14 @@ def resolve_scope(
     validations = state.get("chapter_validations") or {}
     latest = validations.get(chapter_target(current))
     chapter_done = isinstance(latest, dict) and bool(latest.get("passed"))
+    # 已达重试上限的章节按「⚠️ 记录后放行」处理：继续重校验它只会
+    # 在 validator 之间空转直到触发递归上限（该章内容不会因为再看一遍而变化）
+    chapter_exhausted = is_chapter_failed(state, current, max_retries=max_retries)
     pending = next_pending_index(
         state, max_retries=max_retries, max_sections=max_sections
     )
 
-    if pending is not None or not chapter_done:
+    if pending is not None or (not chapter_done and not chapter_exhausted):
         return "chapter", current
     return "document", None
 
@@ -179,24 +184,38 @@ def _resolve_action_and_target(
 
 
 def _citation_precheck(
-    state: AgentState, *, scope: str, index: int | None
+    state: AgentState, *, scope: str, index: int | None, max_retries: int
 ) -> tuple[str | None, list[str]]:
     """确定性预检查：引用编号是否越界；返回 (问题章节 target, issues)。
 
     章级 → 直接检查该章；整篇 → 定位到第一个有问题的章节（这样后续路由是
     章级重写，而不是无法定位的整篇问题被升级成 replan）。
+
+    **已达重试上限的章节不再参与**：预检查只是"要求重写"的依据，而对耗尽的
+    章节重写已经不会再发生。若不过滤，整篇校验会反复定位回同一章
+    （target 仍是 chapter_N → 路由回 validator），在 validator 之间空转到
+    触发递归上限，而不是按 §16「重试耗尽后只报告」收尾。这些章节的最终状态
+    仍由 ``failed_chapters`` 汇总进结果与正文 ⚠️ 标记。
     """
     source_count = len(dedupe_documents(state.get("retrieved_documents") or []))
     sections = state.get("sections") or []
+    spent = {
+        chapter_target(item)
+        for item in failed_chapters(state, max_retries=max_retries, max_sections=MAX_SECTIONS)
+    }
 
     if scope == "chapter" and index is not None:
         content = str(sections[index].get("content") or "") if index < len(sections) else ""
         dangling = dangling_citation_indices(content, source_count=source_count)
-        if dangling:
+        if dangling and chapter_target(index) not in spent:
             return chapter_target(index), [citation_issue_text(dangling, source_count=source_count)]
         return None, []
 
-    offenders = find_chapters_with_dangling(sections, source_count=source_count)
+    offenders = [
+        item
+        for item in find_chapters_with_dangling(sections, source_count=source_count)
+        if chapter_target(item) not in spent
+    ]
     if offenders:
         index = offenders[0]
         dangling = dangling_citation_indices(
@@ -286,7 +305,9 @@ def make_validator_node(
         sections = state.get("sections") or []
 
         # --- 确定性预检查：引用编号越界 → 章级重试，不调用 LLM、不触发 replan ---
-        citation_target, citation_issues = _citation_precheck(state, scope=scope, index=index)
+        citation_target, citation_issues = _citation_precheck(
+        state, scope=scope, index=index, max_retries=max_retries
+    )
         if citation_target is not None:
             return _build_update(
                 state,

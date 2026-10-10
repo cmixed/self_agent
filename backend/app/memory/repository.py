@@ -608,6 +608,24 @@ class SkillRepository:
 
 
 @dataclass(frozen=True)
+class ProviderRecord:
+    """用户自定义 LLM Provider（``api_key`` 明文仅存在于服务端）。"""
+
+    provider_id: str
+    label: str
+    base_url: str
+    model: str
+    api_key: str
+    api_key_env: str
+    requires_api_key: bool
+    is_local: bool
+    timeout_seconds: float
+    max_retries: int
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class CategoryRecord:
     """知识库类别（多标签）。"""
 
@@ -629,6 +647,153 @@ class PresetRecord:
     query: str
     created_at: str
     updated_at: str
+
+
+class ProviderRepository:
+    """llm_providers 的读写（自定义 Provider 配置）。"""
+
+    def __init__(self, database: SqliteDatabase) -> None:
+        self._database = database
+
+    async def list_providers(self) -> list[ProviderRecord]:
+        return await asyncio.to_thread(self._list_providers)
+
+    def list_providers_sync(self) -> list[ProviderRecord]:
+        """同步读取：供进程启动时装载内存注册表（§28 允许 core 之外的显式同步入口）。"""
+        return self._list_providers()
+
+    async def get_provider(self, provider_id: str) -> ProviderRecord | None:
+        return await asyncio.to_thread(self._get_provider, provider_id)
+
+    async def create_provider(
+        self,
+        *,
+        provider_id: str,
+        label: str,
+        base_url: str,
+        model: str,
+        api_key: str = "",
+        api_key_env: str = "",
+        requires_api_key: bool = True,
+        is_local: bool = False,
+        timeout_seconds: float = 120.0,
+        max_retries: int = 2,
+    ) -> ProviderRecord:
+        return await asyncio.to_thread(
+            self._create_provider,
+            provider_id,
+            label,
+            base_url,
+            model,
+            api_key,
+            api_key_env,
+            requires_api_key,
+            is_local,
+            timeout_seconds,
+            max_retries,
+        )
+
+    async def update_provider(self, provider_id: str, **fields: Any) -> ProviderRecord | None:
+        return await asyncio.to_thread(self._update_provider, provider_id, fields)
+
+    async def delete_provider(self, provider_id: str) -> bool:
+        return await asyncio.to_thread(self._delete_provider, provider_id)
+
+    # --- 同步实现 ---
+
+    @staticmethod
+    def _record(row: Any) -> ProviderRecord:
+        return ProviderRecord(
+            provider_id=row["provider_id"],
+            label=row["label"],
+            base_url=row["base_url"],
+            model=row["model"],
+            api_key=row["api_key"] or "",
+            api_key_env=row["api_key_env"] or "",
+            requires_api_key=bool(row["requires_api_key"]),
+            is_local=bool(row["is_local"]),
+            timeout_seconds=float(row["timeout_seconds"]),
+            max_retries=int(row["max_retries"]),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def _list_providers(self) -> list[ProviderRecord]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM llm_providers ORDER BY created_at"
+            ).fetchall()
+        return [self._record(row) for row in rows]
+
+    def _get_provider(self, provider_id: str) -> ProviderRecord | None:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM llm_providers WHERE provider_id = ?", (provider_id,)
+            ).fetchone()
+        return self._record(row) if row is not None else None
+
+    def _create_provider(  # noqa: PLR0913 - 与表结构一一对应的显式参数
+        self,
+        provider_id: str,
+        label: str,
+        base_url: str,
+        model: str,
+        api_key: str,
+        api_key_env: str,
+        requires_api_key: bool,
+        is_local: bool,
+        timeout_seconds: float,
+        max_retries: int,
+    ) -> ProviderRecord:
+        now = utc_now()
+        with self._database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO llm_providers(
+                    provider_id, label, base_url, model, api_key, api_key_env,
+                    requires_api_key, is_local, timeout_seconds, max_retries,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    provider_id, label, base_url, model, api_key, api_key_env,
+                    int(requires_api_key), int(is_local), timeout_seconds, max_retries,
+                    now, now,
+                ),
+            )
+            connection.commit()
+        record = self._get_provider(provider_id)
+        assert record is not None
+        return record
+
+    def _update_provider(self, provider_id: str, fields: dict[str, Any]) -> ProviderRecord | None:
+        allowed = {
+            "label", "base_url", "model", "api_key", "api_key_env",
+            "requires_api_key", "is_local", "timeout_seconds", "max_retries",
+        }
+        assignments = [f"{key} = ?" for key in fields if key in allowed]
+        params = [fields[key] for key in fields if key in allowed]
+        if not assignments:
+            return self._get_provider(provider_id)
+
+        with self._database.connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE llm_providers SET {', '.join(assignments)}, updated_at = ? "
+                "WHERE provider_id = ?",
+                (*params, utc_now(), provider_id),
+            )
+            connection.commit()
+            if cursor.rowcount == 0:
+                return None
+        return self._get_provider(provider_id)
+
+    def _delete_provider(self, provider_id: str) -> bool:
+        with self._database.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM llm_providers WHERE provider_id = ?", (provider_id,)
+            )
+            connection.commit()
+        return cursor.rowcount > 0
 
 
 class CategoryRepository:

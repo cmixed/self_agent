@@ -40,6 +40,12 @@ def _snapshot() -> SettingsResponse:
             model=configs[name].model,
             configured=configs[name].available,
             active=name == active,
+            label=configs[name].label,
+            base_url=configs[name].base_url,
+            is_local=configs[name].is_local,
+            managed=configs[name].managed,
+            key_source=configs[name].key_source,
+            key_hint=configs[name].key_hint,
         )
         for name in ordered
         if name in configs

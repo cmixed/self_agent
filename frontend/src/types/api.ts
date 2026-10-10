@@ -18,16 +18,59 @@ export interface HealthResponse {
   llm_configured: boolean
 }
 
-export interface LlmProviderInfo {
+export interface ProviderInfo {
+  provider_id: string
+  label: string
+  base_url: string
+  model: string
+  api_key_env: string
+  /** 密钥来源：env（环境变量优先）/ db（本地保存）/ none（无需密钥） */
+  key_source: string
+  /** 仅末 4 位提示，绝不含完整密钥 */
+  key_hint: string
+  requires_api_key: boolean
+  is_local: boolean
+  timeout_seconds: number
+  max_retries: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ProviderListResponse {
+  providers: ProviderInfo[]
+}
+
+export interface ProviderProbeResponse {
+  ok: boolean
+  detail: string
+  latency_ms: number
+  reply: string
+}
+
+export interface ModelListResponse {
+  ok: boolean
+  detail: string
+  models: string[]
+  latency_ms: number
+}
+
+export interface LlmProviderOption {
   id: string
   model: string
   configured: boolean
   active: boolean
+  label: string
+  base_url: string
+  is_local: boolean
+  /** true = 用户自定义（可在「模型服务」页编辑/删除） */
+  managed: boolean
+  key_source: string
+  key_hint: string
 }
 
 export interface SettingsResponse {
   llm_provider: string
-  providers: LlmProviderInfo[]
+  providers: LlmProviderOption[]
 }
 
 export interface CategoryInfo {

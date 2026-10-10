@@ -22,6 +22,7 @@ from app.api import (
     memory,
     presets,
     providers,
+    providers_crud,
     skills,
     tasks,
 )
@@ -31,6 +32,7 @@ from app.api.deps import (
     build_chroma_store,
     build_database,
     build_preset_service,
+    build_provider_service,
     build_skill_service,
     build_task_repository,
     get_checkpoint_store,
@@ -48,6 +50,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     configure_logging()
     settings = get_settings()
     await asyncio.to_thread(build_database().initialize)
+    # 装载 UI 管理的自定义 Provider 到内存注册表（工厂同步读取，见 llm/registry.py）
+    try:
+        await build_provider_service().refresh_registry()
+    except Exception as exc:  # pragma: no cover - 配置异常不应阻塞启动
+        logger.warning(f"自定义 Provider 装载失败：{exc}", extra={"event": "providers_load_failed"})
     reconciled = await build_task_repository().reconcile_running_tasks()
     if reconciled:
         logger.warning(
@@ -101,6 +108,7 @@ def create_app() -> FastAPI:
     app.include_router(presets.router)
     app.include_router(categories.router)
     app.include_router(providers.router)
+    app.include_router(providers_crud.router)
     app.include_router(chat.router)
     app.include_router(tasks.router)
     app.include_router(documents.router)
