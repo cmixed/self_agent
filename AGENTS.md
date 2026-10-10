@@ -336,6 +336,7 @@ plan
 current_step
 step_results
 retrieved_documents
+retrieval_scope
 draft
 validation_result
 retry_count
@@ -579,6 +580,12 @@ Agent
 - 解析与切分（`load_document` / `split_pages`）等同步 CPU/IO 操作要放进线程。
 - Retriever 不应散落在 Agent 节点中。
 - Agent 只能通过 RAG Tool 查询知识库。
+- **检索范围**（知识库分类，见 §13）：任务可限定在「若干类别 ∪ 若干文档」内检索。
+  提交时由 API 层解析并**冻结**成 `document_id` 列表写入
+  `AgentState.retrieval_scope`（随 checkpoint 持久化 → 续跑沿用同一范围）；
+  researcher 从 state 读取并透传到 `RagTool.search` → `Retriever` →
+  `ChromaStore.query(document_ids=...)` → Chroma `where`。
+  **空列表代表「范围内没有文档」必须返回空结果**，绝不能退化成不过滤。
 - 检索结果必须保留 source metadata。
 - 最终答案尽可能引用对应来源。
 - 修改 chunk size / overlap / retrieval top-k 后应重新进行检索评估。
@@ -641,7 +648,13 @@ user_preferences
 tasks
 task_runs
 memories
+categories            # 知识库类别（多标签）
+document_categories   # 文档 ↔ 类别映射（文档本体在 Chroma）
 ```
+
+知识库组织（`categories` / `document_categories`）：文档本体仍在 Chroma，
+SQLite 只存**组织关系**；一个文档可属多个类别；删除类别只清理映射、
+文档保留；删除文档时一并清理其映射。任务范围解析（类别 ∪ 单文档）走这里。
 
 `task_runs` 是**尝试表**：一个任务可以有多次运行记录（首次执行 / 继续生成 /
 重新生成），用 `attempt_no` 递增区分，**不得覆盖**此前的失败记录：
@@ -869,6 +882,12 @@ API 至少包含：
 POST /api/documents/upload
 GET  /api/documents
 DELETE /api/documents/{id}
+PUT  /api/documents/{id}/categories
+
+GET  /api/categories
+POST /api/categories
+PUT  /api/categories/{id}
+DELETE /api/categories/{id}
 
 POST /api/tasks
 GET  /api/tasks/{id}

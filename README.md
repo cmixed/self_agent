@@ -295,6 +295,17 @@ uv run python -m app.evaluation.run --suite compare --real --top-k 5 \
 
 > 评估在**临时向量库**中进行，不会污染个人知识库。
 
+## 知识库分类与任务检索范围
+
+- **组织**：知识库页左栏管理类别（新建/重命名/删除），文档行「分类」用多选 Modal
+  打标签（一个文档可属多个类别）；支持「全部 / 未分类 / 某个类别」筛选。
+- **按范围执行**：工作台输入区的「选择范围」可勾选类别（=整类）或类别下的单个文件，
+  预设任务同样沿用当前范围；什么都不选 = 全部知识库。
+- **语义**：范围在提交时解析并**冻结**（类别里后加的文档不会影响已提交的任务）；
+  「继续生成」沿用原范围，「重新生成」按原选择重新解析；
+  所选范围为空时返回 409（不会静默检索全部）。
+- 任务详情会显示本次「检索范围」。
+
 ## 任务中断后怎么办
 
 额度不足、密钥失效、手动取消都会让任务中断。此时**不需要删除重建**，任务详情页提供两个动作：
@@ -338,6 +349,11 @@ uv run python -m app.evaluation.run --suite compare --real --top-k 5 \
 | `POST` | `/api/documents/upload` | 上传并索引文档（PDF / TXT / MD） |
 | `GET` | `/api/documents` | 列出已索引文档 |
 | `DELETE` | `/api/documents/{id}` | 删除文档及其向量 |
+| `GET` | `/api/categories` | 知识库类别列表（含文档数） |
+| `POST` | `/api/categories` | 新建类别（重名 409） |
+| `PUT` | `/api/categories/{id}` | 重命名 / 改描述 |
+| `DELETE` | `/api/categories/{id}` | 删除类别（仅解绑，文档保留） |
+| `PUT` | `/api/documents/{id}/categories` | 整组替换某文档的类别（多标签） |
 | `GET` | `/api/settings` | 应用设置快照（各 Provider 配置状态，不含密钥） |
 | `PUT` | `/api/settings/llm-provider` | 运行时切换 LLM Provider（未配置密钥返回 409） |
 | `POST` | `/api/tasks/{id}/resume` | **继续生成**：从断点续跑（SSE；无检查点返回 409） |

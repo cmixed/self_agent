@@ -56,6 +56,16 @@ def _render_planner_input(state: AgentState) -> str:
     if preferences:
         rendered = "；".join(f"{key}={value}" for key, value in preferences.items())
         parts.append(f"用户偏好：{rendered}")
+
+    scope = state.get("retrieval_scope") or {}
+    scope_documents = scope.get("document_ids")
+    if scope_documents is not None:
+        # 让规划器知道本次只能检索所选范围，避免规划出范围外资料
+        label = scope.get("label") or "用户选定范围"
+        parts.append(
+            f"检索范围：{label}（共 {len(scope_documents)} 篇资料，"
+            "只能依据该范围内的资料作答，不得假定可获取范围外内容）"
+        )
     return "\n".join(parts)
 
 
