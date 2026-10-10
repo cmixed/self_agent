@@ -122,8 +122,10 @@ class ChromaStore:
 
     # --- 异步接口（业务层只应使用这些）---
 
-    async def aquery(self, *, embedding, top_k: int):
-        return await self._run(self.query, embedding=embedding, top_k=top_k)
+    async def aquery(self, *, embedding, top_k: int, document_ids=None):
+        return await self._run(
+            self.query, embedding=embedding, top_k=top_k, document_ids=document_ids
+        )
 
     async def alist_documents(self) -> list[dict[str, Any]]:
         return await self._run(self.list_documents)
@@ -199,12 +201,31 @@ class ChromaStore:
             entry["chunks"] += 1
         return sorted(aggregated.values(), key=lambda item: item["filename"])
 
-    def query(self, *, embedding: Sequence[float], top_k: int) -> list[ChunkHit]:
+    def query(
+        self,
+        *,
+        embedding: Sequence[float],
+        top_k: int,
+        document_ids: Sequence[str] | None = None,
+    ) -> list[ChunkHit]:
+        """向量检索；``document_ids`` 非 None 时只在该范围内检索。
+
+        注意：**空列表表示"范围内没有文档"，必须返回空结果**，
+        绝不能退化成"不过滤"（否则会检索到范围外的资料）。
+        """
+        if document_ids is not None and not document_ids:
+            return []
         if self._collection.count() == 0:
             return []
+        where = (
+            {"document_id": {"$in": list(document_ids)}}
+            if document_ids is not None
+            else None
+        )
         result = self._collection.query(
             query_embeddings=[list(embedding)],
             n_results=max(1, top_k),
+            where=where,
             include=["documents", "metadatas", "distances"],
         )
         documents = (result.get("documents") or [[]])[0]

@@ -59,6 +59,22 @@ class RetrievedDocument(TypedDict):
     score: float | None
 
 
+class RetrievalScope(TypedDict, total=False):
+    """本次任务的检索范围（提交时解析并冻结，随 checkpoint 持久化）。
+
+    - ``document_ids``：解析并**冻结**后的文档列表，检索时实际使用；
+      因此任务执行期间往类别里新增文档不会悄悄改变本次范围；
+    - ``category_ids`` / ``selected_document_ids``：用户的原始选择，
+      供「重新生成」重新解析与界面展示；
+    - ``label``：展示用文案。
+    """
+
+    document_ids: list[str]
+    category_ids: list[str]
+    selected_document_ids: list[str]
+    label: str
+
+
 class SkillOutput(TypedDict):
     """一次技能执行的产出（追加合并，供 outline/writer 作为上下文）。"""
 
@@ -100,6 +116,8 @@ class AgentState(TypedDict, total=False):
     current_step: str | None
     step_results: Annotated[list[StepResult], add]
     # --- 检索（Phase 3）---
+    # 本次任务的检索范围；None 表示整个知识库
+    retrieval_scope: RetrievalScope | None
     retrieved_documents: Annotated[list[RetrievedDocument], add]
     # --- 技能（Agent 可调用的指令模块，按计划中的 skill 步骤逐个执行）---
     skill_outputs: Annotated[list[SkillOutput], add]
@@ -128,6 +146,7 @@ def initial_state(
     *,
     task_id: str,
     user_preferences: dict[str, str] | None = None,
+    retrieval_scope: RetrievalScope | None = None,
 ) -> AgentState:
     """构造一次任务运行的初始状态。"""
     return AgentState(
@@ -138,6 +157,7 @@ def initial_state(
         plan=None,
         current_step=None,
         step_results=[],
+        retrieval_scope=retrieval_scope,
         retrieved_documents=[],
         skill_outputs=[],
         outline=[],

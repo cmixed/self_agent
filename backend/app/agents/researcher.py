@@ -36,7 +36,12 @@ def make_researcher_node(
         try:
             # RAG Tool 的构造可能触发 Embedding 模型加载：放到线程里，避免阻塞事件循环
             tool = await asyncio.to_thread(tool_provider)
-            documents = await tool.search(query, top_k=top_k)
+            scope = state.get("retrieval_scope") or {}
+            documents = await tool.search(
+                query,
+                top_k=top_k,
+                document_ids=scope.get("document_ids"),
+            )
         except (EmbeddingError, DocumentError) as exc:
             # 检索失败不终止任务：记录可见的错误状态，降级为仅用通用知识作答（§20）
             logger.warning(

@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import (
+    get_category_service,
     get_checkpoint_store,
     get_memory_service,
     get_task_registry,
@@ -33,13 +34,49 @@ from app.models.schemas import (
     TaskListResponse,
     TaskRequest,
     TaskResponse,
+    TaskScope,
     TaskStateResponse,
     TaskSummaryOut,
 )
+from app.services.category_service import CategoryService
 from app.services.memory_service import MemoryService
 from app.services.task_service import TaskService, task_result
 
 router = APIRouter(prefix="/api", tags=["tasks"])
+
+
+async def _resolve_retrieval_scope(
+    scope: TaskScope | None, categories: CategoryService
+) -> dict[str, object] | None:
+    """把用户选择（类别 ∪ 单文档）解析为**冻结的** document_id 列表。
+
+    返回 ``{"document_ids": [...], "label": "..."}``；未选择任何范围时返回 None
+    （表示整个知识库）。选择了解析后为空时返回空 document_ids，
+    由调用方拦截（不允许静默退化成"检索全部"）。
+    """
+    if scope is None:
+        return None
+    category_ids = list(dict.fromkeys(scope.category_ids))
+    document_ids = list(dict.fromkeys(scope.document_ids))
+    if not category_ids and not document_ids:
+        return None
+
+    resolved = await categories.resolve_scope(
+        category_ids=category_ids, document_ids=document_ids
+    )
+    labels: list[str] = []
+    if category_ids:
+        known = {item.category_id: item.name for item in await categories.list_categories()}
+        labels.extend(known[item] for item in category_ids if item in known)
+        labels.append(f"{len(category_ids)} 个类别")
+    if document_ids:
+        labels.append(f"{len(document_ids)} 个文档")
+    return {
+        "document_ids": resolved,
+        "category_ids": category_ids,
+        "selected_document_ids": document_ids,
+        "label": " + ".join(labels),
+    }
 logger = get_logger(__name__)
 
 
@@ -48,9 +85,17 @@ async def create_task(
     request: Request,
     payload: TaskRequest,
     service: TaskService = Depends(get_task_service),
+    categories: CategoryService = Depends(get_category_service),
     memory_service: MemoryService = Depends(get_memory_service),
     user_id: str = Depends(get_user_id),
 ) -> TaskResponse:
+    retrieval_scope = await _resolve_retrieval_scope(payload.scope, categories)
+    if retrieval_scope is not None and not retrieval_scope.get("document_ids"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="所选知识库范围里没有任何文档，请重新选择或改用全部知识库",
+        )
+
     # 先生成 task_id 并写入 request.state：失败时错误响应也会带上它，
     # 便于前端通过 GET /api/tasks/{id} 查询失败记录。
     task_id = str(uuid4())
@@ -65,6 +110,7 @@ async def create_task(
         user_preferences=preferences,
         task_id=task_id,
         user_id=user_id,
+        retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
     )
     result = task_result(state, max_retries=service.max_retries)
     await memory_service.extract_from_task(
@@ -211,6 +257,7 @@ async def stream_task(
     request: Request,
     payload: TaskRequest,
     service: TaskService = Depends(get_task_service),
+    categories: CategoryService = Depends(get_category_service),
     memory_service: MemoryService = Depends(get_memory_service),
     user_id: str = Depends(get_user_id),
 ) -> StreamingResponse:
@@ -220,6 +267,13 @@ async def stream_task(
     """
     task_id = str(uuid4())
     request.state.task_id = task_id
+
+    retrieval_scope = await _resolve_retrieval_scope(payload.scope, categories)
+    if retrieval_scope is not None and not retrieval_scope.get("document_ids"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="所选知识库范围里没有任何文档，请重新选择或改用全部知识库",
+        )
 
     stored = await memory_service.get_preferences(user_id)
     preferences = {**stored, **(payload.user_preferences or {})}
@@ -231,6 +285,7 @@ async def stream_task(
             user_preferences=preferences,
             task_id=task_id,
             user_id=user_id,
+            retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
         ):
             if event.get("event") == "task_completed" and event.get("result"):
                 completed.update(event["result"])
@@ -302,6 +357,7 @@ async def resume_task(
 async def rerun_task(
     task_id: str,
     service: TaskService = Depends(get_task_service),
+    categories: CategoryService = Depends(get_category_service),
     repository: TaskRepository = Depends(get_task_repository),
     memory_service: MemoryService = Depends(get_memory_service),
     user_id: str = Depends(get_user_id),
@@ -320,12 +376,27 @@ async def rerun_task(
     stored = await memory_service.get_preferences(user_id)
     completed: dict = {}
 
+    # 重跑按原任务的范围**重新解析**：类别里新增的文档会被纳入（新一次运行）
+    previous_scope = (record.result or {}).get("scope") or None
+    rerun_scope = None
+    if previous_scope and (
+        previous_scope.get("category_ids") or previous_scope.get("selected_document_ids")
+    ):
+        rerun_scope = await _resolve_retrieval_scope(
+            TaskScope(
+                category_ids=list(previous_scope.get("category_ids") or []),
+                document_ids=list(previous_scope.get("selected_document_ids") or []),
+            ),
+            categories,
+        )
+
     async def event_source() -> AsyncIterator[str]:
         async for event in service.stream(
             record.query,
             user_preferences=stored,
             task_id=new_task_id,
             user_id=user_id,
+            retrieval_scope=rerun_scope,  # type: ignore[arg-type]
         ):
             # 让前端知道这是一次重新生成（并指向原任务）
             if event.get("event") == "task_started":

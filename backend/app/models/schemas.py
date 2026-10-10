@@ -100,10 +100,12 @@ class TaskScope(BaseModel):
 
 
 class TaskScopeInfo(BaseModel):
-    """结果中回显的范围（解析后的规模）。"""
+    """结果中回显的范围：解析后的规模 + 用户的原始选择（供重跑重新解析）。"""
 
     label: str
     document_count: int
+    category_ids: list[str] = Field(default_factory=list)
+    selected_document_ids: list[str] = Field(default_factory=list)
 
 
 class SkillInfo(BaseModel):
@@ -194,6 +196,8 @@ class TaskResponse(BaseModel):
     # 未通过校验的章节（如 "chapter_3"）
     failed_chapters: list[str] = Field(default_factory=list)
     final_answer: str = ""
+    # 本次检索范围（回显）；None 表示整个知识库
+    scope: TaskScopeInfo | None = None
 
 
 class DocumentInfo(BaseModel):

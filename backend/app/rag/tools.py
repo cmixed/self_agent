@@ -19,8 +19,16 @@ class RagTool:
     def __init__(self, retriever: Retriever) -> None:
         self._retriever = retriever
 
-    async def search(self, query: str, *, top_k: int | None = None) -> list[RetrievedDocument]:
-        return await self._retriever.retrieve(query, top_k=top_k)
+    async def search(
+        self,
+        query: str,
+        *,
+        top_k: int | None = None,
+        document_ids: Sequence[str] | None = None,
+    ) -> list[RetrievedDocument]:
+        return await self._retriever.retrieve(
+            query, top_k=top_k, document_ids=document_ids
+        )
 
 
 def dedupe_documents(documents: Sequence[RetrievedDocument]) -> list[RetrievedDocument]:

@@ -33,7 +33,7 @@ from app.core.logging import get_logger
 from app.core.task_registry import TaskRegistry, get_task_registry
 from app.llm.base import LLMError, LLMProvider
 from app.memory.repository import TaskRepository
-from app.models.state import AgentState, RetrievedDocument, initial_state
+from app.models.state import AgentState, RetrievalScope, RetrievedDocument, initial_state
 from app.rag.tools import RagTool, dedupe_documents
 
 logger = get_logger(__name__)
@@ -80,6 +80,7 @@ def task_result(
 ) -> dict[str, Any]:
     """把最终状态整理为 API 结果结构（TaskResponse 的字段集合）。"""
     failed = failed_chapters(state, max_retries=max_retries, max_sections=max_sections)
+    scope = state.get("retrieval_scope") or None
     return {
         "task_id": state.get("task_id", ""),
         "status": state.get("task_status", "failed"),
@@ -91,6 +92,17 @@ def task_result(
         "retry_count": state.get("retry_count", 0),
         "failed_chapters": [chapter_target(index) for index in failed],
         "final_answer": state.get("final_answer", ""),
+        # 回显本次检索范围（标签 + 解析后的文档数），便于追溯与续跑确认
+        "scope": (
+            {
+                "label": scope.get("label", ""),
+                "document_count": len(scope.get("document_ids") or []),
+                "category_ids": list(scope.get("category_ids") or []),
+                "selected_document_ids": list(scope.get("selected_document_ids") or []),
+            }
+            if scope
+            else None
+        ),
     }
 
 
@@ -185,6 +197,7 @@ class TaskService:
         user_preferences: dict[str, str] | None = None,
         task_id: str | None = None,
         user_id: str | None = None,
+        retrieval_scope: RetrievalScope | None = None,
     ) -> AgentState:
         """同步执行入口：登记运行中的任务，使 /cancel 能精确取消。"""
         run_id = task_id or str(uuid4())
@@ -195,6 +208,7 @@ class TaskService:
                 user_preferences=user_preferences,
                 task_id=run_id,
                 user_id=user_id,
+                retrieval_scope=retrieval_scope,
             )
         except asyncio.CancelledError:
             await self._mark_cancelled(run_id)
@@ -209,9 +223,15 @@ class TaskService:
         user_preferences: dict[str, str] | None = None,
         task_id: str | None = None,
         user_id: str | None = None,
+        retrieval_scope: RetrievalScope | None = None,
     ) -> AgentState:
         run_id = task_id or str(uuid4())
-        state = initial_state(query, task_id=run_id, user_preferences=user_preferences)
+        state = initial_state(
+            query,
+            task_id=run_id,
+            user_preferences=user_preferences,
+            retrieval_scope=retrieval_scope,
+        )
 
         logger.info(
             "任务开始",
@@ -284,6 +304,7 @@ class TaskService:
         user_preferences: dict[str, str] | None = None,
         task_id: str | None = None,
         user_id: str | None = None,
+        retrieval_scope: RetrievalScope | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """SSE 入口：登记运行中的任务；被取消时标记为 cancelled 再向上抛出。"""
         run_id = task_id or str(uuid4())
@@ -294,6 +315,7 @@ class TaskService:
                 user_preferences=user_preferences,
                 task_id=run_id,
                 user_id=user_id,
+                retrieval_scope=retrieval_scope,
             ):
                 yield event
         except asyncio.CancelledError:
@@ -309,6 +331,7 @@ class TaskService:
         user_preferences: dict[str, str] | None = None,
         task_id: str | None = None,
         user_id: str | None = None,
+        retrieval_scope: RetrievalScope | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """按 §19 协议逐条产出进度事件。
 
@@ -316,7 +339,12 @@ class TaskService:
         能正常结束并给出可读信息。
         """
         run_id = task_id or str(uuid4())
-        state = initial_state(query, task_id=run_id, user_preferences=user_preferences)
+        state = initial_state(
+            query,
+            task_id=run_id,
+            user_preferences=user_preferences,
+            retrieval_scope=retrieval_scope,
+        )
 
         await self._start_run(run_id, query, user_id)
         yield _event(run_id, "task_started", status="running", message="任务已创建")
@@ -376,6 +404,7 @@ class TaskService:
             ),
             resumed=True,
             plan=snapshot.get("plan"),
+            scope=snapshot.get("retrieval_scope"),
             outline=outline,
             chapters_written=written,
             retrieved_count=len(documents),
