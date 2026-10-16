@@ -204,7 +204,7 @@ export default function PresetsPage() {
             label="标题"
             rules={[{ required: true, message: '请输入标题' }, { max: 40 }]}
           >
-            <Input placeholder="例如：技术方案对比报告" />
+            <Input placeholder="例如：资料综述" />
           </Form.Item>
           <Form.Item
             name="description"
@@ -212,7 +212,7 @@ export default function PresetsPage() {
             rules={[{ required: true, message: '请输入说明' }, { max: 120 }]}
             extra="显示在卡片上，用于说明这个预设会做什么"
           >
-            <Input placeholder="例如：调研资料中的技术方案，输出对比与选型建议" />
+            <Input placeholder="例如：归纳资料中的核心主题，写成带来源引用的综述长文" />
           </Form.Item>
           <Form.Item
             name="query"
@@ -222,7 +222,7 @@ export default function PresetsPage() {
           >
             <Input.TextArea
               autoSize={{ minRows: 4, maxRows: 10 }}
-              placeholder="例如：调研我资料里的几种技术方案，输出对比报告并给出选型建议"
+              placeholder="例如：根据我的资料，归纳其中的核心主题，写一篇带引用来源的综述文章"
             />
           </Form.Item>
         </Form>

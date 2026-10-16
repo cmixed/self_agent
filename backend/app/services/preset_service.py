@@ -10,30 +10,41 @@ from __future__ import annotations
 from app.memory.repository import PresetRecord, PresetRepository
 from app.memory.sqlite import SqliteDatabase
 
+# 默认预设是**与领域无关的任务模板**：主题由用户的知识库内容决定，预设只描述
+# 「任务形态」（综述 / 对比 / 提炼 / 术语 / 摘要），因此在任何资料上都可直接使用。
+# 前 3 条会显示在工作台，按「最能体现 Agent 能力」的顺序排列；其中「对比分析 /
+# 要点提炼 / 术语梳理」与内置技能（builtin-compare / builtin-takeaways /
+# builtin-glossary）的触发场景对齐，便于规划器自动选用对应技能。
 DEFAULT_PRESETS: list[dict[str, str]] = [
     {
-        "preset_id": "preset-rag-survey",
-        "title": "RAG 技术综述",
-        "description": "基于知识库资料撰写一篇带引用来源的技术综述",
-        "query": "根据我的资料写一篇 RAG 技术综述",
+        "preset_id": "preset-survey",
+        "title": "资料综述",
+        "description": "归纳资料中的核心主题，写成带来源引用的综述长文",
+        "query": "根据我的资料，归纳其中的核心主题，写一篇结构清晰、带引用来源的综述文章",
     },
     {
-        "preset_id": "preset-compare-report",
-        "title": "技术方案对比报告",
-        "description": "调研资料中的技术方案，输出对比与选型建议",
-        "query": "调研我资料里的几种技术方案，输出对比报告并给出选型建议",
+        "preset_id": "preset-compare",
+        "title": "对比分析",
+        "description": "对比资料中的多种方案、方法或观点，给出选择建议",
+        "query": "对比我资料中涉及的多种方案、方法或观点，按关键维度整理，并给出适用条件与选择建议",
     },
     {
-        "preset_id": "preset-study-notes",
-        "title": "学习笔记",
-        "description": "整理资料，生成一份带目录与来源引用的学习笔记",
-        "query": "整理我的资料，生成一份带目录与来源引用的学习笔记",
+        "preset_id": "preset-key-points",
+        "title": "要点提炼",
+        "description": "提炼资料中的核心要点，按重要性整理并标注依据",
+        "query": "提炼我资料中的核心要点，按重要性整理成清单，并标注每条要点的依据来源",
     },
     {
-        "preset_id": "preset-paper-review",
-        "title": "论文精读报告",
-        "description": "逐篇总结资料中论文的核心贡献、方法与局限",
-        "query": "总结我资料里的论文，逐篇输出核心贡献、方法与局限",
+        "preset_id": "preset-glossary",
+        "title": "术语梳理",
+        "description": "整理资料中的关键术语与概念，统一口径",
+        "query": "梳理我资料中的关键术语与概念，合并同一概念的不同叫法，输出带来源的术语说明",
+    },
+    {
+        "preset_id": "preset-summary",
+        "title": "内容摘要",
+        "description": "把资料浓缩成一份结构化摘要，快速掌握全貌",
+        "query": "把我资料的核心内容浓缩成一份结构化摘要，分层呈现主要结论与关键细节",
     },
 ]
 
