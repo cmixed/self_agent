@@ -936,7 +936,7 @@ html[data-theme='dark'] body {
   box-shadow: none;
 }
 
-/* --- 列表型实体（技能页 / 预设页共用）------------------------------------ */
+/* --- 列表型实体（任务详情「执行历史」在用；卡片形态见下方 .entity-grid）--- */
 .entity-list {
   display: flex;
   flex-direction: column;
@@ -960,31 +960,8 @@ html[data-theme='dark'] body {
   gap: var(--ws-space-1);
 }
 
-.entity-item__head {
-  display: flex;
-  align-items: center;
-  gap: var(--ws-space-2);
-}
-
-.entity-item__desc {
-  margin: 0 !important;
-  font-size: var(--ws-font-secondary);
-}
-
 .entity-item__meta {
   font-size: var(--ws-font-caption);
-}
-
-/* 预设页展示完整任务内容（等宽、可换行） */
-.entity-item__query {
-  display: block;
-  font-size: var(--ws-font-caption);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.entity-item__actions {
-  flex-shrink: 0;
 }
 
 /* --- 实体卡片网格（预设页 / 技能页共用；列表形态见上方 .entity-list）------- */
@@ -999,6 +976,21 @@ html[data-theme='dark'] body {
   flex-direction: column;
   gap: var(--ws-space-2);
   height: 100%;
+}
+
+/* 读/详情型卡片：整卡可点，hover 提示 */
+.entity-card--clickable {
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.entity-card--clickable:hover {
+  border-color: var(--ant-color-primary) !important;
+}
+
+/* 停用等淡化态 */
+.entity-card--disabled {
+  opacity: 0.72;
 }
 
 .entity-card__head {
@@ -1038,6 +1030,18 @@ html[data-theme='dark'] body {
 .entity-card__meta {
   margin-top: auto;
   font-size: var(--ws-font-caption);
+}
+
+.entity-card__caption {
+  font-size: var(--ws-font-caption);
+}
+
+.entity-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ws-space-2);
+  margin-top: auto;
 }
 
 /* --- 工作台预设任务 -------------------------------------------------------- */
@@ -1713,6 +1717,30 @@ html[data-theme='dark'] body {
   display: flex;
   justify-content: center;
   padding: var(--ws-space-7) 0;
+}
+
+/* --- 技能只读详情 --------------------------------------------------------- */
+.skill-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-4);
+}
+
+.skill-view__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-1);
+}
+
+.skill-view__desc {
+  margin: 0;
+  font-size: var(--ws-font-body);
+  line-height: var(--ws-lh-body);
+  color: var(--ant-color-text);
+}
+
+.skill-view__meta {
+  font-size: var(--ws-font-caption);
 }
 
 /* --- 响应式 --------------------------------------------------------------- */

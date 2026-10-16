@@ -30,6 +30,7 @@ import { useState } from 'react'
 import ErrorBoundary from './components/ErrorBoundary'
 import DocumentView from './components/DocumentView'
 import ProviderSwitch, { providerLabelOf } from './components/ProviderSwitch'
+import SkillView from './components/SkillView'
 import TaskDetailView from './components/TaskDetailView'
 import { ViewStackProvider, useViewStack } from './components/ViewStack'
 import { useHealth } from './hooks/useHealth'
@@ -267,6 +268,8 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
                     documentId={entry.view.documentId}
                     filename={entry.view.filename}
                   />
+                ) : entry.view.kind === 'skill' ? (
+                  <SkillView skill={entry.view.skill} />
                 ) : (
                   <TaskDetailView taskId={entry.view.taskId} />
                 )}

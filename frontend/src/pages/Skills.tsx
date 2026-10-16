@@ -7,6 +7,7 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Segmented,
   Skeleton,
   Space,
   Switch,
@@ -14,11 +15,12 @@ import {
   Tooltip,
   Typography,
 } from 'antd'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
 import ErrorNotice from '../components/ErrorNotice'
 import PageContainer from '../components/PageContainer'
+import { useViewStack } from '../components/ViewStack'
 import {
   ApiError,
   createSkill,
@@ -37,6 +39,8 @@ const PAGE_DESCRIPTION =
   '技能是 Agent 可调用的结构化指令：规划阶段会看到技能目录，命中时按技能说明产出分析结论，供后续写作使用。'
 const PAGE_MAX_WIDTH = 1200
 
+type SkillFilter = 'all' | 'enabled' | 'disabled'
+
 interface SkillFormValues {
   name: string
   description: string
@@ -45,9 +49,11 @@ interface SkillFormValues {
 
 export default function SkillsPage() {
   const { message } = App.useApp()
+  const { openSkill } = useViewStack()
   const [skills, setSkills] = useState<SkillInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [filter, setFilter] = useState<SkillFilter>('all')
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<SkillInfo | null>(null)
   const [saving, setSaving] = useState(false)
@@ -138,6 +144,16 @@ export default function SkillsPage() {
 
   const firstLoad = loading && skills.length === 0
   const enabledCount = skills.filter((skill) => skill.enabled).length
+  const disabledCount = skills.length - enabledCount
+  const filteredSkills = useMemo(
+    () =>
+      skills.filter((skill) => {
+        if (filter === 'enabled') return skill.enabled
+        if (filter === 'disabled') return !skill.enabled
+        return true
+      }),
+    [skills, filter],
+  )
 
   return (
     <PageContainer
@@ -160,7 +176,22 @@ export default function SkillsPage() {
         <ErrorNotice message={error} onClose={() => setError(null)} onRetry={() => void refresh()} />
       ) : null}
 
-      <Card title={`技能库（${skills.length}｜启用 ${enabledCount}）`}>
+      <Card
+        title={`技能库（${skills.length}｜启用 ${enabledCount}）`}
+        extra={
+          skills.length > 0 ? (
+            <Segmented
+              value={filter}
+              onChange={(value) => setFilter(value as SkillFilter)}
+              options={[
+                { label: `全部（${skills.length}）`, value: 'all' },
+                { label: `已启用（${enabledCount}）`, value: 'enabled' },
+                { label: `已停用（${disabledCount}）`, value: 'disabled' },
+              ]}
+            />
+          ) : null
+        }
+      >
         {firstLoad ? (
           <Skeleton active paragraph={{ rows: 4 }} />
         ) : skills.length === 0 ? (
@@ -168,51 +199,104 @@ export default function SkillsPage() {
             title="还没有技能"
             hint="新建一个技能，描述 Agent 在该场景下应当怎么做"
           />
+        ) : filteredSkills.length === 0 ? (
+          <EmptyState compact title="没有符合条件的技能" hint="切换筛选查看其它技能" />
         ) : (
-          <div className="entity-list">
-            {skills.map((skill) => (
-              <div className="entity-item" key={skill.skill_id}>
-                <div className="entity-item__main">
-                  <div className="entity-item__head">
-                    <Text strong>{skill.name}</Text>
+          <div className="entity-grid">
+            {filteredSkills.map((skill) => (
+              <Card
+                key={skill.skill_id}
+                size="small"
+                className={`entity-card entity-card--clickable${
+                  skill.enabled ? '' : ' entity-card--disabled'
+                }`}
+                onClick={() => openSkill(skill)}
+              >
+                <div className="entity-card__head">
+                  <Text strong className="entity-card__title" title={skill.name}>
+                    {skill.name}
+                  </Text>
+                  <span
+                    className="entity-card__tools"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <Tooltip
+                      title={
+                        skill.enabled
+                          ? '停用后不再进入 Agent 技能目录'
+                          : '启用后可被 Agent 调用'
+                      }
+                    >
+                      <Switch
+                        size="small"
+                        checked={skill.enabled}
+                        onChange={(checked) => void handleToggle(skill, checked)}
+                      />
+                    </Tooltip>
+                  </span>
+                </div>
+
+                {skill.builtin || !skill.enabled ? (
+                  <div className="entity-card__badges">
                     {skill.builtin ? <Tag>内置</Tag> : null}
                     {!skill.enabled ? <Tag color="default">已停用</Tag> : null}
                   </div>
-                  <Paragraph type="secondary" className="entity-item__desc" ellipsis={{ rows: 2 }}>
-                    {skill.description}
-                  </Paragraph>
-                  <Text type="secondary" className="entity-item__meta">
+                ) : null}
+
+                <Paragraph
+                  type="secondary"
+                  className="entity-card__desc"
+                  ellipsis={{ rows: 2, tooltip: skill.description }}
+                >
+                  {skill.description}
+                </Paragraph>
+
+                <Paragraph
+                  type="secondary"
+                  className="entity-card__preview"
+                  ellipsis={{ rows: 2 }}
+                >
+                  {skill.content}
+                </Paragraph>
+
+                <div className="entity-card__footer">
+                  <Text type="secondary" className="entity-card__caption">
                     更新于 {formatDateTime(skill.updated_at)}
                   </Text>
+                  <span onClick={(event) => event.stopPropagation()}>
+                    <Space size={0}>
+                      <Button
+                        size="small"
+                        type="text"
+                        icon={<EditOutlined />}
+                        aria-label="编辑"
+                        onClick={() => openEdit(skill)}
+                      />
+                      {skill.builtin ? (
+                        <Tooltip title="内置技能不可删除，可编辑或停用">
+                          <Button size="small" type="text" icon={<DeleteOutlined />} disabled />
+                        </Tooltip>
+                      ) : (
+                        <Popconfirm
+                          title={`删除技能「${skill.name}」？`}
+                          description="删除后无法恢复"
+                          okText="删除"
+                          cancelText="取消"
+                          onConfirm={() => void handleDelete(skill)}
+                        >
+                          <Button
+                            size="small"
+                            type="text"
+                            danger
+                            icon={<DeleteOutlined />}
+                            aria-label="删除"
+                          />
+                        </Popconfirm>
+                      )}
+                    </Space>
+                  </span>
                 </div>
-                <Space className="entity-item__actions">
-                  <Tooltip title={skill.enabled ? '停用后不再进入 Agent 技能目录' : '启用后可被 Agent 调用'}>
-                    <Switch
-                      size="small"
-                      checked={skill.enabled}
-                      onChange={(checked) => void handleToggle(skill, checked)}
-                    />
-                  </Tooltip>
-                  <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(skill)}>
-                    编辑
-                  </Button>
-                  {skill.builtin ? (
-                    <Tooltip title="内置技能不可删除，可编辑或停用">
-                      <Button size="small" icon={<DeleteOutlined />} disabled />
-                    </Tooltip>
-                  ) : (
-                    <Popconfirm
-                      title={`删除技能「${skill.name}」？`}
-                      description="删除后无法恢复"
-                      okText="删除"
-                      cancelText="取消"
-                      onConfirm={() => void handleDelete(skill)}
-                    >
-                      <Button size="small" danger icon={<DeleteOutlined />} />
-                    </Popconfirm>
-                  )}
-                </Space>
-              </div>
+              </Card>
             ))}
           </div>
         )}

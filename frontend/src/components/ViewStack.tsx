@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
+import type { SkillInfo } from '../types/api'
+
 export interface DocTarget {
   documentId: string
   filename: string
@@ -10,6 +12,7 @@ export interface DocTarget {
 export type OverlayView =
   | { kind: 'document'; documentId: string; filename: string }
   | { kind: 'task'; taskId: string }
+  | { kind: 'skill'; skill: SkillInfo }
 
 export interface OverlayEntry {
   id: number
@@ -28,6 +31,7 @@ interface ViewStackValue {
   closeAll: () => void
   openDocument: (target: DocTarget) => void
   openTask: (taskId: string) => void
+  openSkill: (skill: SkillInfo) => void
 }
 
 const ViewStackContext = createContext<ViewStackValue | null>(null)
@@ -55,6 +59,7 @@ export function ViewStackProvider({ children }: { children: ReactNode }) {
     [push],
   )
   const openTask = useCallback((taskId: string) => push({ kind: 'task', taskId }), [push])
+  const openSkill = useCallback((skill: SkillInfo) => push({ kind: 'skill', skill }), [push])
 
   const value = useMemo<ViewStackValue>(
     () => ({
@@ -65,8 +70,9 @@ export function ViewStackProvider({ children }: { children: ReactNode }) {
       closeAll,
       openDocument,
       openTask,
+      openSkill,
     }),
-    [overlays, push, back, closeAll, openDocument, openTask],
+    [overlays, push, back, closeAll, openDocument, openTask, openSkill],
   )
 
   return <ViewStackContext.Provider value={value}>{children}</ViewStackContext.Provider>
