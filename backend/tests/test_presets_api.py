@@ -93,3 +93,72 @@ def test_preset_requires_title_and_query(client: TestClient) -> None:
     )
     assert blank_title.status_code == 422
     assert blank_query.status_code == 422
+
+
+async def test_preset_scope_and_auto_run_roundtrip(service: PresetService) -> None:
+    await service.ensure_seeded()
+
+    created = await service.create_preset(
+        title="范围任务",
+        description="只在指定范围检索",
+        query="整理指定范围的资料",
+        category_ids=["cat-1"],
+        document_ids=["doc-1"],
+        auto_run=True,
+    )
+    assert created.category_ids == ["cat-1"]
+    assert created.document_ids == ["doc-1"]
+    assert created.auto_run is True
+
+    reloaded = {item.preset_id: item for item in await service.list_presets()}[created.preset_id]
+    assert reloaded.category_ids == ["cat-1"]
+    assert reloaded.document_ids == ["doc-1"]
+    assert reloaded.auto_run is True
+
+    # 未传范围：只改标题，范围保持不变
+    renamed = await service.update_preset(created.preset_id, title="改名")
+    assert renamed.title == "改名"
+    assert renamed.category_ids == ["cat-1"]
+
+    # 传空列表：清除绑定；关闭直接运行
+    cleared = await service.update_preset(
+        created.preset_id, category_ids=[], document_ids=[], auto_run=False
+    )
+    assert cleared.category_ids == []
+    assert cleared.document_ids == []
+    assert cleared.auto_run is False
+
+
+async def test_seeded_presets_are_unbound(service: PresetService) -> None:
+    await service.ensure_seeded()
+    presets = await service.list_presets()
+    assert presets  # 默认预设存在
+    assert all(not item.category_ids and not item.document_ids for item in presets)
+    assert all(item.auto_run is False for item in presets)
+
+
+def test_preset_scope_and_auto_run_api(client: TestClient) -> None:
+    created = client.post(
+        "/api/presets",
+        json={
+            "title": "范围预设",
+            "description": "d",
+            "query": "q",
+            "scope": {"category_ids": ["c1"], "document_ids": ["d1"]},
+            "auto_run": True,
+        },
+    )
+    assert created.status_code == 200
+    preset = created.json()
+    assert preset["scope"] == {"category_ids": ["c1"], "document_ids": ["d1"]}
+    assert preset["auto_run"] is True
+
+    # 未提供 scope：保持不变
+    renamed = client.put(f"/api/presets/{preset['preset_id']}", json={"title": "改名"})
+    assert renamed.status_code == 200
+    assert renamed.json()["scope"] == {"category_ids": ["c1"], "document_ids": ["d1"]}
+
+    # 显式 null：清除绑定范围
+    cleared = client.put(f"/api/presets/{preset['preset_id']}", json={"scope": None})
+    assert cleared.status_code == 200
+    assert cleared.json()["scope"] is None

@@ -12,10 +12,20 @@ from app.models.schemas import (
     PresetInfo,
     PresetListResponse,
     PresetUpdate,
+    TaskScope,
 )
 from app.services.preset_service import PresetNotFoundError, PresetService
 
 router = APIRouter(prefix="/api/presets", tags=["presets"])
+
+
+def _scope_of(record) -> TaskScope | None:
+    """范围两者皆空 = 未绑定，返回 None。"""
+    if not record.category_ids and not record.document_ids:
+        return None
+    return TaskScope(
+        category_ids=list(record.category_ids), document_ids=list(record.document_ids)
+    )
 
 
 def _info(record) -> PresetInfo:
@@ -24,6 +34,8 @@ def _info(record) -> PresetInfo:
         title=record.title,
         description=record.description,
         query=record.query,
+        scope=_scope_of(record),
+        auto_run=record.auto_run,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
@@ -46,7 +58,12 @@ async def create_preset(
     payload: PresetCreate, service: PresetService = Depends(get_preset_service)
 ) -> PresetInfo:
     record = await service.create_preset(
-        title=payload.title, description=payload.description, query=payload.query
+        title=payload.title,
+        description=payload.description,
+        query=payload.query,
+        category_ids=list(payload.scope.category_ids) if payload.scope else None,
+        document_ids=list(payload.scope.document_ids) if payload.scope else None,
+        auto_run=payload.auto_run,
     )
     return _info(record)
 
@@ -58,11 +75,24 @@ async def update_preset(
     service: PresetService = Depends(get_preset_service),
 ) -> PresetInfo | JSONResponse:
     try:
+        # scope 用 model_fields_set 判定「是否提供」：`null` 是合法值（清除绑定范围）
+        scope_provided = "scope" in payload.model_fields_set
         record = await service.update_preset(
             preset_id,
             title=payload.title,
             description=payload.description,
             query=payload.query,
+            category_ids=(
+                (list(payload.scope.category_ids) if payload.scope else [])
+                if scope_provided
+                else None
+            ),
+            document_ids=(
+                (list(payload.scope.document_ids) if payload.scope else [])
+                if scope_provided
+                else None
+            ),
+            auto_run=payload.auto_run,
         )
     except PresetNotFoundError as exc:
         return _not_found(exc)

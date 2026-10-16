@@ -17,6 +17,7 @@ import {
 } from '@ant-design/icons'
 import {
   Alert,
+  App,
   Button,
   Card,
   Input,
@@ -45,8 +46,9 @@ import { listCategories, listDocuments, listTasks } from '../services/api'
 import { usePresets } from '../hooks/usePresets'
 import { useNav } from '../state/nav'
 import { useTaskRun } from '../state/taskRun'
-import type { CategoryInfo, DocumentInfo, TaskScope, TaskSummary } from '../types/api'
+import type { CategoryInfo, DocumentInfo, PresetInfo, TaskScope, TaskSummary } from '../types/api'
 import { formatDateTime, formatDuration } from '../utils/format'
+import { describeScope } from '../utils/scope'
 
 const { Text, Paragraph } = Typography
 const { TextArea } = Input
@@ -93,6 +95,7 @@ const STEP_TYPE_LABEL = (type: string) =>
 
 export default function TaskPage() {
   const { navigate } = useNav()
+  const { message } = App.useApp()
   const {
     query,
     setQuery,
@@ -170,46 +173,52 @@ export default function TaskPage() {
     void startRun(undefined, scope)
   }
 
+  // 当前选择范围的可读描述（含涉及文档数）
+  const scopeDescription = useMemo(
+    () => describeScope(scope, categories, documents ?? []),
+    [scope, categories, documents],
+  )
   const scopeCount = scope.category_ids.length + scope.document_ids.length
-  // 范围内实际涉及的文档数（类别下的文档 + 单独选择的文档，去重）
-  const scopeDocumentCount = useMemo(() => {
-    const ids = new Set(scope.document_ids)
-    for (const document of documents ?? []) {
-      if ((document.category_ids ?? []).some((id) => scope.category_ids.includes(id))) {
-        ids.add(document.document_id)
-      }
-    }
-    return ids.size
-  }, [scope, documents])
-  const scopeCategoryNames = scope.category_ids
-    .map((id) => categories.find((item) => item.category_id === id)?.name)
-    .filter((name): name is string => Boolean(name))
-  const scopeSummary =
-    scopeCount === 0
-      ? '全部知识库'
-      : `${
-          scopeCategoryNames.length > 0
-            ? scopeCategoryNames.length <= 2
-              ? scopeCategoryNames.join('、')
-              : `${scopeCategoryNames.length} 个类别`
-            : ''
-        }${
-          scopeCategoryNames.length > 0 && scope.document_ids.length > 0 ? ' + ' : ''
-        }${
-          scope.document_ids.length > 0 ? `${scope.document_ids.length} 篇单独选择` : ''
-        }（共 ${scopeDocumentCount} 篇）`
 
-  /** 预设任务：点击卡片 = 填充输入框并聚焦（用户确认后再运行）。 */
-  const handlePresetFill = (presetQuery: string) => {
-    setQuery(presetQuery)
+  /** 预设绑定的范围（未绑定 / 两者皆空则返回 null，表示沿用工作台当前选择）。 */
+  const presetScope = (preset: PresetInfo): TaskScope | null =>
+    preset.scope && preset.scope.category_ids.length + preset.scope.document_ids.length > 0
+      ? preset.scope
+      : null
+
+  /** 预设任务：填入输入框（同时套用其绑定范围），等用户确认后回车运行。 */
+  const handlePresetFill = (preset: PresetInfo) => {
+    setQuery(preset.query)
+    const bound = presetScope(preset)
+    if (bound) setScope(bound)
     document.getElementById('task-query')?.focus()
   }
 
-  /** 预设任务：一键直接运行（会覆盖输入框内容，与实际执行保持一致）。 */
-  const handlePresetRun = (presetQuery: string) => {
+  /** 预设任务：一键直接运行（会覆盖输入框内容与范围，与实际执行保持一致）。 */
+  const handlePresetRun = (preset: PresetInfo) => {
     if (running) return
-    setQuery(presetQuery)
-    void startRun(presetQuery, scope)
+    const bound = presetScope(preset)
+    setQuery(preset.query)
+    if (bound) {
+      // 绑定范围当前覆盖 0 篇文档：不发注定 409 的任务，先引导用户修正范围
+      if (documents !== null && describeScope(bound, categories, documents).invalid) {
+        setScope(bound)
+        setScopePickerOpen(true)
+        message.warning('该预设绑定的范围当前没有文档，请调整检索范围后再运行')
+        return
+      }
+      setScope(bound)
+    }
+    void startRun(preset.query, bound ?? scope)
+  }
+
+  /** 点击预设卡片：绑定了「直接运行」的立即执行，否则只填入待确认。 */
+  const handlePresetOpen = (preset: PresetInfo) => {
+    if (preset.auto_run) {
+      handlePresetRun(preset)
+      return
+    }
+    handlePresetFill(preset)
   }
 
   const handleReset = () => {
@@ -500,7 +509,7 @@ export default function TaskPage() {
           <div className="ws-compose__scope">
             <Space size={8} wrap>
               <Text type="secondary">检索范围：</Text>
-              <Tag color={scopeCount === 0 ? 'default' : 'green'}>{scopeSummary}</Tag>
+              <Tag color={scopeCount === 0 ? 'default' : 'green'}>{scopeDescription.label}</Tag>
               <Button size="small" onClick={() => setScopePickerOpen(true)} disabled={running}>
                 选择范围
               </Button>
@@ -540,7 +549,7 @@ export default function TaskPage() {
 
         <Section
           title="预设任务"
-          description="点击卡片填入输入框，也可一键直接运行"
+          description="点击卡片填入输入框；标记「直接运行」的预设点击即执行"
           extra={
             <Button type="link" size="small" onClick={() => navigate('presets')}>
               查看全部 / 管理 <ArrowRightOutlined />
@@ -564,35 +573,63 @@ export default function TaskPage() {
           />
         ) : (
           <div className="ws-presets">
-            {presets.slice(0, 3).map((preset) => (
-              <Tooltip key={preset.preset_id} title={preset.query} placement="top">
-                <Card
-                  size="small"
-                  className="ws-preset"
-                  hoverable
-                  onClick={() => handlePresetFill(preset.query)}
+            {presets.slice(0, 3).map((preset) => {
+              const bound = presetScope(preset)
+              const scopeInfo = bound ? describeScope(bound, categories, documents ?? []) : null
+              return (
+                <Tooltip
+                  key={preset.preset_id}
+                  title={preset.auto_run ? `${preset.query}（点击直接运行）` : preset.query}
+                  placement="top"
                 >
-                  <div className="ws-preset__body">
-                    <div className="ws-preset__title">{preset.title}</div>
-                    <div className="ws-preset__desc">{preset.description}</div>
-                  </div>
-                  <div className="ws-preset__actions">
-                    <Button
-                      size="small"
-                      type="primary"
-                      ghost
-                      disabled={running}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        handlePresetRun(preset.query)
-                      }}
-                    >
-                      直接运行
-                    </Button>
-                  </div>
-                </Card>
-              </Tooltip>
-            ))}
+                  <Card
+                    size="small"
+                    className="ws-preset"
+                    hoverable
+                    onClick={() => handlePresetOpen(preset)}
+                  >
+                    <div className="ws-preset__body">
+                      <div className="ws-preset__title">
+                        {preset.title}
+                        {preset.auto_run ? (
+                          <ThunderboltOutlined
+                            className="ws-preset__auto"
+                            aria-label="点击直接运行"
+                          />
+                        ) : null}
+                      </div>
+                      <div className="ws-preset__desc">{preset.description}</div>
+                      {scopeInfo ? (
+                        <Tag
+                          className="ws-preset__scope"
+                          color={scopeInfo.invalid ? 'orange' : 'default'}
+                        >
+                          范围：{scopeInfo.label}
+                        </Tag>
+                      ) : null}
+                    </div>
+                    <div className="ws-preset__actions">
+                      <Button
+                        size="small"
+                        type="primary"
+                        ghost
+                        disabled={running}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (preset.auto_run) {
+                            handlePresetFill(preset)
+                          } else {
+                            handlePresetRun(preset)
+                          }
+                        }}
+                      >
+                        {preset.auto_run ? '填入' : '直接运行'}
+                      </Button>
+                    </div>
+                  </Card>
+                </Tooltip>
+              )
+            })}
           </div>
         )}
 

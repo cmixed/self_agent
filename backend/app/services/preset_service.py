@@ -1,8 +1,8 @@
 """预设任务服务。
 
-预设是工作台的**输入快捷方式**（标题 + 说明 + 完整 query），由用户自由
-增删改，持久化在 SQLite。首次启动写入一组默认预设（``data/settings`` 无关，
-用 ``app_meta`` 标记保证「删空后重启不复活」）。
+预设是工作台的**输入快捷方式**（标题 + 说明 + 完整 query，可选绑定检索范围与
+「直接运行」开关），由用户自由增删改，持久化在 SQLite。首次启动写入一组默认
+预设（``data/settings`` 无关，用 ``app_meta`` 标记保证「删空后重启不复活」）。
 """
 
 from __future__ import annotations
@@ -66,9 +66,23 @@ class PresetService:
     async def list_presets(self) -> list[PresetRecord]:
         return await self._repository.list_presets()
 
-    async def create_preset(self, *, title: str, description: str, query: str) -> PresetRecord:
+    async def create_preset(
+        self,
+        *,
+        title: str,
+        description: str,
+        query: str,
+        category_ids: list[str] | None = None,
+        document_ids: list[str] | None = None,
+        auto_run: bool = False,
+    ) -> PresetRecord:
         return await self._repository.create_preset(
-            title=title.strip(), description=description.strip(), query=query.strip()
+            title=title.strip(),
+            description=description.strip(),
+            query=query.strip(),
+            category_ids=category_ids,
+            document_ids=document_ids,
+            auto_run=auto_run,
         )
 
     async def update_preset(
@@ -78,12 +92,19 @@ class PresetService:
         title: str | None = None,
         description: str | None = None,
         query: str | None = None,
+        category_ids: list[str] | None = None,
+        document_ids: list[str] | None = None,
+        auto_run: bool | None = None,
     ) -> PresetRecord:
+        """``category_ids=None`` 表示不修改范围；传列表则整组替换（空列表 = 清除绑定）。"""
         updated = await self._repository.update_preset(
             preset_id,
             title=title.strip() if title is not None else None,
             description=description.strip() if description is not None else None,
             query=query.strip() if query is not None else None,
+            category_ids=category_ids,
+            document_ids=document_ids,
+            auto_run=auto_run,
         )
         if updated is None:
             raise PresetNotFoundError(f"预设不存在：{preset_id}")

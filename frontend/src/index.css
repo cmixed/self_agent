@@ -987,6 +987,59 @@ html[data-theme='dark'] body {
   flex-shrink: 0;
 }
 
+/* --- 实体卡片网格（预设页 / 技能页共用；列表形态见上方 .entity-list）------- */
+.entity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--ws-gap);
+}
+
+.entity-card .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-2);
+  height: 100%;
+}
+
+.entity-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ws-space-2);
+}
+
+.entity-card__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-card__tools {
+  flex-shrink: 0;
+}
+
+.entity-card__desc {
+  margin: 0 !important;
+  font-size: var(--ws-font-secondary);
+}
+
+.entity-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ws-space-1);
+}
+
+.entity-card__preview {
+  margin: 0 !important;
+  font-size: var(--ws-font-caption);
+}
+
+.entity-card__meta {
+  margin-top: auto;
+  font-size: var(--ws-font-caption);
+}
+
 /* --- 工作台预设任务 -------------------------------------------------------- */
 .ws-presets {
   display: grid;
@@ -1067,6 +1120,23 @@ html[data-theme='dark'] body {
 .ws-preset__actions {
   display: flex;
   justify-content: flex-end;
+}
+
+/* 「直接运行」预设计号：提示点击即执行 */
+.ws-preset__auto {
+  margin-left: var(--ws-space-1);
+  color: var(--ant-color-primary);
+  font-size: var(--ws-font-caption);
+}
+
+/* 绑定范围徽标：仅绑定时出现，保持工作台紧凑 */
+.ws-preset__scope {
+  align-self: flex-start;
+  margin: 0;
+  font-size: var(--ws-font-caption);
+  white-space: normal;
+  height: auto;
+  line-height: 1.5;
 }
 
 .ws-compose__scope {

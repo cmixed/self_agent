@@ -84,6 +84,10 @@ CREATE TABLE IF NOT EXISTS presets (
     title       TEXT NOT NULL,
     description TEXT NOT NULL,
     query       TEXT NOT NULL,
+    -- 绑定的检索范围（JSON：{category_ids, document_ids}；NULL = 未绑定，运行时用当前选择）
+    scope_json  TEXT,
+    -- 工作台点击卡片是否直接执行（1 = 跳过「填入 → 回车」；默认 0 = 只填入输入框）
+    auto_run    INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
@@ -155,6 +159,16 @@ MIGRATIONS: tuple[tuple[str, str, str], ...] = (
         "llm_providers",
         "disable_thinking",
         "ALTER TABLE llm_providers ADD COLUMN disable_thinking INTEGER NOT NULL DEFAULT 0",
+    ),
+    (
+        "presets",
+        "scope_json",
+        "ALTER TABLE presets ADD COLUMN scope_json TEXT",
+    ),
+    (
+        "presets",
+        "auto_run",
+        "ALTER TABLE presets ADD COLUMN auto_run INTEGER NOT NULL DEFAULT 0",
     ),
 )
 

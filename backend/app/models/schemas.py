@@ -419,6 +419,10 @@ class PresetInfo(BaseModel):
     title: str
     description: str
     query: str
+    # 绑定的检索范围（None = 未绑定：运行时用工作台当前选择；全部/部分由该字段体现）
+    scope: TaskScope | None = None
+    # 工作台点击卡片是否直接执行（默认 False = 仅填入输入框待确认）
+    auto_run: bool = False
     created_at: str
     updated_at: str
 
@@ -431,9 +435,15 @@ class PresetCreate(BaseModel):
     title: str = Field(min_length=1, max_length=40)
     description: str = Field(min_length=1, max_length=120)
     query: str = Field(min_length=1, max_length=2000)
+    # 可选绑定范围：缺省/空 = 不绑定（运行时沿用当前选择）
+    scope: TaskScope | None = None
+    auto_run: bool = False
 
 
 class PresetUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=40)
     description: str | None = Field(default=None, min_length=1, max_length=120)
     query: str | None = Field(default=None, min_length=1, max_length=2000)
+    # 注意：scope 用 model_fields_set 判「是否提供」——`null` 是合法值（清除绑定）
+    scope: TaskScope | None = None
+    auto_run: bool | None = None

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -649,6 +649,36 @@ class PresetRecord:
     query: str
     created_at: str
     updated_at: str
+    # 绑定的检索范围（与 TaskScope 同构；两者皆空 = 未绑定）
+    category_ids: list[str] = field(default_factory=list)
+    document_ids: list[str] = field(default_factory=list)
+    # 点击卡片是否直接运行（默认 False = 仅填入输入框待确认）
+    auto_run: bool = False
+
+
+def _encode_scope(category_ids: list[str], document_ids: list[str]) -> str | None:
+    """把范围编码为 scope_json；两者皆空时返回 None（未绑定）。"""
+    if not category_ids and not document_ids:
+        return None
+    return json.dumps(
+        {"category_ids": list(category_ids), "document_ids": list(document_ids)},
+        ensure_ascii=False,
+    )
+
+
+def _decode_scope(raw: str | None) -> tuple[list[str], list[str]]:
+    """从 scope_json 解析范围；解析失败视为未绑定（旧库/脏数据保持可用）。"""
+    if not raw:
+        return [], []
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return [], []
+    if not isinstance(data, dict):
+        return [], []
+    categories = [str(item) for item in (data.get("category_ids") or [])]
+    documents = [str(item) for item in (data.get("document_ids") or [])]
+    return categories, documents
 
 
 class ProviderRepository:
@@ -1008,7 +1038,8 @@ class PresetRepository:
 
     _PRESETS_KEY = "presets_seeded"
     _SELECT = """
-        SELECT preset_id, title, description, query, created_at, updated_at
+        SELECT preset_id, title, description, query, scope_json, auto_run,
+               created_at, updated_at
           FROM presets
     """
 
@@ -1021,8 +1052,25 @@ class PresetRepository:
     async def get_preset(self, preset_id: str) -> PresetRecord | None:
         return await asyncio.to_thread(self._get_preset, preset_id)
 
-    async def create_preset(self, *, title: str, description: str, query: str) -> PresetRecord:
-        return await asyncio.to_thread(self._create_preset, title, description, query)
+    async def create_preset(
+        self,
+        *,
+        title: str,
+        description: str,
+        query: str,
+        category_ids: list[str] | None = None,
+        document_ids: list[str] | None = None,
+        auto_run: bool = False,
+    ) -> PresetRecord:
+        return await asyncio.to_thread(
+            self._create_preset,
+            title,
+            description,
+            query,
+            list(category_ids or []),
+            list(document_ids or []),
+            auto_run,
+        )
 
     async def update_preset(
         self,
@@ -1031,8 +1079,21 @@ class PresetRepository:
         title: str | None = None,
         description: str | None = None,
         query: str | None = None,
+        category_ids: list[str] | None = None,
+        document_ids: list[str] | None = None,
+        auto_run: bool | None = None,
     ) -> PresetRecord | None:
-        return await asyncio.to_thread(self._update_preset, preset_id, title, description, query)
+        """更新预设。``category_ids=None`` 表示**不修改**范围；传列表（含空列表）则整组替换。"""
+        return await asyncio.to_thread(
+            self._update_preset,
+            preset_id,
+            title,
+            description,
+            query,
+            category_ids,
+            document_ids,
+            auto_run,
+        )
 
     async def delete_preset(self, preset_id: str) -> bool:
         return await asyncio.to_thread(self._delete_preset, preset_id)
@@ -1049,6 +1110,7 @@ class PresetRepository:
 
     @staticmethod
     def _record(row: Any) -> PresetRecord:
+        category_ids, document_ids = _decode_scope(row["scope_json"])
         return PresetRecord(
             preset_id=row["preset_id"],
             title=row["title"],
@@ -1056,6 +1118,9 @@ class PresetRepository:
             query=row["query"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            category_ids=category_ids,
+            document_ids=document_ids,
+            auto_run=bool(row["auto_run"]),
         )
 
     def _list_presets(self) -> list[PresetRecord]:
@@ -1070,16 +1135,26 @@ class PresetRepository:
             ).fetchone()
         return self._record(row) if row is not None else None
 
-    def _create_preset(self, title: str, description: str, query: str) -> PresetRecord:
+    def _create_preset(
+        self,
+        title: str,
+        description: str,
+        query: str,
+        category_ids: list[str],
+        document_ids: list[str],
+        auto_run: bool,
+    ) -> PresetRecord:
         now = utc_now()
         preset_id = str(uuid4())
+        scope_json = _encode_scope(category_ids, document_ids)
         with self._database.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO presets(preset_id, title, description, query, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO presets(preset_id, title, description, query, scope_json,
+                                    auto_run, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (preset_id, title, description, query, now, now),
+                (preset_id, title, description, query, scope_json, int(auto_run), now, now),
             )
             connection.commit()
         return PresetRecord(
@@ -1089,6 +1164,9 @@ class PresetRepository:
             query=query,
             created_at=now,
             updated_at=now,
+            category_ids=list(category_ids),
+            document_ids=list(document_ids),
+            auto_run=auto_run,
         )
 
     def _update_preset(
@@ -1097,6 +1175,9 @@ class PresetRepository:
         title: str | None,
         description: str | None,
         query: str | None,
+        category_ids: list[str] | None,
+        document_ids: list[str] | None,
+        auto_run: bool | None,
     ) -> PresetRecord | None:
         assignments: list[str] = []
         params: list[Any] = []
@@ -1104,6 +1185,13 @@ class PresetRepository:
             if value is not None:
                 assignments.append(f"{column} = ?")
                 params.append(value)
+        # 范围：None = 不修改；传列表（含空）= 整组替换（空表示清除绑定）
+        if category_ids is not None:
+            assignments.append("scope_json = ?")
+            params.append(_encode_scope(list(category_ids), list(document_ids or [])))
+        if auto_run is not None:
+            assignments.append("auto_run = ?")
+            params.append(int(auto_run))
         if not assignments:
             return self._get_preset(preset_id)
 

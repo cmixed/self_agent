@@ -273,13 +273,21 @@ export function createPreset(payload: {
   title: string
   description: string
   query: string
+  scope?: TaskScope | null
+  auto_run?: boolean
 }): Promise<PresetInfo> {
   return request<PresetInfo>('/presets', { method: 'POST', body: JSON.stringify(payload) })
 }
 
 export function updatePreset(
   presetId: string,
-  payload: Partial<{ title: string; description: string; query: string }>,
+  payload: Partial<{
+    title: string
+    description: string
+    query: string
+    scope: TaskScope | null
+    auto_run: boolean
+  }>,
 ): Promise<PresetInfo> {
   return request<PresetInfo>(`/presets/${encodeURIComponent(presetId)}`, {
     method: 'PUT',

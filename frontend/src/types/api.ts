@@ -133,6 +133,10 @@ export interface PresetInfo {
   title: string
   description: string
   query: string
+  /** 绑定的检索范围；null/缺省 = 未绑定（运行时用工作台当前选择）。 */
+  scope?: TaskScope | null
+  /** 工作台点击卡片是否直接执行（默认 false = 仅填入输入框待确认）。 */
+  auto_run: boolean
   created_at: string
   updated_at: string
 }
