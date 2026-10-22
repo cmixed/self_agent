@@ -21,7 +21,7 @@
 | 后端 | Python 3.14 · uv · FastAPI · Pydantic |
 | 检索 | ChromaDB + 本地 Embedding（`BAAI/bge-small-zh-v1.5`，CPU） |
 | 持久化 | SQLite（应用数据 + 长期记忆） |
-| 前端 | React 19 · TypeScript · Vite · Ant Design |
+| 前端 | React 19 · TypeScript · Vite+（Vite / Oxlint / Oxfmt / Vitest） · Ant Design |
 
 ## 目录结构
 
@@ -208,11 +208,16 @@ uv run uvicorn app.main:app --reload
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev          # 等价于 vp dev（Vite+ 统一 CLI）
 ```
 
 访问 `http://localhost:5173`。开发服务器会把 `/api` 代理到 `http://127.0.0.1:8000`，
 因此需要先启动后端。
+
+> 前端工具链已迁移到 **Vite+**（Vite / Vitest / Oxlint / Oxfmt 统一为一个 `vp`）。
+> 全局 CLI 可选：```curl -fsSL https://vite.plus | bash```；未安装时 `npm exec -- vp …`
+> 会使用项目内依赖，`./run.sh` 会自动处理这两种情况。
+> 该迁移只统一**前端**工具链，不改变与 Python 后端之间的 HTTP/SSE 边界。
 
 ## 测试与检查
 
@@ -226,9 +231,10 @@ uv run pytest
 # 真实 DeepSeek API 冒烟测试（需已配置 DEEPSEEK_API_KEY，默认不执行）
 uv run pytest -m smoke
 
-# 前端：类型检查 + 构建
+# 前端：格式 + Lint + 类型检查（一条命令），以及构建
 cd frontend
-npm run build
+vp check             # 无全局 vp 时：npm exec -- vp check
+vp build             # 内含 tsc --noEmit
 ```
 
 ## 当前进度

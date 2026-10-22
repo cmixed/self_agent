@@ -18,6 +18,13 @@
 
 set -Eeuo pipefail
 
+# Vite+ 全局 CLI（可选）：其 shim 目录不会自动进入非交互 shell 的 PATH，
+# 这里显式加载；未安装时后续回退到项目内的 `npm exec -- vp`。
+if [[ -f "$HOME/.config/vite-plus/env" ]]; then
+  # shellcheck disable=SC1091
+  . "$HOME/.config/vite-plus/env"
+fi
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
@@ -137,6 +144,13 @@ require_cmd node
 require_cmd npm
 require_cmd curl
 
+# 前端工具链统一走 Vite+：全局 vp 优先，否则用项目内依赖（npm exec -- vp）
+if command -v vp >/dev/null 2>&1; then
+  VP_CMD=(vp)
+else
+  VP_CMD=(npm exec -- vp)
+fi
+
 ensure_env() {
   local env_file="$BACKEND_DIR/.env"
   if [[ ! -f "$env_file" ]]; then
@@ -176,10 +190,10 @@ port_pids() {
   fi
 }
 
-# 本项目自己的 uvicorn / vite 进程（按进程工作目录判断，绝不误杀其它服务）
+# 本项目自己的 uvicorn / Vite+ 进程（按进程工作目录判断，绝不误杀其它服务）
 our_project_pids() {
   local pid cwd
-  for pid in $(pgrep -f 'uvicorn app\.main:app|node_modules/\.bin/vite' 2>/dev/null || true); do
+  for pid in $(pgrep -f 'uvicorn app\.main:app|node_modules/(\.bin/vite|vite)' 2>/dev/null || true); do
     cwd="$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)"
     case "$cwd" in
       "$ROOT_DIR"/*) echo "$pid" ;;
@@ -298,7 +312,7 @@ start_backend() {
 
 start_frontend() {
   info "启动前端（:$FRONTEND_PORT）…"
-  ( cd "$FRONTEND_DIR" && exec npm run dev -- --port "$FRONTEND_PORT" --strictPort ) \
+  ( cd "$FRONTEND_DIR" && exec "${VP_CMD[@]}" dev --port "$FRONTEND_PORT" --strictPort ) \
     >"$FRONTEND_LOG" 2>&1 &
   FRONTEND_PID=$!
 
