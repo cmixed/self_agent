@@ -151,9 +151,7 @@ export function buildThemeConfig(mode: ThemeMode): ThemeConfig {
         "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif",
 
       // --- 阴影（克制） ---
-      boxShadow: dark
-        ? '0 1px 2px rgba(0, 0, 0, 0.35)'
-        : '0 1px 2px rgba(16, 24, 40, 0.05)',
+      boxShadow: dark ? '0 1px 2px rgba(0, 0, 0, 0.35)' : '0 1px 2px rgba(16, 24, 40, 0.05)',
       boxShadowSecondary: dark
         ? '0 6px 16px rgba(0, 0, 0, 0.45)'
         : '0 4px 12px rgba(16, 24, 40, 0.08)',

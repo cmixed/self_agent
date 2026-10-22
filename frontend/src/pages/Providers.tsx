@@ -236,10 +236,7 @@ export default function ProvidersPage() {
         api_key: (form.getFieldValue('api_key') as string) || undefined,
         requires_api_key: form.getFieldValue('requires_api_key') as boolean,
         is_local: form.getFieldValue('is_local') as boolean,
-        timeout_seconds: Math.min(
-          30,
-          (form.getFieldValue('timeout_seconds') as number) || 30,
-        ),
+        timeout_seconds: Math.min(30, (form.getFieldValue('timeout_seconds') as number) || 30),
       })
       if (result.ok) {
         message.success(result.detail)
@@ -342,7 +339,11 @@ export default function ProvidersPage() {
       }
     >
       {error && (
-        <ErrorNotice message={error} onClose={() => setError(null)} onRetry={() => void refresh()} />
+        <ErrorNotice
+          message={error}
+          onClose={() => setError(null)}
+          onRetry={() => void refresh()}
+        />
       )}
 
       <Alert
@@ -582,7 +583,11 @@ export default function ProvidersPage() {
           </Form.Item>
 
           <Space size="large" wrap>
-            <Form.Item name="is_local" valuePropName="checked" tooltip="Ollama / LM Studio 等本机服务：不发送 Authorization 头">
+            <Form.Item
+              name="is_local"
+              valuePropName="checked"
+              tooltip="Ollama / LM Studio 等本机服务：不发送 Authorization 头"
+            >
               <Checkbox>本地服务（无需密钥）</Checkbox>
             </Form.Item>
             <Form.Item
@@ -620,7 +625,11 @@ export default function ProvidersPage() {
           </Space>
 
           <Space>
-            <Button icon={<ThunderboltOutlined />} loading={testing} onClick={() => void handleTest()}>
+            <Button
+              icon={<ThunderboltOutlined />}
+              loading={testing}
+              onClick={() => void handleTest()}
+            >
               测试连接
             </Button>
             <Button

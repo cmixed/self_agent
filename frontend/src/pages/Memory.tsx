@@ -176,7 +176,11 @@ export default function MemoryPage() {
       }
     >
       {error ? (
-        <ErrorNotice message={error} onClose={() => setError(null)} onRetry={() => void refresh()} />
+        <ErrorNotice
+          message={error}
+          onClose={() => setError(null)}
+          onRetry={() => void refresh()}
+        />
       ) : null}
 
       <Card
@@ -245,10 +249,7 @@ export default function MemoryPage() {
         {firstLoad ? (
           <Skeleton active paragraph={{ rows: 3 }} />
         ) : memories.length === 0 ? (
-          <EmptyState
-            title="还没有长期记忆"
-            hint="跑一次任务后系统会自动积累，也可以手动添加"
-          />
+          <EmptyState title="还没有长期记忆" hint="跑一次任务后系统会自动积累，也可以手动添加" />
         ) : (
           <div className="mem-grid">
             {memories.map((item) => (
@@ -262,7 +263,9 @@ export default function MemoryPage() {
                 <div className="mem-card__content">{item.content}</div>
                 <div className="mem-card__foot">
                   <Text type="secondary">
-                    {item.source_task_id ? `来自任务 ${item.source_task_id.slice(0, 8)}` : '手动添加'}
+                    {item.source_task_id
+                      ? `来自任务 ${item.source_task_id.slice(0, 8)}`
+                      : '手动添加'}
                   </Text>
                   <Popconfirm
                     title="删除该记忆？"
@@ -350,7 +353,11 @@ export default function MemoryPage() {
               options={MEMORY_KINDS.map((kind) => ({ label: kind, value: kind }))}
             />
           </Form.Item>
-          <Form.Item name="content" label="内容" rules={[{ required: true, message: '请输入内容' }]}>
+          <Form.Item
+            name="content"
+            label="内容"
+            rules={[{ required: true, message: '请输入内容' }]}
+          >
             <Input.TextArea
               id="memory-content"
               name="content"

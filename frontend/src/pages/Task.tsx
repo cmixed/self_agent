@@ -267,7 +267,8 @@ export default function TaskPage() {
             key: 'skills',
             title: '应用技能',
             status: nodes.skills as MacroStage['status'],
-            badge: skillSteps.length > 0 ? <Tag color="green">{skillSteps.length} 个</Tag> : undefined,
+            badge:
+              skillSteps.length > 0 ? <Tag color="green">{skillSteps.length} 个</Tag> : undefined,
             notes: skillNotes,
           },
         ]
@@ -283,8 +284,7 @@ export default function TaskPage() {
       title: '逐章撰写',
       status: nodes.writer as MacroStage['status'],
       note: outline.length > 0 ? `已写 ${writtenChapters}/${outline.length} 章` : undefined,
-      progress:
-        outline.length > 0 ? { done: writtenChapters, total: outline.length } : undefined,
+      progress: outline.length > 0 ? { done: writtenChapters, total: outline.length } : undefined,
       chapters: chapterList,
     },
     {
@@ -394,7 +394,9 @@ export default function TaskPage() {
           <ol className="plain-list">
             {plan.steps.map((step) => (
               <li key={step.id}>
-                <Tag color={step.type === 'skill' ? 'green' : undefined}>{STEP_TYPE_LABEL(step.type)}</Tag>
+                <Tag color={step.type === 'skill' ? 'green' : undefined}>
+                  {STEP_TYPE_LABEL(step.type)}
+                </Tag>
                 {step.description}
               </li>
             ))}
@@ -486,7 +488,10 @@ export default function TaskPage() {
   if (!hasStarted) {
     return (
       <PageContainer eyebrow={EYEBROW} title={IDLE_TITLE} description={IDLE_DESC}>
-        <Section title="创建任务" description="描述一个需要多步完成的任务，Agent 会自动规划并执行" />
+        <Section
+          title="创建任务"
+          description="描述一个需要多步完成的任务，Agent 会自动规划并执行"
+        />
 
         <div className="ws-compose">
           <TextArea

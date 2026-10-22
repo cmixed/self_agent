@@ -36,10 +36,7 @@ interface ScopePickerProps {
  */
 
 /** 由勾选状态回推后端协议（纯函数，便于审阅）。 */
-export function deriveSelection(
-  checkedKeys: string[],
-  documents: DocumentInfo[],
-): ScopeSelection {
+export function deriveSelection(checkedKeys: string[], documents: DocumentInfo[]): ScopeSelection {
   const checkedCategoryIds = checkedKeys
     .filter((key) => key.startsWith('cat:'))
     .map((key) => key.slice(4))

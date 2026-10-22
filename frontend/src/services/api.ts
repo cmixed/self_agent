@@ -170,9 +170,12 @@ async function streamSse(
   onEvent: (event: TaskEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
+  // headers 可能是 HeadersInit（数组/Headers/对象），用 Headers 归一化后再覆盖
+  const headers = new Headers(init.headers)
+  headers.set('Accept', 'text/event-stream')
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { Accept: 'text/event-stream', ...(init.headers ?? {}) },
+    headers,
     signal,
   })
 
@@ -372,10 +375,7 @@ export async function deleteProvider(providerId: string): Promise<void> {
 }
 
 /** 发现端点可用模型（后端代理，避免跨域）。 */
-export function discoverModels(
-  baseUrl: string,
-  providerId?: string,
-): Promise<ModelListResponse> {
+export function discoverModels(baseUrl: string, providerId?: string): Promise<ModelListResponse> {
   const params = new URLSearchParams({ base_url: baseUrl })
   if (providerId) params.set('provider_id', providerId)
   return request<ModelListResponse>(`/providers/models?${params.toString()}`)

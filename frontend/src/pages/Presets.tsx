@@ -195,7 +195,11 @@ export default function PresetsPage() {
       }
     >
       {error ? (
-        <ErrorNotice message={error} onClose={() => setError(null)} onRetry={() => void refresh()} />
+        <ErrorNotice
+          message={error}
+          onClose={() => setError(null)}
+          onRetry={() => void refresh()}
+        />
       ) : null}
 
       <Card
@@ -213,10 +217,7 @@ export default function PresetsPage() {
         {firstLoad ? (
           <Skeleton active paragraph={{ rows: 4 }} />
         ) : presets.length === 0 ? (
-          <EmptyState
-            title="还没有预设任务"
-            hint="新增一条预设，工作台就会出现对应的一键任务"
-          />
+          <EmptyState title="还没有预设任务" hint="新增一条预设，工作台就会出现对应的一键任务" />
         ) : filteredPresets.length === 0 ? (
           <EmptyState compact title="没有符合条件的预设" hint="切换筛选查看其它预设，或新增一条" />
         ) : (
@@ -244,7 +245,13 @@ export default function PresetsPage() {
                         cancelText="取消"
                         onConfirm={() => void handleDelete(preset)}
                       >
-                        <Button size="small" type="text" danger icon={<DeleteOutlined />} aria-label="删除" />
+                        <Button
+                          size="small"
+                          type="text"
+                          danger
+                          icon={<DeleteOutlined />}
+                          aria-label="删除"
+                        />
                       </Popconfirm>
                     </Space>
                   </div>
@@ -258,9 +265,7 @@ export default function PresetsPage() {
                   </Paragraph>
 
                   <div className="entity-card__badges">
-                    {preset.auto_run ? (
-                      <Tag color="green">直接运行</Tag>
-                    ) : null}
+                    {preset.auto_run ? <Tag color="green">直接运行</Tag> : null}
                     {scopeInfo.bound ? (
                       <Tag color={scopeInfo.invalid ? 'orange' : 'default'}>
                         范围：{scopeInfo.label}
@@ -329,7 +334,9 @@ export default function PresetsPage() {
             <Space orientation="vertical" size="small" style={{ width: '100%' }}>
               <Space size={8} wrap>
                 <Tag
-                  color={!formScopeInfo.bound ? 'default' : formScopeInfo.invalid ? 'orange' : 'green'}
+                  color={
+                    !formScopeInfo.bound ? 'default' : formScopeInfo.invalid ? 'orange' : 'green'
+                  }
                 >
                   {formScopeInfo.label}
                 </Tag>
@@ -337,11 +344,7 @@ export default function PresetsPage() {
                   选择范围
                 </Button>
                 {formScopeInfo.bound ? (
-                  <Button
-                    size="small"
-                    type="text"
-                    onClick={() => setFormScope(EMPTY_SCOPE)}
-                  >
+                  <Button size="small" type="text" onClick={() => setFormScope(EMPTY_SCOPE)}>
                     改为全部
                   </Button>
                 ) : null}

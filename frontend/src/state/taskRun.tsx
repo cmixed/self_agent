@@ -171,14 +171,11 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(timer)
   }, [running])
 
-  const pushLog = useCallback(
-    (label: string, message: string, tone: LogEntry['tone'] = 'info') => {
-      logIdRef.current += 1
-      const entry: LogEntry = { id: logIdRef.current, label, message, tone }
-      setLog((prev) => [...prev, entry].slice(-MAX_LOG_ENTRIES))
-    },
-    [],
-  )
+  const pushLog = useCallback((label: string, message: string, tone: LogEntry['tone'] = 'info') => {
+    logIdRef.current += 1
+    const entry: LogEntry = { id: logIdRef.current, label, message, tone }
+    setLog((prev) => [...prev, entry].slice(-MAX_LOG_ENTRIES))
+  }, [])
 
   const addSkillNote = useCallback((note: string) => {
     setSkillNotes((prev) => [...prev, note].slice(-MAX_PLANNER_NOTES))

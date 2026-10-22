@@ -13,16 +13,7 @@ import {
   SunOutlined,
   TagsOutlined,
 } from '@ant-design/icons'
-import {
-  App as AntApp,
-  Badge,
-  Button,
-  ConfigProvider,
-  Drawer,
-  Layout,
-  Menu,
-  Tooltip,
-} from 'antd'
+import { App as AntApp, Badge, Button, ConfigProvider, Drawer, Layout, Menu, Tooltip } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import type { ReactNode } from 'react'
 import { useState } from 'react'
@@ -264,10 +255,7 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
                 className={index === overlays.length - 1 ? 'app-layer' : 'app-layer is-hidden'}
               >
                 {entry.view.kind === 'document' ? (
-                  <DocumentView
-                    documentId={entry.view.documentId}
-                    filename={entry.view.filename}
-                  />
+                  <DocumentView documentId={entry.view.documentId} filename={entry.view.filename} />
                 ) : entry.view.kind === 'skill' ? (
                   <SkillView skill={entry.view.skill} />
                 ) : (

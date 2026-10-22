@@ -155,9 +155,7 @@ export default function SkillsPage() {
     setError(null)
     try {
       const updated = await updateSkill(skill.skill_id, { enabled })
-      setSkills((prev) =>
-        prev.map((item) => (item.skill_id === updated.skill_id ? updated : item)),
-      )
+      setSkills((prev) => prev.map((item) => (item.skill_id === updated.skill_id ? updated : item)))
       message.success(enabled ? `已启用「${skill.name}」` : `已停用「${skill.name}」`)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '更新技能状态失败')
@@ -201,10 +199,7 @@ export default function SkillsPage() {
     setGenError(null)
     try {
       const doc = await uploadDocument(file)
-      setGenDocs((prev) => [
-        doc,
-        ...prev.filter((item) => item.document_id !== doc.document_id),
-      ])
+      setGenDocs((prev) => [doc, ...prev.filter((item) => item.document_id !== doc.document_id)])
       setGenDocId(doc.document_id)
       message.success(`已加入知识库：${doc.filename}`)
     } catch (err) {
@@ -298,7 +293,11 @@ export default function SkillsPage() {
       }
     >
       {error ? (
-        <ErrorNotice message={error} onClose={() => setError(null)} onRetry={() => void refresh()} />
+        <ErrorNotice
+          message={error}
+          onClose={() => setError(null)}
+          onRetry={() => void refresh()}
+        />
       ) : null}
 
       <Card
@@ -320,10 +319,7 @@ export default function SkillsPage() {
         {firstLoad ? (
           <Skeleton active paragraph={{ rows: 4 }} />
         ) : skills.length === 0 ? (
-          <EmptyState
-            title="还没有技能"
-            hint="新建一个技能，描述 Agent 在该场景下应当怎么做"
-          />
+          <EmptyState title="还没有技能" hint="新建一个技能，描述 Agent 在该场景下应当怎么做" />
         ) : filteredSkills.length === 0 ? (
           <EmptyState compact title="没有符合条件的技能" hint="切换筛选查看其它技能" />
         ) : (
@@ -341,15 +337,10 @@ export default function SkillsPage() {
                   <Text strong className="entity-card__title" title={skill.name}>
                     {skill.name}
                   </Text>
-                  <span
-                    className="entity-card__tools"
-                    onClick={(event) => event.stopPropagation()}
-                  >
+                  <span className="entity-card__tools" onClick={(event) => event.stopPropagation()}>
                     <Tooltip
                       title={
-                        skill.enabled
-                          ? '停用后不再进入 Agent 技能目录'
-                          : '启用后可被 Agent 调用'
+                        skill.enabled ? '停用后不再进入 Agent 技能目录' : '启用后可被 Agent 调用'
                       }
                     >
                       <Switch
@@ -381,11 +372,7 @@ export default function SkillsPage() {
                   {skill.description}
                 </Paragraph>
 
-                <Paragraph
-                  type="secondary"
-                  className="entity-card__preview"
-                  ellipsis={{ rows: 2 }}
-                >
+                <Paragraph type="secondary" className="entity-card__preview" ellipsis={{ rows: 2 }}>
                   {skill.content}
                 </Paragraph>
 
@@ -538,9 +525,7 @@ export default function SkillsPage() {
               />
             ) : null}
 
-            <Text type="secondary">
-              来源：{genResult.draft.source_filename ?? '（无）'}
-            </Text>
+            <Text type="secondary">来源：{genResult.draft.source_filename ?? '（无）'}</Text>
 
             <label className="skill-generate__field">
               <Text type="secondary">名称</Text>
@@ -567,9 +552,7 @@ export default function SkillsPage() {
               <Input.TextArea
                 value={draft.content}
                 autoSize={{ minRows: 8, maxRows: 18 }}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, content: event.target.value }))
-                }
+                onChange={(event) => setDraft((prev) => ({ ...prev, content: event.target.value }))}
               />
             </label>
           </div>

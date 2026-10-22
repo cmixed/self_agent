@@ -1,9 +1,20 @@
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, lazyPlugins } from 'vite-plus'
 
 // 前后端分离：开发时通过代理把 /api 转发到 FastAPI，避免跨域问题。
 export default defineConfig({
-  plugins: [react()],
+  fmt: {
+    // 与项目既有风格保持一致，避免迁移时产生无意义的全量重排
+    singleQuote: true,
+    semi: false,
+    printWidth: 100,
+  },
+  lint: {
+    jsPlugins: [{ name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin' }],
+    rules: { 'vite-plus/prefer-vite-plus-imports': 'error' },
+    options: { typeAware: true, typeCheck: true },
+  },
+  plugins: lazyPlugins(() => [react()]),
   server: {
     port: 5173,
     proxy: {

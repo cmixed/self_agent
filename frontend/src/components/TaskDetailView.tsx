@@ -45,11 +45,11 @@ function failureHint(errorType: string | null | undefined): string | null {
     llm_config_error:
       '模型密钥无效或缺失：到「模型服务」页检查该 Provider 的密钥（或对应的环境变量），修正后点「继续生成」。',
     llm_local_unavailable:
-      '本地模型服务未启动或无法连接：先启动本地服务（如 `ollama serve`，默认 127.0.0.1:11434），'
-      + '或在「模型服务」页点「测试连接」确认地址，然后点「继续生成」。',
+      '本地模型服务未启动或无法连接：先启动本地服务（如 `ollama serve`，默认 127.0.0.1:11434），' +
+      '或在「模型服务」页点「测试连接」确认地址，然后点「继续生成」。',
     llm_response_format_error:
-      '模型返回格式不符合要求（本地小模型较常见）：可换用能力更强的模型，'
-      + '或在「模型服务」页调大该 Provider 的最大重试后点「重新生成」。',
+      '模型返回格式不符合要求（本地小模型较常见）：可换用能力更强的模型，' +
+      '或在「模型服务」页调大该 Provider 的最大重试后点「重新生成」。',
     llm_rate_limited: '上游限流：稍等片刻后点击「继续生成」即可从断点续跑。',
     llm_timeout: '上游超时：点击「继续生成」会从断点继续，已完成的章节不会重跑。',
     llm_upstream_error: '上游服务异常：稍后点击「继续生成」重试。',
@@ -61,7 +61,9 @@ function failureHint(errorType: string | null | undefined): string | null {
 /** 按任务状态给出「正文」空态文案：运行中不再误报「可能被取消或失败」。 */
 function contentEmptyState(status: string | undefined) {
   if (status === 'running') {
-    return <EmptyState compact title="任务正在执行中" hint="完成后正文会显示在这里（页面会自动刷新）" />
+    return (
+      <EmptyState compact title="任务正在执行中" hint="完成后正文会显示在这里（页面会自动刷新）" />
+    )
   }
   if (status === 'cancelled' || status === 'failed') {
     return <EmptyState compact title="该任务没有产出正文" hint="可能被取消或失败" />

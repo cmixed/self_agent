@@ -24,9 +24,7 @@ export default function SourceList({ docs }: { docs: SourceDoc[] }) {
             type="button"
             className="source-card"
             title={`查看《${doc.filename}》`}
-            onClick={() =>
-              openDocument({ documentId: doc.document_id, filename: doc.filename })
-            }
+            onClick={() => openDocument({ documentId: doc.document_id, filename: doc.filename })}
           >
             <span className="source-card__icon" aria-hidden="true">
               <FileTextOutlined />

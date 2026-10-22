@@ -38,7 +38,11 @@ interface ProviderSwitchProps {
  * - 打开下拉时重新拉取：在「模型服务」页新增后无需刷新页面即可切换；
  * - 切换走 PUT /api/settings/llm-provider，失败时展示后端可读原因，受控 value 保持不变。
  */
-export default function ProviderSwitch({ activeProvider, running, onSwitched }: ProviderSwitchProps) {
+export default function ProviderSwitch({
+  activeProvider,
+  running,
+  onSwitched,
+}: ProviderSwitchProps) {
   const { message } = AntApp.useApp()
   const { navigate } = useNav()
   const [settings, setSettings] = useState<SettingsResponse | null>(null)

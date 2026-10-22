@@ -49,13 +49,9 @@ export default function DocumentView({
 
   let body: ReactNode = null
   if (kind === 'pdf') {
-    body = (
-      <iframe className="doc-view__frame" src={documentFileUrl(documentId)} title={filename} />
-    )
+    body = <iframe className="doc-view__frame" src={documentFileUrl(documentId)} title={filename} />
   } else if (kind === 'unknown') {
-    body = (
-      <EmptyState title="暂不支持在线预览该类型" hint="可点击右上角「下载」查看原文件" />
-    )
+    body = <EmptyState title="暂不支持在线预览该类型" hint="可点击右上角「下载」查看原文件" />
   } else if (loading) {
     body = (
       <div className="doc-view__loading">
@@ -85,11 +81,7 @@ export default function DocumentView({
         subtitle="知识库原文件"
         onBack={back}
         extra={
-          <Button
-            size="small"
-            icon={<DownloadOutlined />}
-            href={documentFileUrl(documentId, true)}
-          >
+          <Button size="small" icon={<DownloadOutlined />} href={documentFileUrl(documentId, true)}>
             下载
           </Button>
         }
