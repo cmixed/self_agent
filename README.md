@@ -353,6 +353,22 @@ START → Planner ──(计划需要检索)──→ Researcher(RAG Tool) ─�
 - 循环上限：章节数 `MAX_SECTIONS`、每章重试 `MAX_RETRIES`、replan 限次，
   并由 `recursion_limit` 兜底，任何路径都不会无限循环
 
+## 用量统计（token / 缓存 / 速度）
+
+任务结果页与任务详情页会显示**本次运行**的模型用量，采集点在 LLM Provider 外层
+（`llm/usage.py` 装饰器 + `ContextVar`），Agent 节点与 Graph 不感知：
+
+| 指标 | 口径 |
+| --- | --- |
+| Token 消耗 | 上游 `usage` 的输入 / 输出 / 总量，按调用累加 |
+| 缓存命中 | DeepSeek `prompt_cache_hit_tokens`；OpenAI/GLM `prompt_tokens_details.cached_tokens`；命中率 = 命中 / 输入。**模型未上报时显示「—」**（如 Ollama），不显示 0% |
+| 输出速度 | `completion_tokens / 模型调用墙钟时间`，含网络与排队，不是纯生成速度（非流式请求没有 TTFT） |
+
+- 只统计**本次运行**：续跑 / 重新生成不累加历史尝试（「执行历史」仍保留每次记录）；
+- 用量写入 `task_runs.result_json`，不新增表字段；`GET /api/tasks/{id}` 与
+  `task_completed` 事件里的 `result.usage` 同源；
+- 中途失败的任务目前不记录用量（失败记录只写 `error_type`）。
+
 ## 评估
 
 ```bash

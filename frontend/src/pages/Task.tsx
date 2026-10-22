@@ -47,7 +47,13 @@ import { usePresets } from '../hooks/usePresets'
 import { useNav } from '../state/nav'
 import { useTaskRun } from '../state/taskRun'
 import type { CategoryInfo, DocumentInfo, PresetInfo, TaskScope, TaskSummary } from '../types/api'
-import { formatDateTime, formatDuration } from '../utils/format'
+import {
+  cacheHitRate,
+  formatDateTime,
+  formatDuration,
+  formatTokenRate,
+  formatTokens,
+} from '../utils/format'
 import { describeScope } from '../utils/scope'
 
 const { Text, Paragraph } = Typography
@@ -123,6 +129,7 @@ export default function TaskPage() {
     validation,
     finalAnswer,
     retrievedCount,
+    usage,
     replans,
     failedCount,
     passedCount,
@@ -374,6 +381,7 @@ export default function TaskPage() {
   })()
 
   const citationCount = finalAnswer ? (finalAnswer.match(/\[\d+\]/g)?.length ?? 0) : 0
+  const hitRate = cacheHitRate(usage)
 
   const outputTabs = [
     {
@@ -879,8 +887,31 @@ export default function TaskPage() {
                     '—'
                   ),
                 },
+                {
+                  label: 'Token 消耗',
+                  value: usage ? formatTokens(usage.total_tokens) : '—',
+                  hint: usage
+                    ? `入 ${formatTokens(usage.prompt_tokens)} · 出 ${formatTokens(usage.completion_tokens)}`
+                    : undefined,
+                },
+                {
+                  label: '缓存命中',
+                  value: hitRate === null ? '—' : `${Math.round(hitRate * 100)}%`,
+                  hint: usage
+                    ? usage.cache_reported
+                      ? `${formatTokens(usage.cache_hit_tokens)} tokens`
+                      : '模型未上报'
+                    : undefined,
+                },
               ]}
             />
+            {usage && usage.calls > 0 ? (
+              <div className="result-usage">
+                模型调用 {usage.calls} 次 · 模型耗时 {formatDuration(usage.llm_seconds)} ·{' '}
+                {formatTokenRate(usage.tokens_per_second)}
+                {usage.models.length > 0 ? ` · ${usage.models.join(' / ')}` : ''}
+              </div>
+            ) : null}
             <div className="result-body">
               <MarkdownReader content={finalAnswer} sources={sources} />
             </div>

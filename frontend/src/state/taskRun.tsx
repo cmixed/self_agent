@@ -8,7 +8,7 @@ import type {
   StageStatus,
 } from '../components/AgentProgress'
 import { ApiError, cancelTask, streamRerun, streamResume, streamTask } from '../services/api'
-import type { Plan, Source, TaskEvent, TaskScope, Validation } from '../types/api'
+import type { Plan, Source, TaskEvent, TaskScope, TokenUsage, Validation } from '../types/api'
 import { downloadMarkdown } from '../utils/download'
 
 /** 图中可能出现的节点（skills 仅在存在启用技能时挂载） */
@@ -103,6 +103,8 @@ export interface TaskRunValue {
   validation: Validation | null
   finalAnswer: string | null
   retrievedCount: number | null
+  /** 本次运行的模型用量（token / 缓存 / 速度）；旧记录为 null */
+  usage: TokenUsage | null
   replans: number
   failedCount: number
   passedCount: number
@@ -150,6 +152,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   const [replans, setReplans] = useState(0)
   const [sources, setSources] = useState<Source[]>([])
   const [finalAnswer, setFinalAnswer] = useState<string | null>(null)
+  const [usage, setUsage] = useState<TokenUsage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [elapsed, setElapsed] = useState(0)
@@ -264,6 +267,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
           summarizer: 'finish',
         })
         setFinalAnswer(event.result?.final_answer ?? '')
+        setUsage(event.result?.usage ?? null)
         setSources(event.result?.sources ?? [])
         if (event.result?.outline?.length) setOutline(event.result.outline)
         if (event.result?.validation) setValidation(event.result.validation)
@@ -424,6 +428,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     setReplans(0)
     setSources([])
     setFinalAnswer(null)
+    setUsage(null)
     setCopied(false)
     setError(null)
     setElapsed(0)
@@ -567,6 +572,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     validation,
     finalAnswer,
     retrievedCount,
+    usage,
     replans,
     failedCount,
     passedCount,

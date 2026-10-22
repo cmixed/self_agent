@@ -905,6 +905,14 @@ html[data-theme='dark'] body {
   color: var(--ant-color-text-tertiary);
 }
 
+/* 结果页用量说明：次要信息，跟在指标条下方 */
+.result-usage {
+  margin-top: var(--ws-space-2);
+  font-size: var(--ws-font-caption);
+  color: var(--ant-color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
 /* --- 区块小标题 ----------------------------------------------------------- */
 .section {
   display: flex;

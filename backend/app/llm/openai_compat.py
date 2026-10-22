@@ -27,6 +27,7 @@ from app.llm.base import (
     LLMTimeoutError,
     LLMUpstreamError,
 )
+from app.llm.usage import parse_usage
 
 logger = get_logger(__name__)
 
@@ -287,7 +288,8 @@ class OpenAICompatProvider(LLMProvider):
         return LLMResponse(
             content=content,
             model=data.get("model") or self._model,
-            usage={k: int(v) for k, v in usage.items() if isinstance(v, int)},
+            # 缓存命中可能藏在 prompt_tokens_details 里，统一在 parse_usage 中展平
+            usage=parse_usage(usage),
             finish_reason=str(finish_reason) if finish_reason else None,
         )
 

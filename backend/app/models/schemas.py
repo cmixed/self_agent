@@ -315,6 +315,27 @@ class ValidationOut(BaseModel):
     target: str
 
 
+class UsageOut(BaseModel):
+    """一次任务运行的模型用量（只统计本次运行，不累加历史尝试）。
+
+    缓存由上游决定：``cache_reported=False`` 表示该模型不提供缓存指标
+    （如 Ollama），前端应显示「—」而不是 0%。
+    """
+
+    calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    cache_hit_tokens: int = 0
+    cache_miss_tokens: int = 0
+    cache_reported: bool = False
+    # 每次调用的墙钟时间之和（含网络排队），单位秒
+    llm_seconds: float = 0.0
+    # completion_tokens / llm_seconds，含网络的输出吞吐
+    tokens_per_second: float = 0.0
+    models: list[str] = Field(default_factory=list)
+
+
 class TaskResponse(BaseModel):
     task_id: str
     status: str
@@ -330,6 +351,8 @@ class TaskResponse(BaseModel):
     final_answer: str = ""
     # 本次检索范围（回显）；None 表示整个知识库
     scope: TaskScopeInfo | None = None
+    # 本次运行的模型用量；旧记录没有该字段时为 None
+    usage: UsageOut | None = None
 
 
 class DocumentInfo(BaseModel):

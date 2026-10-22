@@ -26,10 +26,18 @@ import { useNav } from '../state/nav'
 import { useTaskRun } from '../state/taskRun'
 import type { TaskDetail, TaskState } from '../types/api'
 import { downloadMarkdown } from '../utils/download'
-import { formatDateTime, formatDuration, taskDurationSeconds } from '../utils/format'
+import {
+  cacheHitRate,
+  formatDateTime,
+  formatDuration,
+  formatTokenRate,
+  formatTokens,
+  taskDurationSeconds,
+} from '../utils/format'
 import EmptyState from './EmptyState'
 import ErrorNotice from './ErrorNotice'
 import MarkdownReader from './MarkdownReader'
+import StatStrip from './StatStrip'
 import StatusTag from './StatusTag'
 import ViewHeader from './ViewHeader'
 import { useViewStack } from './ViewStack'
@@ -128,6 +136,8 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
   const interrupted = detail?.status === 'failed' || detail?.status === 'cancelled'
   const hint = failureHint(detail?.error_type)
   const attempts = detail?.attempts ?? []
+  const usage = detail?.usage ?? null
+  const usageHitRate = cacheHitRate(usage)
 
   // 运行中的任务静默轮询（不打 loading、失败忽略），结束后自动停止
   useEffect(() => {
@@ -262,6 +272,36 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
                 {detail.failed_chapters.length > 0 ? detail.failed_chapters.join(', ') : '无'}
               </Descriptions.Item>
             </Descriptions>
+
+            {usage && usage.calls > 0 ? (
+              <Card size="small" title="本次用量">
+                <StatStrip
+                  items={[
+                    {
+                      label: 'Token 消耗',
+                      value: formatTokens(usage.total_tokens),
+                      hint: `入 ${formatTokens(usage.prompt_tokens)} · 出 ${formatTokens(usage.completion_tokens)}`,
+                    },
+                    {
+                      label: '缓存命中',
+                      value: usageHitRate === null ? '—' : `${Math.round(usageHitRate * 100)}%`,
+                      hint: usage.cache_reported
+                        ? `${formatTokens(usage.cache_hit_tokens)} tokens`
+                        : '模型未上报',
+                    },
+                    {
+                      label: '输出速度',
+                      value: formatTokenRate(usage.tokens_per_second),
+                      hint: `模型耗时 ${formatDuration(usage.llm_seconds)}`,
+                    },
+                    { label: '模型调用', value: `${usage.calls} 次` },
+                  ]}
+                />
+                {usage.models.length > 0 ? (
+                  <div className="result-usage">模型：{usage.models.join(' / ')}</div>
+                ) : null}
+              </Card>
+            ) : null}
 
             {attempts.length > 1 ? (
               <Card size="small" title={`执行历史（${attempts.length} 次）`}>

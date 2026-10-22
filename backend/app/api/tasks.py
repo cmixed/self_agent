@@ -112,7 +112,7 @@ async def create_task(
         user_id=user_id,
         retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
     )
-    result = task_result(state, max_retries=service.max_retries)
+    result = task_result(state, max_retries=service.max_retries, usage=service.last_usage)
     await memory_service.extract_from_task(
         user_id, query=payload.query, result=result, task_id=task_id
     )

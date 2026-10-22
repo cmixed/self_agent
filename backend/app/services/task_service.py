@@ -32,6 +32,7 @@ from app.core.limits import (
 from app.core.logging import get_logger
 from app.core.task_registry import TaskRegistry, get_task_registry
 from app.llm.base import LLMError, LLMProvider
+from app.llm.usage import UsageCollector, UsageTrackingProvider, collect_usage
 from app.memory.repository import TaskRepository
 from app.models.state import AgentState, RetrievalScope, RetrievedDocument, initial_state
 from app.rag.tools import RagTool, dedupe_documents
@@ -76,7 +77,11 @@ def _sources(documents: list[RetrievedDocument]) -> list[dict[str, Any]]:
 
 
 def task_result(
-    state: AgentState, *, max_retries: int, max_sections: int = MAX_SECTIONS
+    state: AgentState,
+    *,
+    max_retries: int,
+    max_sections: int = MAX_SECTIONS,
+    usage: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """把最终状态整理为 API 结果结构（TaskResponse 的字段集合）。"""
     failed = failed_chapters(state, max_retries=max_retries, max_sections=max_sections)
@@ -92,6 +97,8 @@ def task_result(
         "retry_count": state.get("retry_count", 0),
         "failed_chapters": [chapter_target(index) for index in failed],
         "final_answer": state.get("final_answer", ""),
+        # 本次运行的用量（token / 缓存命中 / 速度）；由 Provider 装饰器采集
+        "usage": usage,
         # 回显本次检索范围（标签 + 解析后的文档数），便于追溯与续跑确认
         "scope": (
             {
@@ -148,8 +155,11 @@ class TaskService:
     ) -> None:
         self._catalog: list[CatalogEntry] = list(skill_catalog or [])
         self._max_sections = max(1, max_sections)
+        # 统一在 Provider 外层计量：Agent 节点只关心业务，不感知用量统计
+        self._llm = UsageTrackingProvider(llm)
+        self._last_usage: dict[str, Any] | None = None
         self._graph = build_graph(
-            llm,
+            self._llm,
             rag_tool_provider=rag_tool_provider,
             skill_catalog=self._catalog,
             checkpointer=checkpointer,
@@ -189,6 +199,11 @@ class TaskService:
     @property
     def max_retries(self) -> int:
         return self._max_retries
+
+    @property
+    def last_usage(self) -> dict[str, Any] | None:
+        """最近一次运行的用量（同步入口用它补齐 API 响应中的 usage）。"""
+        return self._last_usage
 
     async def run(
         self,
@@ -238,14 +253,17 @@ class TaskService:
             extra={"task_id": run_id, "event": "task_started", "status": "running"},
         )
         await self._start_run(run_id, query, user_id)
-        try:
-            final_state = cast(
-                AgentState,
-                await self._graph.ainvoke(state, config=self._config_for(run_id)),
-            )
-        except Exception as exc:
-            await self._fail_run(run_id, exc)
-            raise
+        self._last_usage = None
+        with collect_usage() as usage:
+            try:
+                final_state = cast(
+                    AgentState,
+                    await self._graph.ainvoke(state, config=self._config_for(run_id)),
+                )
+            except Exception as exc:
+                await self._fail_run(run_id, exc)
+                raise
+        self._last_usage = usage.to_dict()
 
         logger.info(
             "任务结束",
@@ -255,7 +273,7 @@ class TaskService:
                 "status": final_state.get("task_status", "unknown"),
             },
         )
-        await self._finish_run(run_id, final_state)
+        await self._finish_run(run_id, final_state, usage=self._last_usage)
         return final_state
 
     # --- 持久化辅助（未配置仓储时全部为 no-op）---
@@ -267,13 +285,23 @@ class TaskService:
             task_id=run_id, user_id=user_id or "local-user", query=query
         )
 
-    async def _finish_run(self, run_id: str, state: AgentState) -> None:
+    async def _finish_run(
+        self,
+        run_id: str,
+        state: AgentState,
+        *,
+        usage: dict[str, Any] | None = None,
+    ) -> None:
+        self._last_usage = usage
         if self._repository is None:
             return
         await self._repository.finish_run(
             task_id=run_id,
             result=task_result(
-                state, max_retries=self._max_retries, max_sections=self._max_sections
+                state,
+                max_retries=self._max_retries,
+                max_sections=self._max_sections,
+                usage=usage,
             ),
         )
 
@@ -430,6 +458,20 @@ class TaskService:
 
     async def _run_graph(
         self, run_id: str, graph_input: AgentState | None
+    ) -> AsyncIterator[dict[str, Any]]:
+        """为整次运行开一个用量作用域（新建与续跑共用）。"""
+        self._last_usage = None
+        with collect_usage() as usage:
+            async for event in self._run_graph_events(run_id, graph_input, usage=usage):
+                yield event
+            self._last_usage = usage.to_dict()
+
+    async def _run_graph_events(
+        self,
+        run_id: str,
+        graph_input: AgentState | None,
+        *,
+        usage: UsageCollector,
     ) -> AsyncIterator[dict[str, Any]]:
         """执行/续跑图并按 §19 产出事件；错误转为 ``task_failed``，不向外抛。"""
         final_state: AgentState = graph_input if graph_input is not None else AgentState()
@@ -613,7 +655,7 @@ class TaskService:
         status = final_state.get("task_status", "failed")
         if status != "completed":
             final_state["final_answer"] = final_state.get("final_answer", "")
-            await self._finish_run(run_id, final_state)
+            await self._finish_run(run_id, final_state, usage=usage.to_dict())
             yield _event(run_id, "task_failed", status="error", message="任务未能正常完成")
             return
 
@@ -621,14 +663,17 @@ class TaskService:
             "任务结束",
             extra={"task_id": run_id, "event": "task_completed", "status": "completed"},
         )
-        await self._finish_run(run_id, final_state)
+        await self._finish_run(run_id, final_state, usage=usage.to_dict())
         yield _event(
             run_id,
             "task_completed",
             status="completed",
             message="任务完成",
             result=task_result(
-                final_state, max_retries=self._max_retries, max_sections=self._max_sections
+                final_state,
+                max_retries=self._max_retries,
+                max_sections=self._max_sections,
+                usage=usage.to_dict(),
             ),
         )
 

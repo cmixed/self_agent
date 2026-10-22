@@ -1,5 +1,7 @@
 /** 展示层格式化工具（由后端已有字段推导，不新增数据来源） */
 
+import type { TokenUsage } from '../types/api'
+
 /** 秒 -> 人类可读时长 */
 export function formatDuration(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined) return '—'
@@ -29,6 +31,29 @@ export function formatDateTime(value?: string | null): string {
 }
 
 export type DocumentKind = 'pdf' | 'markdown' | 'text' | 'unknown'
+
+/** token 数 -> 1.2k / 12k / 1.3M（数值越大保留的小数越少） */
+export function formatTokens(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '—'
+  if (!Number.isFinite(value) || value < 0) return '—'
+  if (value < 1000) return String(Math.round(value))
+  if (value < 10_000) return `${(value / 1000).toFixed(1)}k`
+  if (value < 1_000_000) return `${Math.round(value / 1000)}k`
+  return `${(value / 1_000_000).toFixed(1)}M`
+}
+
+/** 输出速度（completion_tokens / 秒） */
+export function formatTokenRate(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '—'
+  if (!Number.isFinite(value) || value <= 0) return '—'
+  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} tok/s`
+}
+
+/** 缓存命中率（0–1）；上游未上报缓存时返回 null */
+export function cacheHitRate(usage: TokenUsage | null | undefined): number | null {
+  if (!usage || !usage.cache_reported || usage.prompt_tokens <= 0) return null
+  return usage.cache_hit_tokens / usage.prompt_tokens
+}
 
 /** 按扩展名判断文档类型（用于列表图标） */
 export function documentKind(filename: string): DocumentKind {

@@ -205,6 +205,24 @@ export interface Validation {
   target: string
 }
 
+/** 一次任务运行的模型用量（后端只统计本次运行，不累加历史尝试）。 */
+export interface TokenUsage {
+  calls: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  /** 缓存命中的输入 token（DeepSeek / OpenAI 兼容的上报口径） */
+  cache_hit_tokens: number
+  cache_miss_tokens: number
+  /** 上游是否上报缓存指标；false 时前端显示「—」而不是 0% */
+  cache_reported: boolean
+  /** 每次调用墙钟时间之和（含网络），单位秒 */
+  llm_seconds: number
+  /** 输出吞吐：completion_tokens / llm_seconds */
+  tokens_per_second: number
+  models: string[]
+}
+
 export interface TaskResult {
   task_id: string
   status: string
@@ -220,6 +238,8 @@ export interface TaskResult {
   final_answer: string
   /** 本次检索范围（回显）；null 表示整个知识库 */
   scope?: TaskScopeInfo | null
+  /** 本次运行的 token / 缓存 / 速度；旧记录为 null */
+  usage?: TokenUsage | null
 }
 
 export interface TaskAttempt {
