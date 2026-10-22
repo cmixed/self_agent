@@ -219,6 +219,21 @@ npm run dev          # 等价于 vp dev（Vite+ 统一 CLI）
 > 会使用项目内依赖，`./run.sh` 会自动处理这两种情况。
 > 该迁移只统一**前端**工具链，不改变与 Python 后端之间的 HTTP/SSE 边界。
 
+#### 在仓库根目录使用 vp
+
+本仓库是「Python 后端 + `frontend/` 前端」的非 JS monorepo。根目录 `vite.config.ts`
+用 Vite+ 官方的 `defaultPackage` 指向前端，因此**根目录可直接运行单应用命令**：
+
+```bash
+vp dev            # 在根目录启动前端（等价于 cd frontend && vp dev）
+vp build          # 在根目录构建前端（产物仍在 frontend/dist）
+vp -C frontend check   # check / lint / fmt 是 workspace 级命令，需指定包
+```
+
+`vp check` 在根目录会报 `Package not found in workspace` —— 根目录没有 `package.json`，
+这是 Vite+ 对 workspace 级命令的正常要求，用 `-C frontend` 即可（`./run.sh` 已在
+`frontend/` 内启动，不受影响）。
+
 ## 测试与检查
 
 ```bash
