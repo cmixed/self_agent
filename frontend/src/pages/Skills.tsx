@@ -2,6 +2,7 @@ import {
   DeleteOutlined,
   EditOutlined,
   FileTextOutlined,
+  PaperClipOutlined,
   PlusOutlined,
   ReloadOutlined,
   UploadOutlined,
@@ -11,6 +12,7 @@ import {
   App,
   Button,
   Card,
+  Divider,
   Form,
   Input,
   Modal,
@@ -34,14 +36,23 @@ import { useViewStack } from '../components/ViewStack'
 import {
   ApiError,
   createSkill,
+  createSkillResource,
   deleteSkill,
+  deleteSkillResource,
   generateSkill,
   listDocuments,
+  listSkillResources,
   listSkills,
   updateSkill,
+  updateSkillResource,
   uploadDocument,
 } from '../services/api'
-import type { DocumentInfo, SkillGenerateResponse, SkillInfo } from '../types/api'
+import type {
+  DocumentInfo,
+  SkillGenerateResponse,
+  SkillInfo,
+  SkillResourceInfo,
+} from '../types/api'
 import { formatDateTime } from '../utils/format'
 
 const { Text, Paragraph } = Typography
@@ -74,6 +85,14 @@ export default function SkillsPage() {
   const [editing, setEditing] = useState<SkillInfo | null>(null)
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm<SkillFormValues>()
+
+  // --- 技能附件（L3）---
+  const [resources, setResources] = useState<SkillResourceInfo[]>([])
+  const [resourcesLoading, setResourcesLoading] = useState(false)
+  const [resourceName, setResourceName] = useState('')
+  const [resourceContent, setResourceContent] = useState('')
+  const [editingResourceId, setEditingResourceId] = useState<string | null>(null)
+  const [resourceSaving, setResourceSaving] = useState(false)
 
   // --- 从文档生成技能 ---
   const [genOpen, setGenOpen] = useState(false)
@@ -109,25 +128,49 @@ export default function SkillsPage() {
     void refresh()
   }, [refresh])
 
+  const resetResourceEditor = () => {
+    setResources([])
+    setResourceName('')
+    setResourceContent('')
+    setEditingResourceId(null)
+    setResourcesLoading(false)
+  }
+
+  const loadResources = useCallback(async (skillId: string) => {
+    setResourcesLoading(true)
+    try {
+      const data = await listSkillResources(skillId)
+      setResources(data.resources)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '加载技能附件失败')
+    } finally {
+      setResourcesLoading(false)
+    }
+  }, [])
+
   const openCreate = () => {
     setEditing(null)
+    resetResourceEditor()
     form.resetFields()
     setModalOpen(true)
   }
 
   const openEdit = (skill: SkillInfo) => {
     setEditing(skill)
+    resetResourceEditor()
     form.setFieldsValue({
       name: skill.name,
       description: skill.description,
       content: skill.content,
     })
     setModalOpen(true)
+    void loadResources(skill.skill_id)
   }
 
   const closeModal = () => {
     setModalOpen(false)
     setEditing(null)
+    resetResourceEditor()
     form.resetFields()
   }
 
@@ -148,6 +191,58 @@ export default function SkillsPage() {
       setError(err instanceof ApiError ? err.message : '保存技能失败')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleSaveResource = async () => {
+    if (!editing) return
+    const name = resourceName.trim()
+    const content = resourceContent.trim()
+    if (!name || !content) {
+      setError('附件名与附件正文都不能为空')
+      return
+    }
+    setResourceSaving(true)
+    setError(null)
+    try {
+      if (editingResourceId) {
+        await updateSkillResource(editing.skill_id, editingResourceId, { name, content })
+        message.success(`已更新附件「${name}」`)
+      } else {
+        await createSkillResource(editing.skill_id, { name, content })
+        message.success(`已添加附件「${name}」`)
+      }
+      setResourceName('')
+      setResourceContent('')
+      setEditingResourceId(null)
+      await loadResources(editing.skill_id)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '保存附件失败')
+    } finally {
+      setResourceSaving(false)
+    }
+  }
+
+  const handleEditResource = (resource: SkillResourceInfo) => {
+    setEditingResourceId(resource.resource_id)
+    setResourceName(resource.name)
+    setResourceContent(resource.content)
+  }
+
+  const handleDeleteResource = async (resource: SkillResourceInfo) => {
+    if (!editing) return
+    setError(null)
+    try {
+      await deleteSkillResource(editing.skill_id, resource.resource_id)
+      message.success(`已删除附件「${resource.name}」`)
+      if (editingResourceId === resource.resource_id) {
+        setEditingResourceId(null)
+        setResourceName('')
+        setResourceContent('')
+      }
+      await loadResources(editing.skill_id)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '删除附件失败')
     }
   }
 
@@ -458,6 +553,105 @@ export default function SkillsPage() {
             />
           </Form.Item>
         </Form>
+
+        <Divider />
+        <Space direction="vertical" size={10} style={{ width: '100%' }}>
+          <Space>
+            <PaperClipOutlined />
+            <Text strong>按需附件</Text>
+          </Space>
+          <Text type="secondary">
+            技能目录只把附件名告诉 Agent；模型显式请求时才读取正文，最多追加一次调用。
+          </Text>
+          {editing ? (
+            <>
+              {resourcesLoading ? (
+                <Skeleton active paragraph={{ rows: 1 }} title={false} />
+              ) : resources.length === 0 ? (
+                <Text type="secondary">还没有附件</Text>
+              ) : (
+                resources.map((resource) => (
+                  <Card size="small" key={resource.resource_id}>
+                    <Space align="start" style={{ width: '100%', justifyContent: 'space-between' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <Text strong>{resource.name}</Text>
+                        <Paragraph
+                          type="secondary"
+                          ellipsis={{ rows: 2, tooltip: resource.content }}
+                          style={{ marginBottom: 0 }}
+                        >
+                          {resource.content}
+                        </Paragraph>
+                      </div>
+                      <Space size={0}>
+                        <Button
+                          size="small"
+                          type="text"
+                          icon={<EditOutlined />}
+                          aria-label="编辑附件"
+                          onClick={() => handleEditResource(resource)}
+                        />
+                        <Popconfirm
+                          title={`删除附件「${resource.name}」？`}
+                          okText="删除"
+                          cancelText="取消"
+                          onConfirm={() => void handleDeleteResource(resource)}
+                        >
+                          <Button
+                            size="small"
+                            type="text"
+                            danger
+                            icon={<DeleteOutlined />}
+                            aria-label="删除附件"
+                          />
+                        </Popconfirm>
+                      </Space>
+                    </Space>
+                  </Card>
+                ))
+              )}
+
+              <Card size="small" title={editingResourceId ? '编辑附件' : '添加附件'}>
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  <Input
+                    value={resourceName}
+                    maxLength={80}
+                    placeholder="附件名，例如 checklist"
+                    onChange={(event) => setResourceName(event.target.value)}
+                  />
+                  <Input.TextArea
+                    value={resourceContent}
+                    autoSize={{ minRows: 3, maxRows: 10 }}
+                    placeholder="附件正文（只有模型请求时才进入提示词）"
+                    onChange={(event) => setResourceContent(event.target.value)}
+                  />
+                  <Space>
+                    <Button
+                      type="primary"
+                      loading={resourceSaving}
+                      onClick={() => void handleSaveResource()}
+                    >
+                      {editingResourceId ? '保存附件' : '添加附件'}
+                    </Button>
+                    {editingResourceId ? (
+                      <Button
+                        onClick={() => {
+                          setEditingResourceId(null)
+                          setResourceName('')
+                          setResourceContent('')
+                        }}
+                      >
+                        取消编辑
+                      </Button>
+                    ) : null}
+                  </Space>
+                </Space>
+              </Card>
+            </>
+          ) : (
+            <Alert type="info" showIcon message="保存技能后即可添加附件" />
+          )}
+        </Space>
       </Modal>
 
       <Modal

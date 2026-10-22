@@ -69,6 +69,69 @@ def test_create_update_delete_skill(client: TestClient) -> None:
     assert missing.json()["error_type"] == "skill_not_found"
 
 
+def test_skill_resource_crud(client: TestClient) -> None:
+    created = client.post(
+        "/api/skills",
+        json={"name": "带附件技能", "description": "说明", "content": "指令内容"},
+    )
+    skill_id = created.json()["skill_id"]
+
+    empty = client.get(f"/api/skills/{skill_id}/resources")
+    assert empty.status_code == 200
+    assert empty.json()["resources"] == []
+
+    added = client.post(
+        f"/api/skills/{skill_id}/resources",
+        json={"name": "checklist", "content": "检查项 A"},
+    )
+    assert added.status_code == 200
+    resource = added.json()
+    assert resource["name"] == "checklist"
+
+    duplicate = client.post(
+        f"/api/skills/{skill_id}/resources",
+        json={"name": "checklist", "content": "重复"},
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["error_type"] == "skill_resource_name_conflict"
+
+    listed = client.get(f"/api/skills/{skill_id}/resources")
+    assert [item["resource_id"] for item in listed.json()["resources"]] == [resource["resource_id"]]
+
+    updated = client.put(
+        f"/api/skills/{skill_id}/resources/{resource['resource_id']}",
+        json={"name": "checklist-v2", "content": "检查项 B"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["content"] == "检查项 B"
+
+    deleted = client.delete(f"/api/skills/{skill_id}/resources/{resource['resource_id']}")
+    assert deleted.status_code == 200
+    assert client.get(f"/api/skills/{skill_id}/resources").json()["resources"] == []
+
+
+def test_skill_resource_is_removed_with_skill(client: TestClient) -> None:
+    created = client.post(
+        "/api/skills",
+        json={"name": "临时技能", "description": "说明", "content": "指令内容"},
+    )
+    skill_id = created.json()["skill_id"]
+    added = client.post(
+        f"/api/skills/{skill_id}/resources",
+        json={"name": "note", "content": "附件正文"},
+    )
+    resource_id = added.json()["resource_id"]
+
+    assert client.delete(f"/api/skills/{skill_id}").status_code == 200
+    missing = client.get(f"/api/skills/{skill_id}/resources")
+    assert missing.status_code == 404
+    assert missing.json()["error_type"] == "skill_not_found"
+
+    # 附件记录也不会残留在其它入口
+    orphan = client.delete(f"/api/skills/{skill_id}/resources/{resource_id}")
+    assert orphan.status_code == 404
+
+
 def test_builtin_skill_cannot_be_deleted_but_can_be_disabled(
     seeded_client: TestClient,
 ) -> None:

@@ -12,7 +12,13 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.agents.preferences import render_preferences
-from app.agents.skills import MAX_SKILL_STEPS, CatalogEntry, skill_catalog_for_prompt
+from app.agents.skills import (
+    MAX_SKILL_STEPS,
+    CatalogEntry,
+    SkillCatalog,
+    SkillMeta,
+    skill_catalog_for_prompt,
+)
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, Plan, PlanStep, StepResult
@@ -63,7 +69,7 @@ def _render_planner_input(state: AgentState) -> str:
 
 
 def _validate_skill_steps(
-    steps: list[PlanStepModel], catalog: Sequence[CatalogEntry] | None
+    steps: list[PlanStepModel], catalog: Sequence[SkillMeta] | None
 ) -> list[PlanStepModel]:
     """过滤非法技能步骤：无目录时全部剔除；skill_id 不在目录中剔除；超上限截断。"""
     if not catalog:
@@ -91,21 +97,23 @@ def make_planner_node(
     llm: LLMProvider,
     *,
     max_retries: int = 2,
-    skill_catalog: Sequence[CatalogEntry] | None = None,
+    skill_catalog: Sequence[CatalogEntry] | SkillCatalog | None = None,
 ) -> Callable[[AgentState], Awaitable[dict]]:
     """构造绑定了 LLM 的 planner 节点。
 
-    ``skill_catalog`` 非空时注入技能目录，Planner 可在计划中加入技能步骤。
+    ``skill_catalog`` 非空时注入 L1 目录（id/name/description），Planner 可在
+    计划中加入技能步骤；技能正文不会进入规划提示词。
     """
+    catalog = SkillCatalog.from_entries(skill_catalog)
 
     async def planner_node(state: AgentState) -> dict:
         # 技能是显式 opt-in：默认不把目录注入 planner，避免模型被引导去
         # 添加「技能步骤」而多出一次 LLM 调用（简单任务尤其明显）。
         allow_skills = bool((state.get("task_profile") or {}).get("allow_skills", True))
-        catalog = skill_catalog if allow_skills else []
+        catalog_meta = catalog.metadata if allow_skills else []
         system_prompt = _PLANNER_SYSTEM_PROMPT
-        if catalog:
-            system_prompt = f"{system_prompt}\n\n{skill_catalog_for_prompt(catalog)}"
+        if catalog_meta:
+            system_prompt = f"{system_prompt}\n\n{skill_catalog_for_prompt(catalog_meta)}"
         messages = [
             ChatMessage(role="system", content=system_prompt),
             ChatMessage(role="user", content=_render_planner_input(state)),
@@ -121,7 +129,7 @@ def make_planner_node(
                 description=step.description,
                 skill_id=step.skill_id,
             )
-            for step in _validate_skill_steps(plan_model.steps, catalog)
+            for step in _validate_skill_steps(plan_model.steps, catalog_meta)
         ]
         plan: Plan = Plan(
             goal=plan_model.goal,

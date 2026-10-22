@@ -17,8 +17,10 @@ import type {
   SettingsResponse,
   SkillGenerateResponse,
   SkillInfo,
-  TaskScope,
   SkillListResponse,
+  SkillResourceInfo,
+  SkillResourceListResponse,
+  TaskScope,
   TaskDepth,
   TaskDetail,
   TaskEvent,
@@ -283,6 +285,41 @@ export async function deleteSkill(skillId: string): Promise<void> {
   const response = await fetch(`${API_BASE}/skills/${encodeURIComponent(skillId)}`, {
     method: 'DELETE',
   })
+  if (!response.ok) {
+    throw await toApiError(response)
+  }
+}
+
+export function listSkillResources(skillId: string): Promise<SkillResourceListResponse> {
+  return request<SkillResourceListResponse>(`/skills/${encodeURIComponent(skillId)}/resources`)
+}
+
+export function createSkillResource(
+  skillId: string,
+  payload: { name: string; content: string },
+): Promise<SkillResourceInfo> {
+  return request<SkillResourceInfo>(`/skills/${encodeURIComponent(skillId)}/resources`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateSkillResource(
+  skillId: string,
+  resourceId: string,
+  payload: Partial<{ name: string; content: string }>,
+): Promise<SkillResourceInfo> {
+  return request<SkillResourceInfo>(
+    `/skills/${encodeURIComponent(skillId)}/resources/${encodeURIComponent(resourceId)}`,
+    { method: 'PUT', body: JSON.stringify(payload) },
+  )
+}
+
+export async function deleteSkillResource(skillId: string, resourceId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/skills/${encodeURIComponent(skillId)}/resources/${encodeURIComponent(resourceId)}`,
+    { method: 'DELETE' },
+  )
   if (!response.ok) {
     throw await toApiError(response)
   }

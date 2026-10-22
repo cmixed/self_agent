@@ -9,12 +9,15 @@ Planner 可在计划中加入 ``type="skill"`` 的步骤；本节点每次执行
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
-from typing import TypedDict
+import re
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
+from typing import NotRequired, TypedDict
 
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, PlanStep, SkillOutput, StepResult
+from app.prompts import render_prompt
 from app.rag.tools import format_context
 
 logger = get_logger(__name__)
@@ -22,14 +25,65 @@ logger = get_logger(__name__)
 # 单个计划中允许的技能步骤上限（防滥用，与 MAX_SECTIONS 同类的安全约束）
 MAX_SKILL_STEPS = 2
 
+# L3：最多加载一个附件、最多追加一次模型调用（协议固定，不做递归）
+MAX_RESOURCE_LOADS = 1
+_RESOURCE_REQUEST_RE = re.compile(r"\[\[NEED_RESOURCE:\s*([^\]\n]+?)\s*\]\]")
 
-class CatalogEntry(TypedDict):
-    """技能目录条目（由 SkillService 把 SkillRecord 转换而来）。"""
+
+class SkillMeta(TypedDict):
+    """L1 技能目录：Planner 只需要判断「有哪些技能、何时用」。"""
 
     skill_id: str
     name: str
     description: str
+
+
+class SkillResource(TypedDict):
+    """技能附件：目录只给 name，content 仅在模型请求时注入。"""
+
+    name: str
     content: str
+
+
+class CatalogEntry(SkillMeta):
+    """L2 技能定义：实际执行时才按 skill_id 读取正文。"""
+
+    content: str
+    resources: NotRequired[list[SkillResource]]
+
+
+@dataclass(frozen=True)
+class SkillCatalog:
+    """技能目录快照。
+
+    Planner 只看 :attr:`metadata`（id/name/description）；正文只在 skills 节点
+    ``get(skill_id)`` 命中后读取，避免把整库技能正文塞进每次规划请求。
+    """
+
+    _definitions: Mapping[str, CatalogEntry]
+
+    @classmethod
+    def from_entries(cls, entries: Sequence[CatalogEntry] | SkillCatalog | None) -> SkillCatalog:
+        if isinstance(entries, SkillCatalog):
+            return entries
+        return cls({entry["skill_id"]: entry for entry in entries or []})
+
+    @property
+    def metadata(self) -> list[SkillMeta]:
+        return [
+            SkillMeta(
+                skill_id=entry["skill_id"],
+                name=entry["name"],
+                description=entry["description"],
+            )
+            for entry in self._definitions.values()
+        ]
+
+    def get(self, skill_id: str) -> CatalogEntry | None:
+        return self._definitions.get(skill_id)
+
+    def __bool__(self) -> bool:
+        return bool(self._definitions)
 
 
 def pending_skill_step(state: AgentState) -> PlanStep | None:
@@ -55,6 +109,24 @@ def make_route_after_skills() -> Callable[[AgentState], str]:
     return route_after_skills
 
 
+def _resource_directory(resources: Sequence[SkillResource]) -> str:
+    """L3 附件目录：只列名字，不泄露正文。"""
+    if not resources:
+        return ""
+    names = "\n".join(f"- {resource['name']}" for resource in resources)
+    return render_prompt("skill_resource_directory.md", resources=names).strip()
+
+
+def _requested_resource(content: str) -> str | None:
+    match = _RESOURCE_REQUEST_RE.search(content)
+    return match.group(1).strip() if match else None
+
+
+def _strip_resource_requests(content: str) -> str:
+    """移除协议标记：最终输出与后续上下文都不应包含内部指令。"""
+    return _RESOURCE_REQUEST_RE.sub("", content).strip()
+
+
 def render_skill_outputs(state: AgentState) -> str:
     """把已完成技能的结论渲染为上下文块（供 outline / writer 拼接）。"""
     outputs = state.get("skill_outputs") or []
@@ -67,24 +139,26 @@ def render_skill_outputs(state: AgentState) -> str:
     return "\n\n".join(blocks)
 
 
-def skill_catalog_for_prompt(catalog: Sequence[CatalogEntry]) -> str:
-    """渲染给 Planner 的技能目录说明。"""
+def skill_catalog_for_prompt(catalog: Sequence[SkillMeta]) -> str:
+    """渲染给 Planner 的技能目录说明（只含 L1 元数据）。"""
     lines = ["可用技能（type 必须为 skill，且必须填写对应的 skill_id）："]
     for entry in catalog:
         lines.append(
-            f'- skill_id="{entry["skill_id"]}" 名称：{entry["name"]}'
-            f'（{entry["description"]}）'
+            f'- skill_id="{entry["skill_id"]}" 名称：{entry["name"]}（{entry["description"]}）'
         )
     lines.append(f"最多选择 {MAX_SKILL_STEPS} 个技能步骤；没有合适的技能就不要添加 skill 步骤。")
     return "\n".join(lines)
 
 
 def make_skills_node(
-    llm: LLMProvider, catalog: Sequence[CatalogEntry]
+    llm: LLMProvider, catalog: Sequence[CatalogEntry] | SkillCatalog
 ) -> Callable[[AgentState], Awaitable[dict]]:
-    """构造绑定了 LLM 与技能目录的 skills 节点。"""
+    """构造绑定了 LLM 与技能目录的 skills 节点。
 
-    definitions = {entry["skill_id"]: entry for entry in catalog}
+    正文按 ``skill_id`` 在执行时读取（L2）：未选中的技能不会出现在提示词中。
+    """
+
+    skill_catalog = SkillCatalog.from_entries(catalog)
 
     async def skills_node(state: AgentState) -> dict:
         step = pending_skill_step(state)
@@ -93,7 +167,7 @@ def make_skills_node(
             return {}
 
         skill_id = str(step.get("skill_id") or "")
-        definition = definitions.get(skill_id)
+        definition = skill_catalog.get(skill_id)
         if definition is None:
             logger.warning(
                 "计划引用了不存在的技能，跳过该步骤",
@@ -117,21 +191,65 @@ def make_skills_node(
         documents = state.get("retrieved_documents") or []
         if documents:
             context_parts.append("参考资料：\n" + format_context(documents))
-        context_parts.append(f"技能说明（{definition['name']}）：\n{definition['content']}")
+        resources = definition.get("resources") or []
+        directory = _resource_directory(resources)
+        if directory:
+            context_parts.append(directory)
         context_parts.append(
             "输出要求：**不要使用 [编号] 形式标注引用**——[编号] 由正文统一按"
             "「检索到的资料」顺序生成；如需指明依据，请直接写文件名或章节名。"
         )
 
-        response = await llm.chat(
-            [
-                ChatMessage(role="system", content=definition["content"]),
-                ChatMessage(role="user", content="\n\n".join(context_parts)),
-            ],
-            temperature=0.3,
-        )
-        content = response.content.strip()
+        messages = [
+            # L2：技能正文只放在 system；user 里不再重复，省一半技能 token
+            ChatMessage(role="system", content=definition["content"]),
+            ChatMessage(role="user", content="\n\n".join(context_parts)),
+        ]
+        response = await llm.chat(messages, temperature=0.3)
+        raw = response.content.strip()
+        content = _strip_resource_requests(raw)
+        resource_used = ""
+
+        # L3：最多加载一个附件、最多追加一次调用；后续再请求也不递归。
+        requested = _requested_resource(raw)
+        if requested and MAX_RESOURCE_LOADS > 0:
+            resource = next(
+                (item for item in resources if item["name"] == requested),
+                None,
+            )
+            if resource is None:
+                logger.warning(
+                    "技能请求了不存在的附件，已忽略",
+                    extra={
+                        "task_id": state.get("task_id"),
+                        "node": "skills",
+                        "skill_id": skill_id,
+                        "resource": requested,
+                    },
+                )
+            else:
+                followup = await llm.chat(
+                    [
+                        *messages,
+                        ChatMessage(role="assistant", content=content or "（需要附件）"),
+                        ChatMessage(
+                            role="user",
+                            content=render_prompt(
+                                "skill_resource_followup.md",
+                                name=resource["name"],
+                                content=resource["content"],
+                            ),
+                        ),
+                    ],
+                    temperature=0.3,
+                )
+                if followup.content.strip():
+                    content = _strip_resource_requests(followup.content.strip())
+                resource_used = resource["name"]
+
         summary = content.splitlines()[0][:120] if content else "（无输出）"
+        if resource_used:
+            summary = f"已加载附件「{resource_used}」；{summary}"
 
         logger.info(
             "技能执行完成",
@@ -158,7 +276,10 @@ def make_skills_node(
                 StepResult(
                     step_id=str(step.get("id", "")),
                     status="ok",
-                    summary=f"技能「{definition['name']}」执行完成",
+                    summary=(
+                        f"技能「{definition['name']}」执行完成"
+                        + (f"（按需附件：{resource_used}）" if resource_used else "")
+                    ),
                 )
             ],
             "messages": [

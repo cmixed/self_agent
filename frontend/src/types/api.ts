@@ -130,6 +130,20 @@ export interface SkillListResponse {
   skills: SkillInfo[]
 }
 
+/** 技能按需附件（L3）：目录只暴露 name，正文在模型请求时加载。 */
+export interface SkillResourceInfo {
+  resource_id: string
+  skill_id: string
+  name: string
+  content: string
+  created_at: string
+  updated_at: string
+}
+
+export interface SkillResourceListResponse {
+  resources: SkillResourceInfo[]
+}
+
 export interface SkillDraft {
   name: string
   description: string

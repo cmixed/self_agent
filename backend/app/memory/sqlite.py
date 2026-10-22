@@ -81,6 +81,22 @@ CREATE TABLE IF NOT EXISTS skills (
     updated_at  TEXT NOT NULL
 );
 
+-- 技能附件（L3）：技能目录只暴露 name；模型显式请求时才注入 content。
+-- 一个技能内附件名唯一，删除技能时级联清理。
+CREATE TABLE IF NOT EXISTS skill_resources (
+    resource_id TEXT PRIMARY KEY,
+    skill_id    TEXT NOT NULL REFERENCES skills(skill_id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_resources_name
+    ON skill_resources(skill_id, name);
+CREATE INDEX IF NOT EXISTS idx_skill_resources_skill
+    ON skill_resources(skill_id, created_at);
+
 CREATE TABLE IF NOT EXISTS presets (
     preset_id   TEXT PRIMARY KEY,
     title       TEXT NOT NULL,
@@ -182,8 +198,7 @@ MIGRATIONS: tuple[tuple[str, str, str], ...] = (
 # 一次性回填：把明显指向 Ollama 的既有配置标成原生协议（否则它们的"关闭思考"
 # 开关不会生效，因为 /v1 端点不接受 think 字段）。
 _BACKFILL_OLLAMA_FLAVOR = (
-    "UPDATE llm_providers SET flavor = 'ollama' "
-    "WHERE flavor = 'openai' AND base_url LIKE '%11434%'"
+    "UPDATE llm_providers SET flavor = 'ollama' WHERE flavor = 'openai' AND base_url LIKE '%11434%'"
 )
 
 
@@ -209,9 +224,7 @@ class SqliteDatabase:
     def _migrate(connection: sqlite3.Connection) -> None:
         """按需补列（既有库升级路径；旧数据保持可用）。"""
         for table, column, ddl in MIGRATIONS:
-            columns = {
-                row["name"] for row in connection.execute(f"PRAGMA table_info({table})")
-            }
+            columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
             if column not in columns:
                 connection.execute(ddl)
         connection.execute(_BACKFILL_OLLAMA_FLAVOR)

@@ -37,6 +37,7 @@ from app.agents.researcher import make_researcher_node
 from app.agents.skills import (
     MAX_SKILL_STEPS,
     CatalogEntry,
+    SkillCatalog,
     make_route_after_skills,
     make_skills_node,
 )
@@ -86,7 +87,7 @@ def build_graph(
     未提供 ``rag_tool_provider`` 时不挂载 researcher 节点；``skill_catalog``
     为空时不挂载 skills 节点，各自退化为不含该阶段的流程（便于测试与无知识库场景）。
     """
-    catalog = list(skill_catalog or [])
+    catalog = SkillCatalog.from_entries(skill_catalog)
     graph = StateGraph(AgentState)
 
     graph.add_node("answer", make_answer_node(llm, rag_tool_provider=rag_tool_provider))

@@ -10,7 +10,9 @@
 
 from __future__ import annotations
 
-from app.memory.repository import SkillRecord, SkillRepository
+import sqlite3
+
+from app.memory.repository import SkillRecord, SkillRepository, SkillResourceRecord
 from app.memory.sqlite import SqliteDatabase
 from app.prompts import load_prompt
 from app.prompts.manifest import BUILTIN_SKILL_PROMPTS
@@ -48,6 +50,14 @@ class SkillNotFoundError(Exception):
 
 class BuiltinSkillProtectedError(Exception):
     """内置技能受保护（不可删除）。"""
+
+
+class SkillResourceNotFoundError(Exception):
+    """技能附件不存在。"""
+
+
+class SkillResourceNameConflictError(Exception):
+    """同一个技能内附件名重复。"""
 
 
 class SkillService:
@@ -109,3 +119,61 @@ class SkillService:
         if existing.builtin:
             raise BuiltinSkillProtectedError("内置技能不可删除，可停用或编辑")
         await self._repository.delete_skill(skill_id)
+
+    # --- 技能附件（L3）---
+
+    async def list_resources(self, skill_id: str) -> list[SkillResourceRecord]:
+        await self._require_skill(skill_id)
+        return await self._repository.list_skill_resources(skill_id)
+
+    async def resources_for_skills(
+        self, skill_ids: list[str]
+    ) -> dict[str, list[SkillResourceRecord]]:
+        return await self._repository.list_resources_for_skills(skill_ids)
+
+    async def create_resource(
+        self, skill_id: str, *, name: str, content: str
+    ) -> SkillResourceRecord:
+        await self._require_skill(skill_id)
+        try:
+            return await self._repository.create_skill_resource(
+                skill_id, name=name.strip(), content=content.strip()
+            )
+        except sqlite3.IntegrityError as exc:
+            raise SkillResourceNameConflictError(f"附件名已存在：{name.strip()}") from exc
+
+    async def update_resource(
+        self,
+        skill_id: str,
+        resource_id: str,
+        *,
+        name: str | None = None,
+        content: str | None = None,
+    ) -> SkillResourceRecord:
+        await self._require_skill(skill_id)
+        try:
+            updated = await self._repository.update_skill_resource(
+                skill_id,
+                resource_id,
+                name=name.strip() if name is not None else None,
+                content=content.strip() if content is not None else None,
+            )
+        except sqlite3.IntegrityError as exc:
+            raise SkillResourceNameConflictError(
+                f"附件名已存在：{name.strip() if name else ''}"
+            ) from exc
+        if updated is None:
+            raise SkillResourceNotFoundError(f"附件不存在：{resource_id}")
+        return updated
+
+    async def delete_resource(self, skill_id: str, resource_id: str) -> None:
+        await self._require_skill(skill_id)
+        deleted = await self._repository.delete_skill_resource(skill_id, resource_id)
+        if not deleted:
+            raise SkillResourceNotFoundError(f"附件不存在：{resource_id}")
+
+    async def _require_skill(self, skill_id: str) -> SkillRecord:
+        existing = await self._repository.get_skill(skill_id)
+        if existing is None:
+            raise SkillNotFoundError(f"技能不存在：{skill_id}")
+        return existing

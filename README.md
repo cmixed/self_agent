@@ -449,12 +449,18 @@ uv run python -m app.evaluation.run --suite compare --real --top-k 5 \
 技能是 **Agent 可调用的结构化指令模块**（「怎么做」），不是知识检索，也不是外部工具：
 
 ```text
-Planner 从「已启用技能目录」里挑 ≤2 个 type="skill" 的步骤
-  → skills 节点逐个执行（system = 技能指令；user = 目标 + 任务 + 检索到的资料）
+L1 目录：Planner 只看 skill_id / name / description（不看正文）
+  → 选中技能后 L2 读取正文（system = 技能指令；user = 目标 + 任务 + 资料）
+  → L3 附件：目录只给附件名；模型输出 [[NEED_RESOURCE: 名称]] 时才注入正文
+  → 最多加载 1 个附件、最多追加 1 次模型调用
   → skill_outputs 并入 State → outline / writer 复用
 ```
 
 - 内置技能固定 id、不可删除，可编辑/停用；`MAX_SKILL_STEPS=2` 限制单次任务用几个。
+- 技能正文按 `skill_id` 懒加载，且只在 system 注入一次（不再在 user 重复）；
+  Planner 提示词不含任何技能正文，技能目录 token 只随「技能数量」增长，不随正文长度增长。
+- 技能附件用于「按需查阅」的长资料（检查清单、模板、规范）。目录只暴露名称，
+  未请求的附件正文不会进入上下文；请求标记在最终输出前会被移除。
 - 前端技能页为卡片网格：可筛选「全部/已启用/已停用」，点卡片打开只读详情。
 - **从文档生成**：技能页「从文档生成」可选知识库已有文档，或直接上传 `.md/.txt`
   （上传会**真的加入知识库**，复用文档入库链路）。
@@ -492,6 +498,10 @@ Planner 从「已启用技能目录」里挑 ≤2 个 type="skill" 的步骤
 | `PUT` | `/api/skills/{id}` | 编辑内容 / 启用停用 |
 | `DELETE` | `/api/skills/{id}` | 删除自定义技能（内置返回 409） |
 | `POST` | `/api/skills/generate` | 从文档生成技能**草稿**（不落库） |
+| `GET` | `/api/skills/{id}/resources` | 技能附件列表 |
+| `POST` | `/api/skills/{id}/resources` | 添加附件（同一技能内名称唯一） |
+| `PUT` | `/api/skills/{id}/resources/{resource_id}` | 编辑附件名称 / 正文 |
+| `DELETE` | `/api/skills/{id}/resources/{resource_id}` | 删除附件 |
 | `POST` | `/api/tasks/{id}/resume` | **继续生成**：从断点续跑（SSE；无检查点返回 409） |
 | `POST` | `/api/tasks/{id}/rerun` | **重新生成**：同 query 新建一次运行（SSE，原任务记录保留） |
 

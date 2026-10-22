@@ -189,13 +189,20 @@ def get_user_id(x_user_id: str | None = Header(default=None, alias="X-User-Id"))
 async def get_task_service(provider: LLMProvider = Depends(get_llm_provider)) -> TaskService:
     settings = get_settings()
     # 技能目录在任务开始时快照（运行中修改技能不影响本次任务）
-    skills = await build_skill_service().enabled_skills()
+    skill_service = build_skill_service()
+    skills = await skill_service.enabled_skills()
+    resources = await skill_service.resources_for_skills([skill.skill_id for skill in skills])
     catalog = [
         {
             "skill_id": skill.skill_id,
             "name": skill.name,
             "description": skill.description,
             "content": skill.content,
+            # L3：附件正文随快照加载，但只有模型请求时才进入提示词
+            "resources": [
+                {"name": item.name, "content": item.content}
+                for item in resources.get(skill.skill_id, [])
+            ],
         }
         for skill in skills
     ]

@@ -11,10 +11,12 @@ from fakes import OUTLINE_JSON, ScriptedProvider, validation_fail_json
 
 from app.agents.skills import (
     MAX_SKILL_STEPS,
+    SkillCatalog,
     make_route_after_skills,
     make_skills_node,
     pending_skill_step,
     render_skill_outputs,
+    skill_catalog_for_prompt,
 )
 from app.core.agent_graph import build_graph
 from app.models.state import AgentState, Plan, initial_state
@@ -120,6 +122,10 @@ async def test_skills_node_produces_output() -> None:
     assert update["current_step"] == "s1"
     # 技能指令作为 system 注入，任务与资料作为 user 输入
     assert provider.calls[0][0].content == "请做结构化对比分析。"
+    # L2：正文只出现一次，不能在 user 消息里重复注入
+    assert "请做结构化对比分析。" not in provider.calls[0][1].content
+    # 未选中的技能正文不得出现在本次调用中
+    assert "请提炼核心要点。" not in "\n".join(message.content for message in provider.calls[0])
 
 
 async def test_skills_node_skips_unknown_skill() -> None:
@@ -131,6 +137,40 @@ async def test_skills_node_skips_unknown_skill() -> None:
 
     assert update["step_results"][0]["status"] == "error"
     assert provider.calls == []
+
+
+def test_l1_catalog_prompt_does_not_grow_with_skill_body_length() -> None:
+    """L1 目录大小只取决于元数据长度，与技能正文/附件正文无关。"""
+    short = SkillCatalog.from_entries(CATALOG).metadata
+    long = SkillCatalog.from_entries(
+        [
+            {**entry, "content": "正文" * 2000, "resources": [{"name": "x", "content": "y" * 2000}]}
+            for entry in CATALOG
+        ]
+    ).metadata
+
+    assert skill_catalog_for_prompt(short) == skill_catalog_for_prompt(long)
+
+
+async def test_planner_prompt_contains_catalog_metadata_but_not_content() -> None:
+    """L1：Planner 只看到技能目录元数据，不看到技能正文。"""
+    plan = {
+        "goal": "写综述",
+        "needs_retrieval": False,
+        "steps": [{"id": "w1", "type": "writing", "description": "撰写"}],
+    }
+    provider = ScriptedProvider(
+        [json.dumps(plan, ensure_ascii=False), OUTLINE_JSON], default_text="正文"
+    )
+    graph = build_graph(provider, skill_catalog=CATALOG, max_retries=0)
+
+    await graph.ainvoke(initial_state("写综述", task_id="t1"))
+
+    planner_system = provider.calls[0][0].content
+    assert 'skill_id="builtin-compare"' in planner_system
+    assert "对比分析" in planner_system
+    assert "比较多个方案时使用" in planner_system
+    assert all(entry["content"] not in planner_system for entry in CATALOG)
 
 
 async def test_planner_drops_unknown_and_excess_skill_steps() -> None:
@@ -288,3 +328,100 @@ async def test_skill_output_tells_model_not_to_invent_citations() -> None:
 
     user_prompt = provider.calls[0][1].content
     assert "不要使用 [编号] 形式标注引用" in user_prompt
+
+
+def _resource_catalog() -> list[dict]:
+    return [
+        {
+            "skill_id": "builtin-compare",
+            "name": "对比分析",
+            "description": "比较多个方案时使用",
+            "content": "请做结构化对比分析。",
+            "resources": [
+                {"name": "checklist", "content": "附件检查项：先比对来源，再比对指标。"},
+                {"name": "other", "content": "不应被自动加载的附件正文。"},
+            ],
+        }
+    ]
+
+
+async def test_resource_directory_exposes_names_not_content() -> None:
+    """L3：目录只给附件名，正文在请求前不进入提示词。"""
+    provider = ScriptedProvider(default_text="对比结论")
+    node = make_skills_node(provider, _resource_catalog())
+    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+
+    await node(_state_with_plan(steps))
+
+    user_prompt = provider.calls[0][1].content
+    assert "checklist" in user_prompt
+    assert "附件检查项" not in user_prompt
+    assert "不应被自动加载" not in user_prompt
+    assert len(provider.calls) == 1
+
+
+async def test_requested_resource_is_loaded_once_in_followup() -> None:
+    """L3：模型请求附件后只追加一次调用，最终输出不含协议标记。"""
+    provider = ScriptedProvider(
+        [
+            "需要附件才能继续。[[NEED_RESOURCE: checklist]]",
+            "结合附件后的对比结论。",
+        ]
+    )
+    node = make_skills_node(provider, _resource_catalog())
+    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+
+    update = await node(_state_with_plan(steps))
+
+    assert len(provider.calls) == 2
+    followup_prompt = provider.calls[1][-1].content
+    assert "附件「checklist」" in followup_prompt
+    assert "附件检查项" in followup_prompt
+    assert "other" not in followup_prompt
+    assert update["skill_outputs"][0]["content"] == "结合附件后的对比结论。"
+    assert "NEED_RESOURCE" not in update["skill_outputs"][0]["content"]
+
+
+async def test_repeated_resource_request_does_not_loop() -> None:
+    """第二次仍请求附件时只剥离标记，不再追加第三次调用。"""
+    provider = ScriptedProvider(
+        [
+            "需要附件。[[NEED_RESOURCE: checklist]]",
+            "再次请求。[[NEED_RESOURCE: checklist]]",
+        ]
+    )
+    node = make_skills_node(provider, _resource_catalog())
+    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+
+    update = await node(_state_with_plan(steps))
+
+    assert len(provider.calls) == 2
+    assert update["skill_outputs"][0]["content"] == "再次请求。"
+
+
+async def test_multiple_resource_requests_load_only_first() -> None:
+    provider = ScriptedProvider(
+        [
+            "需要两个。[[NEED_RESOURCE: checklist]] [[NEED_RESOURCE: other]]",
+            "附件结论。",
+        ]
+    )
+    node = make_skills_node(provider, _resource_catalog())
+    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+
+    await node(_state_with_plan(steps))
+
+    followup_prompt = provider.calls[1][-1].content
+    assert "附件检查项" in followup_prompt
+    assert "不应被自动加载" not in followup_prompt
+
+
+async def test_unknown_resource_request_is_ignored() -> None:
+    provider = ScriptedProvider(default_text="需要资料。[[NEED_RESOURCE: ghost]]")
+    node = make_skills_node(provider, _resource_catalog())
+    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+
+    update = await node(_state_with_plan(steps))
+
+    assert len(provider.calls) == 1
+    assert update["skill_outputs"][0]["content"] == "需要资料。"

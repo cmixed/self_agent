@@ -223,6 +223,31 @@ class SkillListResponse(BaseModel):
     skills: list[SkillInfo]
 
 
+class SkillResourceInfo(BaseModel):
+    """技能按需附件（L3）：目录只暴露 name，正文按请求注入。"""
+
+    resource_id: str
+    skill_id: str
+    name: str
+    content: str
+    created_at: str
+    updated_at: str
+
+
+class SkillResourceListResponse(BaseModel):
+    resources: list[SkillResourceInfo]
+
+
+class SkillResourceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    content: str = Field(min_length=1, max_length=20000)
+
+
+class SkillResourceUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    content: str | None = Field(default=None, min_length=1, max_length=20000)
+
+
 class SkillCreate(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     description: str = Field(min_length=1, max_length=200)

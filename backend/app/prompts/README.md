@@ -24,6 +24,8 @@
 | `answer_repair.md` | brief 引用编号修复（最多一次） |
 | `memory_extract.md` | 长期记忆提取 |
 | `skill_generate.md` | 从文档生成技能草稿 |
+| `skill_resource_directory.md` | 技能附件目录（变量：`resources`） |
+| `skill_resource_followup.md` | 按需加载附件后的追加请求（变量：`name` / `content`） |
 | `eval_baseline.md` | 评估基线（普通 RAG QA） |
 | `skills/*.md` | 内置技能正文 |
 

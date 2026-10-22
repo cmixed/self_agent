@@ -21,6 +21,10 @@ from app.models.schemas import (
     SkillGenerateResponse,
     SkillInfo,
     SkillListResponse,
+    SkillResourceCreate,
+    SkillResourceInfo,
+    SkillResourceListResponse,
+    SkillResourceUpdate,
     SkillUpdate,
 )
 from app.services.skill_generation_service import (
@@ -29,7 +33,13 @@ from app.services.skill_generation_service import (
     SkillGenerationError,
     SkillGenerationService,
 )
-from app.services.skill_service import BuiltinSkillProtectedError, SkillNotFoundError, SkillService
+from app.services.skill_service import (
+    BuiltinSkillProtectedError,
+    SkillNotFoundError,
+    SkillResourceNameConflictError,
+    SkillResourceNotFoundError,
+    SkillService,
+)
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
 
@@ -45,6 +55,17 @@ def _info(record) -> SkillInfo:
         created_at=record.created_at,
         updated_at=record.updated_at,
         source_filename=record.source_filename,
+    )
+
+
+def _resource_info(record) -> SkillResourceInfo:
+    return SkillResourceInfo(
+        resource_id=record.resource_id,
+        skill_id=record.skill_id,
+        name=record.name,
+        content=record.content,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
     )
 
 
@@ -82,9 +103,7 @@ async def generate_skill(
 ) -> SkillGenerateResponse | JSONResponse:
     """根据知识库文档生成技能草稿（不落库）。"""
     try:
-        result = await service.generate(
-            document_ids=payload.document_ids, hint=payload.hint
-        )
+        result = await service.generate(document_ids=payload.document_ids, hint=payload.hint)
     except SkillDocumentNotFoundError as exc:
         return _error(404, exc.error_type, exc.message)
     except SkillDocumentEmptyError as exc:
@@ -107,6 +126,70 @@ async def generate_skill(
             else None
         ),
     )
+
+
+@router.get("/{skill_id}/resources", response_model=SkillResourceListResponse)
+async def list_skill_resources(
+    skill_id: str, service: SkillService = Depends(get_skill_service)
+) -> SkillResourceListResponse | JSONResponse:
+    try:
+        resources = await service.list_resources(skill_id)
+    except SkillNotFoundError as exc:
+        return _not_found(exc)
+    return SkillResourceListResponse(resources=[_resource_info(item) for item in resources])
+
+
+@router.post("/{skill_id}/resources", response_model=SkillResourceInfo)
+async def create_skill_resource(
+    skill_id: str,
+    payload: SkillResourceCreate,
+    service: SkillService = Depends(get_skill_service),
+) -> SkillResourceInfo | JSONResponse:
+    try:
+        record = await service.create_resource(skill_id, name=payload.name, content=payload.content)
+    except SkillNotFoundError as exc:
+        return _not_found(exc)
+    except SkillResourceNameConflictError as exc:
+        return _error(409, "skill_resource_name_conflict", str(exc))
+    return _resource_info(record)
+
+
+@router.put("/{skill_id}/resources/{resource_id}", response_model=SkillResourceInfo)
+async def update_skill_resource(
+    skill_id: str,
+    resource_id: str,
+    payload: SkillResourceUpdate,
+    service: SkillService = Depends(get_skill_service),
+) -> SkillResourceInfo | JSONResponse:
+    try:
+        record = await service.update_resource(
+            skill_id,
+            resource_id,
+            name=payload.name,
+            content=payload.content,
+        )
+    except SkillNotFoundError as exc:
+        return _not_found(exc)
+    except SkillResourceNotFoundError as exc:
+        return _error(404, "skill_resource_not_found", str(exc))
+    except SkillResourceNameConflictError as exc:
+        return _error(409, "skill_resource_name_conflict", str(exc))
+    return _resource_info(record)
+
+
+@router.delete("/{skill_id}/resources/{resource_id}", response_model=None)
+async def delete_skill_resource(
+    skill_id: str,
+    resource_id: str,
+    service: SkillService = Depends(get_skill_service),
+) -> dict[str, str] | JSONResponse:
+    try:
+        await service.delete_resource(skill_id, resource_id)
+    except SkillNotFoundError as exc:
+        return _not_found(exc)
+    except SkillResourceNotFoundError as exc:
+        return _error(404, "skill_resource_not_found", str(exc))
+    return {"status": "deleted"}
 
 
 @router.put("/{skill_id}", response_model=SkillInfo)

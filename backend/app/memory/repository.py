@@ -176,9 +176,7 @@ class TaskRepository:
         """「继续生成」：任务回到 running，并追加一条新的尝试记录。"""
         now = utc_now()
         with self._database.connect() as connection:
-            connection.execute(
-                "UPDATE tasks SET status = 'running' WHERE task_id = ?", (task_id,)
-            )
+            connection.execute("UPDATE tasks SET status = 'running' WHERE task_id = ?", (task_id,))
             self._insert_attempt(connection, task_id, now)
             connection.commit()
 
@@ -447,6 +445,18 @@ class SkillRecord:
     source_filename: str | None = None
 
 
+@dataclass(frozen=True)
+class SkillResourceRecord:
+    """技能的按需附件（L3）：正文只在模型请求时进入提示词。"""
+
+    resource_id: str
+    skill_id: str
+    name: str
+    content: str
+    created_at: str
+    updated_at: str
+
+
 class SkillRepository:
     """skills 表的读写（Agent 技能，业务层不写 SQL）。"""
 
@@ -486,6 +496,36 @@ class SkillRepository:
         """按固定 skill_id 写入内置技能；已存在（含被用户编辑过）的不覆盖。"""
         await asyncio.to_thread(self._seed_skills, seeds)
 
+    # --- 技能附件（L3）---
+
+    async def list_skill_resources(self, skill_id: str) -> list[SkillResourceRecord]:
+        return await asyncio.to_thread(self._list_skill_resources, skill_id)
+
+    async def list_resources_for_skills(
+        self, skill_ids: list[str]
+    ) -> dict[str, list[SkillResourceRecord]]:
+        return await asyncio.to_thread(self._list_resources_for_skills, skill_ids)
+
+    async def create_skill_resource(
+        self, skill_id: str, *, name: str, content: str
+    ) -> SkillResourceRecord:
+        return await asyncio.to_thread(self._create_skill_resource, skill_id, name, content)
+
+    async def update_skill_resource(
+        self,
+        skill_id: str,
+        resource_id: str,
+        *,
+        name: str | None = None,
+        content: str | None = None,
+    ) -> SkillResourceRecord | None:
+        return await asyncio.to_thread(
+            self._update_skill_resource, skill_id, resource_id, name, content
+        )
+
+    async def delete_skill_resource(self, skill_id: str, resource_id: str) -> bool:
+        return await asyncio.to_thread(self._delete_skill_resource, skill_id, resource_id)
+
     # --- 同步实现（在线程中执行）---
 
     _SELECT = """
@@ -519,9 +559,7 @@ class SkillRepository:
 
     def _get_skill(self, skill_id: str) -> SkillRecord | None:
         with self._database.connect() as connection:
-            row = connection.execute(
-                self._SELECT + " WHERE skill_id = ?", (skill_id,)
-            ).fetchone()
+            row = connection.execute(self._SELECT + " WHERE skill_id = ?", (skill_id,)).fetchone()
         return self._record(row) if row is not None else None
 
     def _create_skill(
@@ -582,16 +620,19 @@ class SkillRepository:
             connection.commit()
             if cursor.rowcount == 0:
                 return None
-            row = connection.execute(
-                self._SELECT + " WHERE skill_id = ?", (skill_id,)
-            ).fetchone()
+            row = connection.execute(self._SELECT + " WHERE skill_id = ?", (skill_id,)).fetchone()
         return self._record(row) if row is not None else None
 
     def _delete_skill(self, skill_id: str) -> bool:
         with self._database.connect() as connection:
-            cursor = connection.execute(
-                "DELETE FROM skills WHERE skill_id = ? AND builtin = 0", (skill_id,)
-            )
+            row = connection.execute(
+                "SELECT builtin FROM skills WHERE skill_id = ?", (skill_id,)
+            ).fetchone()
+            if row is None or bool(row["builtin"]):
+                return False
+            # 即使调用方关闭了 foreign_keys，也保证附件不残留
+            connection.execute("DELETE FROM skill_resources WHERE skill_id = ?", (skill_id,))
+            cursor = connection.execute("DELETE FROM skills WHERE skill_id = ?", (skill_id,))
             connection.commit()
         return cursor.rowcount > 0
 
@@ -616,6 +657,121 @@ class SkillRepository:
                     ),
                 )
             connection.commit()
+
+    # --- 技能附件（同步实现，在线程中执行）---
+
+    _RESOURCE_SELECT = """
+        SELECT resource_id, skill_id, name, content, created_at, updated_at
+          FROM skill_resources
+    """
+
+    @staticmethod
+    def _resource_record(row: Any) -> SkillResourceRecord:
+        return SkillResourceRecord(
+            resource_id=row["resource_id"],
+            skill_id=row["skill_id"],
+            name=row["name"],
+            content=row["content"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def _list_skill_resources(self, skill_id: str) -> list[SkillResourceRecord]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                self._RESOURCE_SELECT + " WHERE skill_id = ? ORDER BY created_at, name",
+                (skill_id,),
+            ).fetchall()
+        return [self._resource_record(row) for row in rows]
+
+    def _list_resources_for_skills(
+        self, skill_ids: list[str]
+    ) -> dict[str, list[SkillResourceRecord]]:
+        grouped: dict[str, list[SkillResourceRecord]] = {skill_id: [] for skill_id in skill_ids}
+        if not skill_ids:
+            return grouped
+        placeholders = ", ".join("?" for _ in skill_ids)
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                self._RESOURCE_SELECT
+                + f" WHERE skill_id IN ({placeholders}) ORDER BY created_at, name",
+                tuple(skill_ids),
+            ).fetchall()
+        for row in rows:
+            record = self._resource_record(row)
+            grouped.setdefault(record.skill_id, []).append(record)
+        return grouped
+
+    def _create_skill_resource(self, skill_id: str, name: str, content: str) -> SkillResourceRecord:
+        now = utc_now()
+        resource_id = str(uuid4())
+        with self._database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO skill_resources(resource_id, skill_id, name, content,
+                                            created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (resource_id, skill_id, name, content, now, now),
+            )
+            connection.commit()
+        return SkillResourceRecord(
+            resource_id=resource_id,
+            skill_id=skill_id,
+            name=name,
+            content=content,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def _update_skill_resource(
+        self,
+        skill_id: str,
+        resource_id: str,
+        name: str | None,
+        content: str | None,
+    ) -> SkillResourceRecord | None:
+        assignments: list[str] = []
+        params: list[Any] = []
+        for column, value in (("name", name), ("content", content)):
+            if value is not None:
+                assignments.append(f"{column} = ?")
+                params.append(value)
+        if not assignments:
+            return self._get_skill_resource(skill_id, resource_id)
+
+        now = utc_now()
+        with self._database.connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE skill_resources SET {', '.join(assignments)}, updated_at = ? "
+                "WHERE skill_id = ? AND resource_id = ?",
+                (*params, now, skill_id, resource_id),
+            )
+            connection.commit()
+            if cursor.rowcount == 0:
+                return None
+            row = connection.execute(
+                self._RESOURCE_SELECT + " WHERE skill_id = ? AND resource_id = ?",
+                (skill_id, resource_id),
+            ).fetchone()
+        return self._resource_record(row) if row is not None else None
+
+    def _get_skill_resource(self, skill_id: str, resource_id: str) -> SkillResourceRecord | None:
+        with self._database.connect() as connection:
+            row = connection.execute(
+                self._RESOURCE_SELECT + " WHERE skill_id = ? AND resource_id = ?",
+                (skill_id, resource_id),
+            ).fetchone()
+        return self._resource_record(row) if row is not None else None
+
+    def _delete_skill_resource(self, skill_id: str, resource_id: str) -> bool:
+        with self._database.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM skill_resources WHERE skill_id = ? AND resource_id = ?",
+                (skill_id, resource_id),
+            )
+            connection.commit()
+        return cursor.rowcount > 0
 
 
 @dataclass(frozen=True)
@@ -771,9 +927,7 @@ class ProviderRepository:
 
     def _list_providers(self) -> list[ProviderRecord]:
         with self._database.connect() as connection:
-            rows = connection.execute(
-                "SELECT * FROM llm_providers ORDER BY created_at"
-            ).fetchall()
+            rows = connection.execute("SELECT * FROM llm_providers ORDER BY created_at").fetchall()
         return [self._record(row) for row in rows]
 
     def _get_provider(self, provider_id: str) -> ProviderRecord | None:
@@ -809,9 +963,20 @@ class ProviderRepository:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    provider_id, label, base_url, model, api_key, api_key_env,
-                    int(requires_api_key), int(is_local), timeout_seconds, max_retries,
-                    flavor, int(disable_thinking), now, now,
+                    provider_id,
+                    label,
+                    base_url,
+                    model,
+                    api_key,
+                    api_key_env,
+                    int(requires_api_key),
+                    int(is_local),
+                    timeout_seconds,
+                    max_retries,
+                    flavor,
+                    int(disable_thinking),
+                    now,
+                    now,
                 ),
             )
             connection.commit()
@@ -821,9 +986,17 @@ class ProviderRepository:
 
     def _update_provider(self, provider_id: str, fields: dict[str, Any]) -> ProviderRecord | None:
         allowed = {
-            "label", "base_url", "model", "api_key", "api_key_env",
-            "requires_api_key", "is_local", "timeout_seconds", "max_retries",
-            "flavor", "disable_thinking",
+            "label",
+            "base_url",
+            "model",
+            "api_key",
+            "api_key_env",
+            "requires_api_key",
+            "is_local",
+            "timeout_seconds",
+            "max_retries",
+            "flavor",
+            "disable_thinking",
         }
         assignments = [f"{key} = ?" for key in fields if key in allowed]
         params = [fields[key] for key in fields if key in allowed]
@@ -887,9 +1060,7 @@ class CategoryRepository:
         """删除文档时清理其分类映射（类别本身保留）。"""
         await asyncio.to_thread(self._purge_document, document_id)
 
-    async def resolve_scope(
-        self, *, category_ids: list[str], document_ids: list[str]
-    ) -> list[str]:
+    async def resolve_scope(self, *, category_ids: list[str], document_ids: list[str]) -> list[str]:
         """把「类别 + 单文档」选择解析为去重后的 document_id 列表。"""
         return await asyncio.to_thread(self._resolve_scope, category_ids, document_ids)
 
@@ -1141,9 +1312,7 @@ class PresetRepository:
 
     def _get_preset(self, preset_id: str) -> PresetRecord | None:
         with self._database.connect() as connection:
-            row = connection.execute(
-                self._SELECT + " WHERE preset_id = ?", (preset_id,)
-            ).fetchone()
+            row = connection.execute(self._SELECT + " WHERE preset_id = ?", (preset_id,)).fetchone()
         return self._record(row) if row is not None else None
 
     def _create_preset(
@@ -1215,16 +1384,12 @@ class PresetRepository:
             connection.commit()
             if cursor.rowcount == 0:
                 return None
-            row = connection.execute(
-                self._SELECT + " WHERE preset_id = ?", (preset_id,)
-            ).fetchone()
+            row = connection.execute(self._SELECT + " WHERE preset_id = ?", (preset_id,)).fetchone()
         return self._record(row) if row is not None else None
 
     def _delete_preset(self, preset_id: str) -> bool:
         with self._database.connect() as connection:
-            cursor = connection.execute(
-                "DELETE FROM presets WHERE preset_id = ?", (preset_id,)
-            )
+            cursor = connection.execute("DELETE FROM presets WHERE preset_id = ?", (preset_id,))
             connection.commit()
         return cursor.rowcount > 0
 

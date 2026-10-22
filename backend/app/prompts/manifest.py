@@ -28,6 +28,8 @@ PROMPTS: tuple[PromptSpec, ...] = (
     PromptSpec("answer_repair.md", ("issue",)),
     PromptSpec("memory_extract.md"),
     PromptSpec("skill_generate.md"),
+    PromptSpec("skill_resource_directory.md", ("resources",)),
+    PromptSpec("skill_resource_followup.md", ("name", "content")),
     PromptSpec("eval_baseline.md"),
 )
 

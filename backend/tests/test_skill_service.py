@@ -9,6 +9,8 @@ from app.services.skill_service import (
     BUILTIN_SKILLS,
     BuiltinSkillProtectedError,
     SkillNotFoundError,
+    SkillResourceNameConflictError,
+    SkillResourceNotFoundError,
     SkillService,
 )
 
@@ -69,11 +71,38 @@ async def test_update_missing_skill_raises(service: SkillService) -> None:
         await service.update_skill("no-such-skill", name="x")
 
 
+async def test_skill_resources_crud_and_conflict(service: SkillService) -> None:
+    skill = await service.create_skill(name="技能", description="说明", content="指令")
+    created = await service.create_resource(skill.skill_id, name="checklist", content="检查项")
+    assert created.skill_id == skill.skill_id
+
+    resources = await service.list_resources(skill.skill_id)
+    assert [item.name for item in resources] == ["checklist"]
+
+    updated = await service.update_resource(skill.skill_id, created.resource_id, content="新检查项")
+    assert updated.content == "新检查项"
+
+    with pytest.raises(SkillResourceNameConflictError):
+        await service.create_resource(skill.skill_id, name="checklist", content="重复")
+
+    await service.delete_resource(skill.skill_id, created.resource_id)
+    with pytest.raises(SkillResourceNotFoundError):
+        await service.delete_resource(skill.skill_id, created.resource_id)
+
+
+async def test_delete_skill_removes_resources(service: SkillService) -> None:
+    skill = await service.create_skill(name="技能", description="说明", content="指令")
+    await service.create_resource(skill.skill_id, name="checklist", content="检查项")
+
+    await service.delete_skill(skill.skill_id)
+
+    with pytest.raises(SkillNotFoundError):
+        await service.list_resources(skill.skill_id)
+
+
 async def test_delete_user_skill_but_not_builtin(service: SkillService) -> None:
     await service.ensure_seeded()
-    created = await service.create_skill(
-        name="临时技能", description="待删除", content="content"
-    )
+    created = await service.create_skill(name="临时技能", description="待删除", content="content")
 
     await service.delete_skill(created.skill_id)
     assert await service.list_skills() is not None  # 列表仍可用
