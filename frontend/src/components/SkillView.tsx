@@ -43,6 +43,13 @@ export default function SkillView({ skill }: { skill: SkillInfo }) {
             <pre className="doc-view__text">{skill.content}</pre>
           </section>
 
+          {skill.source_filename ? (
+            <section className="skill-view__section">
+              <Text type="secondary">来源</Text>
+              <Text>{skill.source_filename}</Text>
+            </section>
+          ) : null}
+
           <Text type="secondary" className="skill-view__meta">
             更新于 {formatDateTime(skill.updated_at)}
           </Text>

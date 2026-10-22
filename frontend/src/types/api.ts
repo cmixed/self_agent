@@ -122,10 +122,29 @@ export interface SkillInfo {
   builtin: boolean
   created_at: string
   updated_at: string
+  /** 由文档生成时的来源文件名（手写/内置为 null） */
+  source_filename?: string | null
 }
 
 export interface SkillListResponse {
   skills: SkillInfo[]
+}
+
+export interface SkillDraft {
+  name: string
+  description: string
+  content: string
+  source_filename: string | null
+}
+
+export interface SkillGenerateResponse {
+  draft: SkillDraft
+  /** 文档超长时只用了前 N 字 */
+  truncated: boolean
+  /** 不影响保存、但值得提醒的问题 */
+  warnings: string[]
+  /** 与已有技能同名（建议改编辑已有而不是重复新建） */
+  duplicate_of: { skill_id: string; name: string } | null
 }
 
 export interface PresetInfo {

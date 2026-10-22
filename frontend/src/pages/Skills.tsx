@@ -1,5 +1,13 @@
-import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import {
+  DeleteOutlined,
+  EditOutlined,
+  FileTextOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  UploadOutlined,
+} from '@ant-design/icons'
+import {
+  Alert,
   App,
   Button,
   Card,
@@ -8,12 +16,14 @@ import {
   Modal,
   Popconfirm,
   Segmented,
+  Select,
   Skeleton,
   Space,
   Switch,
   Tag,
   Tooltip,
   Typography,
+  Upload,
 } from 'antd'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -25,10 +35,13 @@ import {
   ApiError,
   createSkill,
   deleteSkill,
+  generateSkill,
+  listDocuments,
   listSkills,
   updateSkill,
+  uploadDocument,
 } from '../services/api'
-import type { SkillInfo } from '../types/api'
+import type { DocumentInfo, SkillGenerateResponse, SkillInfo } from '../types/api'
 import { formatDateTime } from '../utils/format'
 
 const { Text, Paragraph } = Typography
@@ -47,6 +60,9 @@ interface SkillFormValues {
   content: string
 }
 
+/** 生成草稿的可编辑字段（来源由后端返回，不在这里改）。 */
+type SkillDraftValues = SkillFormValues
+
 export default function SkillsPage() {
   const { message } = App.useApp()
   const { openSkill } = useViewStack()
@@ -58,6 +74,23 @@ export default function SkillsPage() {
   const [editing, setEditing] = useState<SkillInfo | null>(null)
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm<SkillFormValues>()
+
+  // --- 从文档生成技能 ---
+  const [genOpen, setGenOpen] = useState(false)
+  const [genDocs, setGenDocs] = useState<DocumentInfo[]>([])
+  const [genDocsLoading, setGenDocsLoading] = useState(false)
+  const [genDocId, setGenDocId] = useState<string | null>(null)
+  const [genHint, setGenHint] = useState('')
+  const [genUploading, setGenUploading] = useState(false)
+  const [genGenerating, setGenGenerating] = useState(false)
+  const [genSaving, setGenSaving] = useState(false)
+  const [genError, setGenError] = useState<string | null>(null)
+  const [genResult, setGenResult] = useState<SkillGenerateResponse | null>(null)
+  const [draft, setDraft] = useState<SkillDraftValues>({
+    name: '',
+    description: '',
+    content: '',
+  })
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -142,6 +175,95 @@ export default function SkillsPage() {
     }
   }
 
+  const openGenerate = () => {
+    setGenOpen(true)
+    setGenDocId(null)
+    setGenHint('')
+    setGenResult(null)
+    setGenError(null)
+    setDraft({ name: '', description: '', content: '' })
+    setGenDocsLoading(true)
+    listDocuments()
+      .then((data) => setGenDocs(data.documents))
+      .catch((err) => setGenError(err instanceof ApiError ? err.message : '加载文档失败'))
+      .finally(() => setGenDocsLoading(false))
+  }
+
+  const closeGenerate = () => {
+    if (genGenerating || genUploading || genSaving) return
+    setGenOpen(false)
+    setGenResult(null)
+    setGenError(null)
+  }
+
+  const handleUpload = async (file: File) => {
+    setGenUploading(true)
+    setGenError(null)
+    try {
+      const doc = await uploadDocument(file)
+      setGenDocs((prev) => [
+        doc,
+        ...prev.filter((item) => item.document_id !== doc.document_id),
+      ])
+      setGenDocId(doc.document_id)
+      message.success(`已加入知识库：${doc.filename}`)
+    } catch (err) {
+      setGenError(err instanceof ApiError ? err.message : '上传文档失败')
+    } finally {
+      setGenUploading(false)
+    }
+  }
+
+  const handleGenerate = async () => {
+    if (!genDocId) {
+      setGenError('请先选择或上传一份文档')
+      return
+    }
+    setGenGenerating(true)
+    setGenError(null)
+    try {
+      const result = await generateSkill({
+        document_ids: [genDocId],
+        hint: genHint.trim(),
+      })
+      setGenResult(result)
+      setDraft(result.draft)
+    } catch (err) {
+      setGenError(err instanceof ApiError ? err.message : '生成技能失败')
+    } finally {
+      setGenGenerating(false)
+    }
+  }
+
+  const handleSaveDraft = async () => {
+    const name = draft.name.trim()
+    const description = draft.description.trim()
+    const content = draft.content.trim()
+    if (!name || !description || !content) {
+      setGenError('名称、适用场景与技能指令都不能为空')
+      return
+    }
+    setGenSaving(true)
+    setGenError(null)
+    try {
+      await createSkill({
+        name,
+        description,
+        content,
+        source_filename: genResult?.draft.source_filename ?? null,
+      })
+      message.success(`已保存技能「${name}」`)
+      setGenOpen(false)
+      setGenResult(null)
+      setDraft({ name: '', description: '', content: '' })
+      await refresh()
+    } catch (err) {
+      setGenError(err instanceof ApiError ? err.message : '保存技能失败')
+    } finally {
+      setGenSaving(false)
+    }
+  }
+
   const firstLoad = loading && skills.length === 0
   const enabledCount = skills.filter((skill) => skill.enabled).length
   const disabledCount = skills.length - enabledCount
@@ -165,6 +287,9 @@ export default function SkillsPage() {
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
             刷新
+          </Button>
+          <Button icon={<FileTextOutlined />} onClick={openGenerate}>
+            从文档生成
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             新建技能
@@ -236,10 +361,15 @@ export default function SkillsPage() {
                   </span>
                 </div>
 
-                {skill.builtin || !skill.enabled ? (
+                {skill.builtin || !skill.enabled || skill.source_filename ? (
                   <div className="entity-card__badges">
                     {skill.builtin ? <Tag>内置</Tag> : null}
                     {!skill.enabled ? <Tag color="default">已停用</Tag> : null}
+                    {skill.source_filename ? (
+                      <Tooltip title={`来源：${skill.source_filename}`}>
+                        <Tag color="blue">文档生成</Tag>
+                      </Tooltip>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -341,6 +471,162 @@ export default function SkillsPage() {
             />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="从文档生成技能"
+        open={genOpen}
+        onCancel={closeGenerate}
+        width={720}
+        maskClosable={false}
+        footer={
+          genResult ? (
+            <Space>
+              <Button onClick={closeGenerate} disabled={genSaving}>
+                取消
+              </Button>
+              <Button onClick={() => void handleGenerate()} loading={genGenerating}>
+                重新生成
+              </Button>
+              <Button type="primary" onClick={() => void handleSaveDraft()} loading={genSaving}>
+                保存为技能
+              </Button>
+            </Space>
+          ) : (
+            <Space>
+              <Button onClick={closeGenerate}>取消</Button>
+              <Button
+                type="primary"
+                loading={genGenerating}
+                disabled={!genDocId}
+                onClick={() => void handleGenerate()}
+              >
+                生成草稿
+              </Button>
+            </Space>
+          )
+        }
+        destroyOnHidden
+      >
+        {genError ? (
+          <Alert type="error" showIcon message={genError} style={{ marginBottom: 12 }} />
+        ) : null}
+
+        {genResult ? (
+          <div className="skill-generate">
+            {genResult.warnings.length > 0 ? (
+              <Alert
+                type="warning"
+                showIcon
+                message="生成结果有需要留意的地方"
+                description={
+                  <ul className="skill-generate__list">
+                    {genResult.warnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                }
+              />
+            ) : null}
+
+            {genResult.duplicate_of ? (
+              <Alert
+                type="info"
+                showIcon
+                message={`已存在同名技能「${genResult.duplicate_of.name}」`}
+                description="保存会新建一个同名技能；想复用的话建议改名，或直接编辑已有技能。"
+              />
+            ) : null}
+
+            <Text type="secondary">
+              来源：{genResult.draft.source_filename ?? '（无）'}
+            </Text>
+
+            <label className="skill-generate__field">
+              <Text type="secondary">名称</Text>
+              <Input
+                value={draft.name}
+                maxLength={60}
+                onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
+              />
+            </label>
+
+            <label className="skill-generate__field">
+              <Text type="secondary">适用场景</Text>
+              <Input
+                value={draft.description}
+                maxLength={200}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, description: event.target.value }))
+                }
+              />
+            </label>
+
+            <label className="skill-generate__field">
+              <Text type="secondary">技能指令</Text>
+              <Input.TextArea
+                value={draft.content}
+                autoSize={{ minRows: 8, maxRows: 18 }}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, content: event.target.value }))
+                }
+              />
+            </label>
+          </div>
+        ) : (
+          <div className="skill-generate">
+            <label className="skill-generate__field">
+              <Text type="secondary">选择知识库中的文档</Text>
+              <Select
+                showSearch
+                allowClear
+                style={{ width: '100%' }}
+                placeholder="选择一份已索引的文档"
+                loading={genDocsLoading}
+                value={genDocId ?? undefined}
+                onChange={(value) => setGenDocId(value ?? null)}
+                optionFilterProp="label"
+                options={genDocs.map((doc) => ({
+                  value: doc.document_id,
+                  label: `${doc.filename}（${doc.chunks} 块）`,
+                }))}
+              />
+            </label>
+
+            <Space wrap>
+              <Upload
+                accept=".md,.markdown,.txt"
+                showUploadList={false}
+                beforeUpload={(file) => {
+                  void handleUpload(file)
+                  return false
+                }}
+              >
+                <Button icon={<UploadOutlined />} loading={genUploading}>
+                  上传 .md / .txt
+                </Button>
+              </Upload>
+              <Text type="secondary">上传的文档会加入知识库</Text>
+            </Space>
+
+            <label className="skill-generate__field">
+              <Text type="secondary">额外要求（可选）</Text>
+              <Input
+                value={genHint}
+                maxLength={200}
+                placeholder="例如：偏流程化、面向工程实现"
+                onChange={(event) => setGenHint(event.target.value)}
+              />
+            </label>
+
+            <Alert
+              type="info"
+              showIcon
+              message="生成只返回草稿，不会直接保存"
+              description="可以先生成、检查并修改，再点「保存为技能」。"
+            />
+          </div>
+        )}
       </Modal>
     </PageContainer>
   )

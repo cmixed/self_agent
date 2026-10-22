@@ -1743,6 +1743,24 @@ html[data-theme='dark'] body {
   font-size: var(--ws-font-caption);
 }
 
+/* --- 从文档生成技能（Modal 内）-------------------------------------------- */
+.skill-generate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-4);
+}
+
+.skill-generate__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-1);
+}
+
+.skill-generate__list {
+  margin: 0;
+  padding-left: 18px;
+}
+
 /* --- 响应式 --------------------------------------------------------------- */
 /* 桌面：左右 32px；中等屏：20px；窄屏：16px */
 @media (max-width: 1199px) {

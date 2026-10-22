@@ -15,6 +15,7 @@ import type {
   ProviderListResponse,
   ProviderProbeResponse,
   SettingsResponse,
+  SkillGenerateResponse,
   SkillInfo,
   TaskScope,
   SkillListResponse,
@@ -240,8 +241,20 @@ export function createSkill(payload: {
   name: string
   description: string
   content: string
+  source_filename?: string | null
 }): Promise<SkillInfo> {
   return request<SkillInfo>('/skills', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+/** 从知识库文档生成技能草稿（不落库，审核后再调用 createSkill 保存）。 */
+export function generateSkill(payload: {
+  document_ids: string[]
+  hint?: string
+}): Promise<SkillGenerateResponse> {
+  return request<SkillGenerateResponse>('/skills/generate', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
 }
 
 export function updateSkill(
