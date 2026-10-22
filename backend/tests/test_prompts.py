@@ -24,7 +24,13 @@ def test_builtin_skill_prompts_exist_and_have_no_placeholders() -> None:
 
 
 def test_render_preserves_json_braces() -> None:
-    outline = render_prompt("outline.md", min_sections=1, target_sections=5)
+    outline = render_prompt(
+        "outline.md",
+        min_sections=1,
+        recommended_sections=3,
+        target_sections=5,
+        target_total_chars=6000,
+    )
     planner = render_prompt("planner.md")
 
     assert "最多 5 章" in outline

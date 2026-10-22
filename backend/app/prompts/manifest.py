@@ -19,7 +19,10 @@ class PromptSpec:
 
 PROMPTS: tuple[PromptSpec, ...] = (
     PromptSpec("planner.md"),
-    PromptSpec("outline.md", ("min_sections", "target_sections")),
+    PromptSpec(
+        "outline.md",
+        ("min_sections", "recommended_sections", "target_sections", "target_total_chars"),
+    ),
     PromptSpec("writer.md"),
     PromptSpec("writer_continue.md", ("title", "tail")),
     PromptSpec("validator.md"),
@@ -28,6 +31,10 @@ PROMPTS: tuple[PromptSpec, ...] = (
     PromptSpec("answer_repair.md", ("issue",)),
     PromptSpec("memory_extract.md"),
     PromptSpec("skill_generate.md"),
+    PromptSpec("skill_execute.md", ("target_chars",)),
+    PromptSpec("skill_continue.md", ("tail", "target_chars")),
+    PromptSpec("skill_extract_chunk.md", ("chunk_index", "chunk_total")),
+    PromptSpec("skill_merge_chunks.md", ("hint",)),
     PromptSpec("skill_resource_directory.md", ("resources",)),
     PromptSpec("skill_resource_followup.md", ("name", "content")),
     PromptSpec("eval_baseline.md"),

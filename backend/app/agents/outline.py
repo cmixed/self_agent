@@ -15,6 +15,8 @@ from app.agents.preferences import render_preferences
 from app.core.limits import (
     DEFAULT_MAX_SECTIONS,
     DEFAULT_TARGET_SECTIONS,
+    DEFAULT_TOTAL_CHARS,
+    LONGFORM_CHAPTER_TARGET_CHARS,
     MIN_SECTIONS,
     SCHEMA_SECTION_GUARD,
 )
@@ -26,12 +28,26 @@ from app.prompts import render_prompt
 logger = get_logger(__name__)
 
 
-def _outline_system_prompt(target_sections: int) -> str:
-    """提示词中的章节上限与配置同源（避免提示词与上限各写各的）。"""
+def recommended_sections(target_total_chars: int, target_sections: int) -> int:
+    """按目标篇幅给出**建议**章节数（不是硬性下限）。
+
+    单章目标约 2000 字，避免目标 6000 字却只规划 1 章、把一次生成推到输出上限。
+    仍受用户配置的参考上限约束；内容确实不适合拆分时，模型可以少分章。
+    """
+    by_budget = (max(1, target_total_chars) + LONGFORM_CHAPTER_TARGET_CHARS - 1) // (
+        LONGFORM_CHAPTER_TARGET_CHARS
+    )
+    return max(MIN_SECTIONS, min(target_sections, max(MIN_SECTIONS, by_budget)))
+
+
+def _outline_system_prompt(target_sections: int, target_total_chars: int) -> str:
+    """提示词中的章节上限与篇幅预算同源（避免提示词与配置各写各的）。"""
     return render_prompt(
         "outline.md",
         min_sections=MIN_SECTIONS,
+        recommended_sections=recommended_sections(target_total_chars, target_sections),
         target_sections=target_sections,
+        target_total_chars=target_total_chars,
     )
 
 
@@ -63,6 +79,7 @@ def make_outline_node(
     max_retries: int = 2,
     target_sections: int = DEFAULT_TARGET_SECTIONS,
     max_sections: int = DEFAULT_MAX_SECTIONS,
+    target_total_chars: int = DEFAULT_TOTAL_CHARS,
 ) -> Callable[[AgentState], Awaitable[dict]]:
     """构造 outline 节点。
 
@@ -85,7 +102,10 @@ def make_outline_node(
             context_parts.append(f"已完成的技能分析结论：\n{skill_context}")
         context = "\n\n".join(context_parts)
         messages = [
-            ChatMessage(role="system", content=_outline_system_prompt(target)),
+            ChatMessage(
+                role="system",
+                content=_outline_system_prompt(target, target_total_chars),
+            ),
             ChatMessage(role="user", content=_render_outline_input(state, context)),
         ]
         outline_model = await llm.chat_structured(

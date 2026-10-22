@@ -14,6 +14,13 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import NotRequired, TypedDict
 
+from app.core.limits import (
+    DEFAULT_TOTAL_CHARS,
+    MAX_SKILL_CONTEXT_CHARS,
+    SKILL_HARD_MAX_CHARS,
+    SKILL_TARGET_MAX_CHARS,
+    SKILL_TARGET_MIN_CHARS,
+)
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, PlanStep, SkillOutput, StepResult
@@ -127,7 +134,36 @@ def _strip_resource_requests(content: str) -> str:
     return _RESOURCE_REQUEST_RE.sub("", content).strip()
 
 
-def render_skill_outputs(state: AgentState) -> str:
+def skill_output_target_chars(state: AgentState) -> int:
+    """技能结论的软目标：约为最终长文目标的 1/3，并有上下限。
+
+    技能产出是写作依据而不是最终文章；目标随任务篇幅增长，但不会无限放大。
+    """
+    profile = state.get("task_profile") or {}
+    try:
+        total = int(profile.get("target_chars") or DEFAULT_TOTAL_CHARS)
+    except (TypeError, ValueError):
+        total = DEFAULT_TOTAL_CHARS
+    return max(SKILL_TARGET_MIN_CHARS, min(SKILL_TARGET_MAX_CHARS, total // 3))
+
+
+def clip_skill_content(content: str) -> tuple[str, bool]:
+    """技能输出的最后安全网：超过硬上限时在句/段边界截断，并留下可见说明。
+
+    正常路径靠提示词软目标控制；这里只处理模型异常膨胀，避免污染后续上下文。
+    """
+    if len(content) <= SKILL_HARD_MAX_CHARS:
+        return content, False
+
+    window = content[:SKILL_HARD_MAX_CHARS]
+    cut = max(window.rfind("\n"), window.rfind("。"), window.rfind("；"))
+    if cut >= int(SKILL_HARD_MAX_CHARS * 0.8):
+        window = window[: cut + 1]
+    note = "\n\n（技能输出超过安全上限，已截断；请缩小任务范围以获得完整结论。）"
+    return window.rstrip() + note, True
+
+
+def render_skill_outputs(state: AgentState, *, max_chars: int = MAX_SKILL_CONTEXT_CHARS) -> str:
     """把已完成技能的结论渲染为上下文块（供 outline / writer 拼接）。"""
     outputs = state.get("skill_outputs") or []
     if not outputs:
@@ -136,7 +172,11 @@ def render_skill_outputs(state: AgentState) -> str:
         f"### 技能「{output.get('skill_name', '')}」结论\n{output.get('content', '')}"
         for output in outputs
     ]
-    return "\n\n".join(blocks)
+    rendered = "\n\n".join(blocks)
+    if max_chars > 0 and len(rendered) > max_chars:
+        rendered = rendered[:max_chars].rstrip()
+        rendered += "\n\n（技能结论较长，以上为节选；未展开部分不作为写作依据。）"
+    return rendered
 
 
 def skill_catalog_for_prompt(catalog: Sequence[SkillMeta]) -> str:
@@ -195,6 +235,8 @@ def make_skills_node(
         directory = _resource_directory(resources)
         if directory:
             context_parts.append(directory)
+        target_chars = skill_output_target_chars(state)
+        context_parts.append(render_prompt("skill_execute.md", target_chars=target_chars).strip())
         context_parts.append(
             "输出要求：**不要使用 [编号] 形式标注引用**——[编号] 由正文统一按"
             "「检索到的资料」顺序生成；如需指明依据，请直接写文件名或章节名。"
@@ -209,8 +251,11 @@ def make_skills_node(
         raw = response.content.strip()
         content = _strip_resource_requests(raw)
         resource_used = ""
+        truncated = response.finish_reason == "length"
+        extra_call_made = False
 
         # L3：最多加载一个附件、最多追加一次调用；后续再请求也不递归。
+        # 这次追加调用与「截断续写」共用同一个额外调用预算（二者最多一个）。
         requested = _requested_resource(raw)
         if requested and MAX_RESOURCE_LOADS > 0:
             resource = next(
@@ -243,13 +288,56 @@ def make_skills_node(
                     ],
                     temperature=0.3,
                 )
+                extra_call_made = True
                 if followup.content.strip():
                     content = _strip_resource_requests(followup.content.strip())
+                    truncated = followup.finish_reason == "length"
+                else:
+                    truncated = True
                 resource_used = resource["name"]
+
+        # 输出被长度上限截断：追加一次有限续写（最多一次，绝不无限续）。
+        if truncated and not extra_call_made and content:
+            continuation = await llm.chat(
+                [
+                    *messages,
+                    ChatMessage(role="assistant", content=content),
+                    ChatMessage(
+                        role="user",
+                        content=render_prompt(
+                            "skill_continue.md",
+                            tail=content[-500:],
+                            target_chars=target_chars,
+                        ),
+                    ),
+                ],
+                temperature=0.3,
+            )
+            if continuation.content.strip():
+                content = f"{content}\n{_strip_resource_requests(continuation.content.strip())}"
+                truncated = continuation.finish_reason == "length"
+            else:
+                truncated = True
+            logger.warning(
+                "技能输出被长度上限截断，已尝试一次续写",
+                extra={
+                    "task_id": state.get("task_id"),
+                    "node": "skills",
+                    "event": "skill_truncated",
+                    "status": "warning",
+                    "skill_id": skill_id,
+                    "still_truncated": truncated,
+                },
+            )
+
+        content, clipped = clip_skill_content(content)
+        truncated = truncated or clipped
 
         summary = content.splitlines()[0][:120] if content else "（无输出）"
         if resource_used:
             summary = f"已加载附件「{resource_used}」；{summary}"
+        if truncated:
+            summary += "（输出被截断，内容可能不完整）"
 
         logger.info(
             "技能执行完成",
@@ -257,8 +345,10 @@ def make_skills_node(
                 "task_id": state.get("task_id"),
                 "node": "skills",
                 "event": "skill_completed",
-                "status": "ok",
+                "status": "ok" if not truncated else "warning",
                 "skill_id": skill_id,
+                "target_chars": target_chars,
+                "truncated": truncated,
             },
         )
         output: SkillOutput = SkillOutput(
@@ -275,10 +365,11 @@ def make_skills_node(
             "step_results": [
                 StepResult(
                     step_id=str(step.get("id", "")),
-                    status="ok",
+                    status="ok" if not truncated else "error",
                     summary=(
                         f"技能「{definition['name']}」执行完成"
                         + (f"（按需附件：{resource_used}）" if resource_used else "")
+                        + ("（输出被截断）" if truncated else "")
                     ),
                 )
             ],

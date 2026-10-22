@@ -2,7 +2,10 @@
 
 流程（AGENTS.md §4.1 / §11）：
 
-    文档 id → 取原文件 → 解析文本（线程） → 截断 → 调模型 → 草稿 + 提示
+    文档 id → 取原文件 → 解析文本（线程）
+      → 短文档：一次生成
+      → 长文档：分块提炼 → 去重 → 合并为单个技能
+      → 草稿 + 提示
 
 设计约束：
 
@@ -10,8 +13,11 @@
   因此生成失败或质量差不会污染技能库；
 - 文档解析复用 ``rag.loader.load_document``（PDF/MD/TXT 同一入口），
   与文档入库链路保持一致；
-- 截断是显式的：返回 ``truncated`` 让前端如实告知用户；
-- 确定性检查（触发条件、同名）不调模型，结果放进 ``warnings`` / ``duplicate_of``。
+- 长文档不再截断到只看开头：按 ``max_chars`` 切块（最多
+  ``MAX_SKILL_GENERATION_CHUNKS`` 段），每段只提炼可执行做法，再合并去重；
+  超出块数/合并输入超限都写进 ``warnings`` 并置 ``truncated``；
+- 确定性检查（触发条件、同名、指令超长）不调模型，结果放进 ``warnings`` /
+  ``duplicate_of``。
 """
 
 from __future__ import annotations
@@ -20,7 +26,17 @@ import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from app.agents.skill_generator import generate_skill_draft
+from app.agents.skill_generator import (
+    ChunkExtractionModel,
+    extract_chunk_methods,
+    generate_skill_draft,
+    merge_skill_notes,
+)
+from app.core.limits import (
+    MAX_SKILL_EXTRACTION_CHARS,
+    MAX_SKILL_GENERATION_CHUNKS,
+    MAX_SKILL_INSTRUCTION_CHARS,
+)
 from app.core.logging import get_logger
 from app.llm.base import LLMProvider
 from app.memory.repository import SkillRecord
@@ -84,6 +100,80 @@ def _has_trigger(description: str) -> bool:
     return any(marker in description for marker in ("当", "时使用", "时，", "用于", "适用"))
 
 
+def _normalize_note(value: str) -> str:
+    return "".join(value.split()).lower()
+
+
+def _split_text(text: str, size: int) -> list[str]:
+    """按上限切分文本，优先在段落/句子边界断开。"""
+    chunks: list[str] = []
+    start = 0
+    total = len(text)
+    while start < total:
+        end = min(total, start + size)
+        if end < total:
+            # 只在最后 20% 找断点，避免段落边界把每块切成半块、
+            # 让长文档白白多消耗块数配额。
+            floor = start + int(size * 0.8)
+            cut = text.rfind("\n", floor, end)
+            if cut < 0:
+                cut = text.rfind("。", floor, end)
+            if cut >= 0:
+                end = cut + 1
+        chunks.append(text[start:end])
+        start = end
+    return chunks
+
+
+def _render_extraction_notes(
+    extraction: ChunkExtractionModel, chunk_index: int, seen: set[tuple[str, tuple[str, ...]]]
+) -> str:
+    """把结构化做法渲染成紧凑文本，并按「名称 + 步骤」去重。"""
+    lines: list[str] = []
+    for method in extraction.methods:
+        name = method.name.strip()
+        if not name:
+            continue
+        steps = [step.strip() for step in method.steps if step.strip()]
+        checks = [check.strip() for check in method.checks if check.strip()]
+        key = (_normalize_note(name), tuple(_normalize_note(step) for step in steps))
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(f"- 方法：{name}")
+        if method.when.strip():
+            lines.append(f"  适用：{method.when.strip()}")
+        if steps:
+            lines.append("  步骤：" + "；".join(steps))
+        if checks:
+            lines.append("  检查：" + "；".join(checks))
+    if not lines:
+        return ""
+    return f"【片段 {chunk_index}】\n" + "\n".join(lines)
+
+
+def _clip_notes(notes: str, max_chars: int) -> tuple[str, bool]:
+    """合并输入也有预算：超出时在行边界节选并显式提示。"""
+    if len(notes) <= max_chars:
+        return notes, False
+    window = notes[:max_chars]
+    cut = window.rfind("\n")
+    if cut >= int(max_chars * 0.7):
+        window = window[:cut]
+    return window.rstrip(), True
+
+
+def _clip_instruction(content: str, max_chars: int) -> str:
+    """技能指令落库前截断；优先保留完整的段落/句子。"""
+    if len(content) <= max_chars:
+        return content
+    window = content[:max_chars]
+    cut = max(window.rfind("\n"), window.rfind("。"), window.rfind("；"))
+    if cut >= int(max_chars * 0.7):
+        window = window[: cut + 1]
+    return window.rstrip()
+
+
 class SkillGenerationService:
     """把「文档」变成「可审核的技能草稿」。"""
 
@@ -100,9 +190,7 @@ class SkillGenerationService:
         self._skill_service = skill_service
         self._max_chars = max(1000, max_chars)
 
-    async def generate(
-        self, *, document_ids: Sequence[str], hint: str = ""
-    ) -> SkillDraftResult:
+    async def generate(self, *, document_ids: Sequence[str], hint: str = "") -> SkillDraftResult:
         unique_ids = list(dict.fromkeys(document_ids))
         if not unique_ids:
             raise SkillDocumentNotFoundError("请先选择至少一份文档")
@@ -119,21 +207,67 @@ class SkillGenerationService:
             sections.append(f"【文档：{filename}】\n{text}")
 
         combined = "\n\n".join(sections)
-        truncated = len(combined) > self._max_chars
-        if truncated:
-            combined = combined[: self._max_chars]
+        input_chars = len(combined)
+        warnings: list[str] = []
+        truncated = False
+        chunks_used = 1
+        mode = "single"
 
-        draft = await generate_skill_draft(self._llm, text=combined, hint=hint)
+        if input_chars <= self._max_chars:
+            draft = await generate_skill_draft(self._llm, text=combined, hint=hint)
+        else:
+            # 长文档：分块提炼 → 去重 → 合并为单个技能。
+            # 块数有上限，避免文档越长调用次数无限增长（§27）。
+            mode = "chunked"
+            all_chunks = _split_text(combined, self._max_chars)
+            selected = all_chunks[:MAX_SKILL_GENERATION_CHUNKS]
+            chunks_used = len(selected)
+            truncated = len(all_chunks) > MAX_SKILL_GENERATION_CHUNKS
+            if truncated:
+                warnings.append(
+                    f"文档过长，仅分析前 {MAX_SKILL_GENERATION_CHUNKS} 段"
+                    f"（每段约 {self._max_chars} 字）"
+                )
+
+            seen: set[tuple[str, tuple[str, ...]]] = set()
+            note_blocks: list[str] = []
+            for index, chunk in enumerate(selected, start=1):
+                extraction = await extract_chunk_methods(
+                    self._llm,
+                    text=chunk,
+                    chunk_index=index,
+                    chunk_total=chunks_used,
+                )
+                block = _render_extraction_notes(extraction, index, seen)
+                if block:
+                    note_blocks.append(block)
+
+            notes = "\n\n".join(note_blocks)
+            if not notes:
+                # 概念型资料可能提炼不出明确方法：回退到第一段生成，
+                # 并如实说明只用了第一段，而不是假装处理了全文。
+                draft = await generate_skill_draft(self._llm, text=selected[0], hint=hint)
+                truncated = True
+                warnings.append("未能从分块中提炼出可执行方法，已回退为仅使用第 1 段生成")
+            else:
+                notes, notes_clipped = _clip_notes(notes, MAX_SKILL_EXTRACTION_CHARS)
+                if notes_clipped:
+                    truncated = True
+                    warnings.append(f"分块提炼结果过长，仅合并前 {MAX_SKILL_EXTRACTION_CHARS} 字")
+                draft = await merge_skill_notes(self._llm, notes=notes, hint=hint)
+                if chunks_used > 1:
+                    warnings.append(f"文档较长，已分 {chunks_used} 段提炼后合并")
 
         name = draft.name.strip()[:MAX_NAME_LENGTH]
         description = draft.description.strip()[:MAX_DESCRIPTION_LENGTH]
         content = draft.content.strip()
         if not name or not description or not content:
             raise SkillGenerationError("模型返回的技能内容为空，请重试或换一份文档")
+        if len(content) > MAX_SKILL_INSTRUCTION_CHARS:
+            content = _clip_instruction(content, MAX_SKILL_INSTRUCTION_CHARS)
+            truncated = True
+            warnings.append(f"技能指令超过 {MAX_SKILL_INSTRUCTION_CHARS} 字，已自动截断")
 
-        warnings: list[str] = []
-        if truncated:
-            warnings.append(f"文档较长，仅使用前 {self._max_chars} 字生成")
         if len(draft.name.strip()) > MAX_NAME_LENGTH:
             warnings.append(f"技能名称超过 {MAX_NAME_LENGTH} 字，已自动截断")
         if len(draft.description.strip()) > MAX_DESCRIPTION_LENGTH:
@@ -155,7 +289,9 @@ class SkillGenerationService:
                 "event": "skill_draft_generated",
                 "status": "ok",
                 "documents": len(unique_ids),
-                "chars": len(combined),
+                "chars": input_chars,
+                "mode": mode,
+                "chunks": chunks_used,
                 "truncated": truncated,
             },
         )
@@ -191,9 +327,7 @@ class SkillGenerationService:
         return " + ".join(filenames)[:MAX_SOURCE_LENGTH]
 
     @staticmethod
-    def _find_duplicate(
-        existing: Sequence[SkillRecord], name: str
-    ) -> tuple[str, str] | None:
+    def _find_duplicate(existing: Sequence[SkillRecord], name: str) -> tuple[str, str] | None:
         target = _normalize_name(name)
         for skill in existing:
             if _normalize_name(skill.name) == target:

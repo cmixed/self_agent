@@ -101,6 +101,7 @@ def build_graph(
             max_retries=max_retries,
             target_sections=target_sections,
             max_sections=max_sections,
+            target_total_chars=target_total_chars,
         ),
     )
     graph.add_node(
@@ -122,7 +123,12 @@ def build_graph(
         ),
     )
     graph.add_node(
-        "summarizer", make_summarizer_node(max_retries=max_retries, max_sections=max_sections)
+        "summarizer",
+        make_summarizer_node(
+            max_retries=max_retries,
+            max_sections=max_sections,
+            target_total_chars=target_total_chars,
+        ),
     )
 
     if catalog:

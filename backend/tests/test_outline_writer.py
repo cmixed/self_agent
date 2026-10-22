@@ -229,6 +229,7 @@ async def test_outline_prompt_follows_target_sections() -> None:
     system_prompt = provider.calls[0][0].content
     assert "只给 1 章" in system_prompt
     assert "最多 5 章" in system_prompt
+    assert "建议约 3 章" in system_prompt  # 6000 字 / 每章约 2000 字
 
 
 async def test_outline_truncates_extra_sections_with_visible_note() -> None:
@@ -366,3 +367,57 @@ async def test_validator_input_includes_char_target() -> None:
     user_prompt = provider.calls[0][1].content
     assert "目标篇幅（本章）：约 2400-3900 字" in user_prompt
     assert "当前实际" in user_prompt
+
+
+async def test_validator_document_input_includes_total_target() -> None:
+    from app.agents.validator import make_validator_node
+
+    provider = ScriptedProvider()
+    node = make_validator_node(provider, max_retries=0, target_total_chars=6000)
+    state = _state_with_outline()
+    state["sections"] = [
+        {"title": "引言", "content": "内容一"},
+        {"title": "方法", "content": "内容二"},
+    ]
+    state["chapter_validations"] = {
+        "chapter_1": {
+            "passed": True,
+            "issues": [],
+            "suggested_action": "continue",
+            "target": "chapter_1",
+        },
+        "chapter_2": {
+            "passed": True,
+            "issues": [],
+            "suggested_action": "continue",
+            "target": "chapter_2",
+        },
+    }
+
+    await node(state)
+
+    user_prompt = provider.calls[0][1].content
+    assert "目标篇幅（整篇）：约 6000 字" in user_prompt
+    assert "参考区间 4200-9000 字" in user_prompt
+
+
+def test_audit_length_reports_both_directions() -> None:
+    from app.agents.summarizer import audit_length
+
+    assert audit_length("# 标题\n\n" + "甲" * 2000, 1000) is not None
+    assert "超出目标" in (audit_length("# 标题\n\n" + "甲" * 2000, 1000) or "")
+    assert "少于目标" in (audit_length("# 标题\n\n短", 1000) or "")
+    assert audit_length("# 标题\n\n" + "甲" * 1000, 1000) is None
+
+
+async def test_summarizer_exposes_length_audit_without_rewriting() -> None:
+    from app.agents.summarizer import make_summarizer_node
+
+    state = initial_state("写一篇综述", task_id="t-summary")
+    state["outline"] = [{"title": "引言", "content": ""}]
+    state["sections"] = [{"title": "引言", "content": "甲" * 3000}]
+
+    update = await make_summarizer_node(max_retries=0, target_total_chars=1000)(state)
+
+    assert update["final_answer"].count("甲") == 3000  # 不自动截断正文
+    assert "超出目标" in update["step_results"][0]["summary"]

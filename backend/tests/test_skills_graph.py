@@ -12,11 +12,13 @@ from fakes import OUTLINE_JSON, ScriptedProvider, validation_fail_json
 from app.agents.skills import (
     MAX_SKILL_STEPS,
     SkillCatalog,
+    clip_skill_content,
     make_route_after_skills,
     make_skills_node,
     pending_skill_step,
     render_skill_outputs,
     skill_catalog_for_prompt,
+    skill_output_target_chars,
 )
 from app.core.agent_graph import build_graph
 from app.models.state import AgentState, Plan, initial_state
@@ -106,6 +108,106 @@ def test_render_skill_outputs_renders_blocks() -> None:
     rendered = render_skill_outputs(state)
     assert "对比分析" in rendered
     assert "维度一" in rendered
+
+
+def test_skill_target_scales_but_is_bounded() -> None:
+    def target(chars: int) -> int:
+        state = initial_state("任务", task_id="t1")
+        state["task_profile"] = {"target_chars": chars}  # type: ignore[typeddict-item]
+        return skill_output_target_chars(state)
+
+    assert target(1500) == 800
+    assert target(6000) == 2000
+    assert target(40000) == 3000
+
+
+def test_skill_content_is_clipped_at_safety_ceiling() -> None:
+    content, clipped = clip_skill_content("甲" * 6000)
+
+    assert clipped is True
+    assert len(content) < 5100
+    assert "超过安全上限" in content
+
+
+def test_render_skill_outputs_caps_context() -> None:
+    state = initial_state("任务", task_id="t1")
+    state["skill_outputs"] = [  # type: ignore[typeddict-item]
+        {
+            "skill_id": "s",
+            "skill_name": "长技能",
+            "step_id": "s1",
+            "summary": "",
+            "content": "甲" * 8000,
+        }
+    ]
+
+    rendered = render_skill_outputs(state)
+
+    assert len(rendered) < 4200
+    assert "节选" in rendered
+
+
+async def test_skills_node_continues_once_when_truncated() -> None:
+    provider = ScriptedProvider(
+        ["前半段结论", "后半段结论"],
+        finish_reasons=["length", "stop"],
+    )
+    node = make_skills_node(provider, CATALOG)
+    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+
+    update = await node(_state_with_plan(steps))
+
+    assert len(provider.calls) == 2
+    assert update["skill_outputs"][0]["content"] == "前半段结论\n后半段结论"
+    assert update["step_results"][0]["status"] == "ok"
+    assert "不要重复已写内容" in provider.calls[1][-1].content
+
+
+async def test_skills_node_marks_persistent_truncation() -> None:
+    provider = ScriptedProvider(
+        ["前半段", "又截断"],
+        finish_reasons=["length", "length"],
+    )
+    node = make_skills_node(provider, CATALOG)
+    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+
+    update = await node(_state_with_plan(steps))
+
+    assert len(provider.calls) == 2
+    assert "截断" in update["step_results"][0]["summary"]
+    assert update["step_results"][0]["status"] == "error"
+
+
+async def test_skills_node_clips_runaway_output_visibly() -> None:
+    provider = ScriptedProvider(default_text="甲" * 6000)
+    node = make_skills_node(provider, CATALOG)
+    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+
+    update = await node(_state_with_plan(steps))
+
+    content = update["skill_outputs"][0]["content"]
+    assert len(content) < 5100
+    assert "超过安全上限" in content
+    assert update["step_results"][0]["status"] == "error"
+
+
+async def test_resource_followup_shares_the_single_extra_call_budget() -> None:
+    """首轮既截断又请求附件时，只允许一次追加调用（附件优先）。"""
+    provider = ScriptedProvider(
+        [
+            "需要附件。[[NEED_RESOURCE: checklist]]",
+            "结合附件后的结论。",
+        ],
+        finish_reasons=["length", "stop"],
+    )
+    node = make_skills_node(provider, _resource_catalog())
+    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+
+    update = await node(_state_with_plan(steps))
+
+    assert len(provider.calls) == 2
+    assert update["skill_outputs"][0]["content"] == "结合附件后的结论。"
+    assert "NEED_RESOURCE" not in update["skill_outputs"][0]["content"]
 
 
 async def test_skills_node_produces_output() -> None:

@@ -15,7 +15,7 @@
 | 文件 | 用途 |
 | --- | --- |
 | `planner.md` | 任务规划（结构化 JSON） |
-| `outline.md` | 长文大纲（变量：`min_sections` / `target_sections`） |
+| `outline.md` | 长文大纲（变量：`min_sections` / `recommended_sections` / `target_sections` / `target_total_chars`） |
 | `writer.md` | 单章正文写作 |
 | `writer_continue.md` | 章节被长度上限截断后的有限续写 |
 | `validator.md` | 章节/整篇内容校验 |
@@ -23,7 +23,11 @@
 | `answer_brief.md` | brief 轻量回答 |
 | `answer_repair.md` | brief 引用编号修复（最多一次） |
 | `memory_extract.md` | 长期记忆提取 |
-| `skill_generate.md` | 从文档生成技能草稿 |
+| `skill_generate.md` | 从短文档生成技能草稿 |
+| `skill_extract_chunk.md` | 长文档分块提炼做法（变量：`chunk_index` / `chunk_total`；资料在用户消息） |
+| `skill_merge_chunks.md` | 合并分块做法为单个技能（变量：`hint`；做法清单在用户消息） |
+| `skill_execute.md` | 技能执行的长输出约束（变量：`target_chars`） |
+| `skill_continue.md` | 技能输出被截断后的有限续写（变量：`tail` / `target_chars`） |
 | `skill_resource_directory.md` | 技能附件目录（变量：`resources`） |
 | `skill_resource_followup.md` | 按需加载附件后的追加请求（变量：`name` / `content`） |
 | `eval_baseline.md` | 评估基线（普通 RAG QA） |

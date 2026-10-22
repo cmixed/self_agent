@@ -36,6 +36,18 @@ DRAFT_PAYLOAD = {
     ),
 }
 DRAFT_JSON = json.dumps(DRAFT_PAYLOAD, ensure_ascii=False)
+EXTRACTION_PAYLOAD = {
+    "methods": [
+        {
+            "name": "先读目录",
+            "when": "当需要快速定位资料结构时使用",
+            "steps": ["先读目录", "再读正文"],
+            "checks": ["确认章节与任务相关"],
+        }
+    ]
+}
+EXTRACTION_JSON = json.dumps(EXTRACTION_PAYLOAD, ensure_ascii=False)
+EMPTY_EXTRACTION_JSON = json.dumps({"methods": []}, ensure_ascii=False)
 
 
 class _FakeDocumentService:
@@ -84,16 +96,60 @@ async def test_generate_returns_draft_and_source(tmp_path: Path) -> None:
     assert provider.json_modes == [True]
 
 
-async def test_generate_truncates_long_document(tmp_path: Path) -> None:
-    service, provider = _service(tmp_path, text="甲" * 5000, max_chars=1000)
+async def test_generate_chunks_long_document_without_truncating(tmp_path: Path) -> None:
+    """长文档分块提炼后合并：不再只看开头，也不把全文塞进一次调用。"""
+    service, provider = _service(
+        tmp_path,
+        text="甲" * 2500,
+        max_chars=1000,
+        responses=[EXTRACTION_JSON, EXTRACTION_JSON, EXTRACTION_JSON, DRAFT_JSON],
+    )
+
+    result = await service.generate(document_ids=["doc-1"])
+
+    assert result.name == DRAFT_PAYLOAD["name"]
+    assert result.truncated is False
+    assert any("已分 3 段提炼后合并" in warning for warning in result.warnings)
+    assert not any("仅使用前" in warning for warning in result.warnings)
+    assert provider.json_modes == [True, True, True, True]
+    # 每段只看到自己的文本，且带片段序号
+    assert "第 1 / 3 段" in provider.calls[0][0].content
+    assert len(provider.calls[0][0].content) < 2200
+    # 最终合并拿到的是提炼后的做法，而不是原文
+    assert "【片段 1】" in provider.calls[3][1].content
+    assert "先读目录" in provider.calls[3][1].content
+    assert "甲" * 100 not in provider.calls[3][1].content  # 不再重复塞原文
+
+
+async def test_generate_caps_chunk_count_and_reports_dropped_part(tmp_path: Path) -> None:
+    service, provider = _service(
+        tmp_path,
+        text="甲" * 7000,
+        max_chars=1000,
+        responses=[EXTRACTION_JSON] * 6 + [DRAFT_JSON],
+    )
 
     result = await service.generate(document_ids=["doc-1"])
 
     assert result.truncated is True
-    assert any("仅使用前 1000 字" in warning for warning in result.warnings)
-    # 送进模型的内容应被截断到上限附近（含提示词开销）
-    user_message = provider.calls[0][1].content
-    assert len(user_message) < 1400
+    assert any("仅分析前 6 段" in warning for warning in result.warnings)
+    assert len(provider.calls) == 7
+
+
+async def test_generate_falls_back_when_chunks_have_no_methods(tmp_path: Path) -> None:
+    service, provider = _service(
+        tmp_path,
+        text="甲" * 2500,
+        max_chars=1000,
+        responses=[EMPTY_EXTRACTION_JSON] * 3 + [DRAFT_JSON],
+    )
+
+    result = await service.generate(document_ids=["doc-1"])
+
+    assert result.truncated is True
+    assert any("仅使用第 1 段生成" in warning for warning in result.warnings)
+    assert not any("提炼后合并" in warning for warning in result.warnings)
+    assert len(provider.calls) == 4
 
 
 async def test_generate_reports_missing_document(tmp_path: Path) -> None:
@@ -108,6 +164,17 @@ async def test_generate_reports_empty_document(tmp_path: Path) -> None:
 
     with pytest.raises(SkillDocumentEmptyError):
         await service.generate(document_ids=["doc-1"])
+
+
+async def test_generate_clips_overlong_instruction_visibly(tmp_path: Path) -> None:
+    payload = {**DRAFT_PAYLOAD, "content": "甲" * 700}
+    service, _ = _service(tmp_path, responses=[json.dumps(payload, ensure_ascii=False)])
+
+    result = await service.generate(document_ids=["doc-1"])
+
+    assert result.truncated is True
+    assert len(result.content) <= 600
+    assert any("技能指令超过 600 字" in warning for warning in result.warnings)
 
 
 async def test_generate_retries_once_on_invalid_json(tmp_path: Path) -> None:

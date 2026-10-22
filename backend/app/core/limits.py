@@ -39,6 +39,28 @@ DEFAULT_MAX_SECTIONS = 12
 HARD_SECTION_CEILING = 20
 SCHEMA_SECTION_GUARD = 50
 
+# --- 技能执行输出（分析结论，不是最终长文）---
+# 技能结论是 Writer 的上下文，不是越多越好：软目标控制篇幅，硬上限只做安全兜底。
+SKILL_TARGET_MIN_CHARS = 800
+SKILL_TARGET_MAX_CHARS = 3000
+SKILL_HARD_MAX_CHARS = 5000
+# 拼进 outline / writer 的技能结论总预算；超出时显式节选，避免上下文膨胀。
+MAX_SKILL_CONTEXT_CHARS = 4000
+
+# --- 从长文档生成技能 ---
+# 每段最多送入模型的字符数（可被 SKILL_GENERATE_MAX_CHARS 调整）；
+# 长文档分块提炼，但块数有上限，避免一次生成无限次调用。
+MAX_SKILL_GENERATION_CHUNKS = 6
+MAX_SKILL_EXTRACTION_CHARS = 12000
+MAX_SKILL_INSTRUCTION_CHARS = 600
+
+# --- 长文篇幅与章节建议 ---
+# 单章目标上限的参考值：仅用于建议章节数，不是硬截断。
+LONGFORM_CHAPTER_TARGET_CHARS = 2000
+# 最终篇幅审计的容忍区间：超出不自动改写，只在步骤摘要/日志中如实提示。
+LONGFORM_LENGTH_LOW_FACTOR = 0.6
+LONGFORM_LENGTH_HIGH_FACTOR = 1.5
+
 # --- 重新规划（replan）---
 # replan 会重置计划、大纲与全部章节，代价远高于章级重写；每单最多 1 次。
 MAX_REPLANS = 1

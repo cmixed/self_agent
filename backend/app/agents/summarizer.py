@@ -9,12 +9,40 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from app.agents.chapters import MAX_SECTIONS, chapter_target, failed_chapters
+from app.core.limits import (
+    DEFAULT_TOTAL_CHARS,
+    LONGFORM_LENGTH_HIGH_FACTOR,
+    LONGFORM_LENGTH_LOW_FACTOR,
+)
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage
 from app.models.state import AgentState, StepResult
 from app.rag.tools import render_references
 
 logger = get_logger(__name__)
+
+
+def _body_chars(document: str) -> int:
+    """统计正文有效字符（不含空白与「参考来源」列表）。"""
+    body = document.split("\n\n## 参考来源", 1)[0]
+    return sum(1 for char in body if not char.isspace())
+
+
+def audit_length(document: str, target_total_chars: int) -> str | None:
+    """最终篇幅审计：只报告偏离，不自动改写正文。
+
+    自动截断会破坏章节结构，自动扩写则会注水；因此这里只把事实写进
+    步骤摘要与日志，让用户/前端能看到「实际多少字、目标多少字」。
+    """
+    actual = _body_chars(document)
+    low = int(target_total_chars * LONGFORM_LENGTH_LOW_FACTOR)
+    high = int(target_total_chars * LONGFORM_LENGTH_HIGH_FACTOR)
+    if actual > high:
+        ratio = actual / max(1, target_total_chars)
+        return f"正文约 {actual} 字，明显超出目标 {target_total_chars} 字（{ratio:.1f} 倍）"
+    if actual < low:
+        return f"正文约 {actual} 字，明显少于目标 {target_total_chars} 字"
+    return None
 
 
 def assemble_document(
@@ -68,7 +96,10 @@ def assemble_document(
 
 
 def make_summarizer_node(
-    *, max_retries: int = 2, max_sections: int = MAX_SECTIONS
+    *,
+    max_retries: int = 2,
+    max_sections: int = MAX_SECTIONS,
+    target_total_chars: int = DEFAULT_TOTAL_CHARS,
 ) -> Callable[[AgentState], Awaitable[dict]]:
     """构造 summarizer 节点。"""
 
@@ -78,6 +109,9 @@ def make_summarizer_node(
         summary = "已整合最终结果"
         if failed:
             summary += f"（{len(failed)} 个章节未通过校验）"
+        length_note = audit_length(draft, target_total_chars)
+        if length_note:
+            summary += f"；{length_note}"
 
         logger.info(
             "summarizer 完成",
@@ -86,6 +120,9 @@ def make_summarizer_node(
                 "node": "summarizer",
                 "event": "task_completed",
                 "status": "ok",
+                "target_chars": target_total_chars,
+                "actual_chars": _body_chars(draft),
+                "length_warning": length_note,
             },
         )
         return {

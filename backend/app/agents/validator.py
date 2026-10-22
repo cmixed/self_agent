@@ -97,6 +97,7 @@ def _render_input(
     target: str,
     content: str,
     char_target: tuple[int, int] | None = None,
+    document_target: int | None = None,
 ) -> str:
     plan = state.get("plan")
     lines = [f"用户任务：{state.get('user_query', '')}"]
@@ -122,6 +123,13 @@ def _render_input(
     if char_target is not None:
         low, high = char_target
         lines.append(f"目标篇幅（本章）：约 {low}-{high} 字；当前实际 {len(content)} 字")
+    if document_target is not None:
+        low = int(document_target * 0.7)
+        high = int(document_target * 1.5)
+        lines.append(
+            f"目标篇幅（整篇）：约 {document_target} 字，参考区间 {low}-{high} 字"
+            f"（含参考来源）；当前实际 {len(content)} 字"
+        )
     lines.append(f"待校验内容（{label}）：\n{content}")
     return "\n".join(lines)
 
@@ -379,7 +387,12 @@ def make_validator_node(
             ChatMessage(
                 role="user",
                 content=_render_input(
-                    state, scope=scope, target=target, content=content, char_target=char_target
+                    state,
+                    scope=scope,
+                    target=target,
+                    content=content,
+                    char_target=char_target,
+                    document_target=target_total_chars if scope == "document" else None,
                 ),
             ),
         ]

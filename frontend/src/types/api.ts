@@ -153,7 +153,7 @@ export interface SkillDraft {
 
 export interface SkillGenerateResponse {
   draft: SkillDraft
-  /** 文档超长时只用了前 N 字 */
+  /** 长文档超出分块上限、或生成结果被预算截断 */
   truncated: boolean
   /** 不影响保存、但值得提醒的问题 */
   warnings: string[]
