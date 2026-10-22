@@ -472,6 +472,16 @@ export default function SkillsPage() {
               <Button onClick={closeGenerate} disabled={genSaving}>
                 取消
               </Button>
+              <Button
+                type="link"
+                onClick={() => {
+                  setGenResult(null)
+                  setGenError(null)
+                }}
+                disabled={genSaving || genGenerating}
+              >
+                换一份文档
+              </Button>
               <Button onClick={() => void handleGenerate()} loading={genGenerating}>
                 重新生成
               </Button>
