@@ -63,10 +63,10 @@ async def test_resume_continues_without_redoing_finished_chapters(tmp_path) -> N
     task_id = "task-resume"
     config_input_query = "写综述"
 
-    # 第 1 次：写到第 2 章时中断（plan/outline/第1章/第1章校验 之后）
+    # 第 1 次：写到第 2 章时中断（plan/outline/第1章 之后；章级校验不发 LLM）
     database = SqliteDatabase(tmp_path / "app.db")
     database.initialize()
-    failing = FailingProvider([PLAN, OUTLINE_3], fail_after=4)
+    failing = FailingProvider([PLAN, OUTLINE_3], fail_after=3)
     service1 = TaskService(
         failing,
         checkpointer=saver,
@@ -130,9 +130,7 @@ async def test_resume_appends_attempt_and_keeps_previous_failure(tmp_path) -> No
 
     task_id = "task-attempts"
     failing = FailingProvider([PLAN, OUTLINE_3], fail_after=1)
-    service = TaskService(
-        failing, checkpointer=store.saver, repository=repository, max_retries=0
-    )
+    service = TaskService(failing, checkpointer=store.saver, repository=repository, max_retries=0)
     _ = [event async for event in service.stream("写综述", task_id=task_id)]
 
     attempts = await repository.list_attempts(task_id)
@@ -170,7 +168,7 @@ def _parse_sse(body: str) -> list[dict]:
     return events
 
 
-def _failing_service(fail_after: int = 4) -> TaskService:
+def _failing_service(fail_after: int = 3) -> TaskService:
     from app.api.deps import build_checkpoint_store, build_task_repository
 
     return TaskService(
@@ -192,7 +190,7 @@ def _working_service(provider: ScriptedProvider) -> TaskService:
     )
 
 
-def _start_failing_task(client, app, *, fail_after: int = 4) -> str:
+def _start_failing_task(client, app, *, fail_after: int = 3) -> str:
     """通过 HTTP 跑一次会中断的任务，返回 task_id（留下 failed 记录 + 断点）。"""
     from app.api.deps import get_task_service
 

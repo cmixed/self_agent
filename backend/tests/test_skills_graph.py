@@ -197,7 +197,7 @@ async def test_stream_emits_skill_events() -> None:
     )
     service = TaskService(provider, skill_catalog=CATALOG, max_retries=0)
 
-    events = [event async for event in service.stream("写综述")]
+    events = [event async for event in service.stream("写综述", use_skills=True)]
 
     names = [event["event"] for event in events]
     assert names[-1] == "task_completed"
@@ -254,7 +254,7 @@ async def test_validation_failure_does_not_rerun_skills() -> None:
         default_text="草稿",
     )
     service = TaskService(provider, skill_catalog=CATALOG, max_retries=1)
-    events = [event async for event in service.stream("写综述")]
+    events = [event async for event in service.stream("写综述", use_skills=True)]
 
     assert [event["event"] for event in events].count("skill_started") == 1
 

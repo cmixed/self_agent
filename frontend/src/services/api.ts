@@ -19,6 +19,7 @@ import type {
   SkillInfo,
   TaskScope,
   SkillListResponse,
+  TaskDepth,
   TaskDetail,
   TaskEvent,
   TaskListResponse,
@@ -120,6 +121,8 @@ export async function streamTask(
   onEvent: (event: TaskEvent) => void,
   signal?: AbortSignal,
   scope?: TaskScope | null,
+  depth: TaskDepth = 'auto',
+  useSkills = false,
 ): Promise<void> {
   const hasScope = Boolean(scope && (scope.category_ids.length || scope.document_ids.length))
   return streamSse(
@@ -127,8 +130,14 @@ export async function streamTask(
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // scope 缺省 = 全部知识库（后端不解析、不加过滤）
-      body: JSON.stringify(hasScope ? { query, scope } : { query }),
+      // scope 缺省 = 全部知识库（后端不解析、不加过滤）；
+      // depth=auto 由后端确定性路由决定，use_skills 默认关闭。
+      body: JSON.stringify({
+        query,
+        depth,
+        use_skills: useSkills,
+        ...(hasScope ? { scope } : {}),
+      }),
     },
     onEvent,
     signal,

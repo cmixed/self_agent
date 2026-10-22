@@ -23,6 +23,7 @@ import httpx
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMResponse, LLMUpstreamError
 from app.llm.openai_compat import OpenAICompatProvider
+from app.llm.thinking import thinking_override
 
 logger = get_logger(__name__)
 
@@ -93,8 +94,9 @@ class OllamaNativeProvider(OpenAICompatProvider):
             "stream": False,
             "options": options,
         }
-        # 仅在要求关闭思考时显式传；不传即沿用服务端默认（思考型模型默认开）
-        if self._think is False:
+        # 仅在要求关闭思考时显式传；不传即沿用服务端默认（思考型模型默认开）。
+        # 任务级覆盖（轻量路径）优先于 Provider 默认。
+        if self._think is False or thinking_override() is False:
             payload["think"] = False
         if json_mode and self._json_mode_supported is not False:
             payload[self._json_mode_field] = self._json_mode_value

@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.agents.preferences import render_preferences
 from app.agents.skills import MAX_SKILL_STEPS, CatalogEntry, skill_catalog_for_prompt
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
@@ -29,7 +30,7 @@ _PLANNER_SYSTEM_PROMPT = """你是一个任务规划器。请把用户的复杂�
 3. "type" 取值：retrieval（检索知识库）、skill（应用技能）、outline（生成大纲）、
    writing（撰写内容）、validation（检查内容）。
 4. "needs_retrieval" 表示是否需要检索用户的个人知识库资料。
-5. 步骤数量控制在 2-6 个，按执行顺序排列。
+5. 步骤数量按任务实际需要控制在 1-6 个，按执行顺序排列；简单任务不要为了凑数而拆分步骤。
 """
 
 
@@ -56,10 +57,9 @@ class PlanModel(BaseModel):
 
 def _render_planner_input(state: AgentState) -> str:
     parts = [f"用户任务：{state.get('user_query', '')}"]
-    preferences = state.get("user_preferences") or {}
-    if preferences:
-        rendered = "；".join(f"{key}={value}" for key, value in preferences.items())
-        parts.append(f"用户偏好：{rendered}")
+    rendered = render_preferences(state)
+    if rendered:
+        parts.append(rendered)
 
     scope = state.get("retrieval_scope") or {}
     scope_documents = scope.get("document_ids")
@@ -110,9 +110,13 @@ def make_planner_node(
     """
 
     async def planner_node(state: AgentState) -> dict:
+        # 技能是显式 opt-in：默认不把目录注入 planner，避免模型被引导去
+        # 添加「技能步骤」而多出一次 LLM 调用（简单任务尤其明显）。
+        allow_skills = bool((state.get("task_profile") or {}).get("allow_skills", True))
+        catalog = skill_catalog if allow_skills else []
         system_prompt = _PLANNER_SYSTEM_PROMPT
-        if skill_catalog:
-            system_prompt = f"{system_prompt}\n\n{skill_catalog_for_prompt(skill_catalog)}"
+        if catalog:
+            system_prompt = f"{system_prompt}\n\n{skill_catalog_for_prompt(catalog)}"
         messages = [
             ChatMessage(role="system", content=system_prompt),
             ChatMessage(role="user", content=_render_planner_input(state)),
@@ -128,7 +132,7 @@ def make_planner_node(
                 description=step.description,
                 skill_id=step.skill_id,
             )
-            for step in _validate_skill_steps(plan_model.steps, skill_catalog)
+            for step in _validate_skill_steps(plan_model.steps, catalog)
         ]
         plan: Plan = Plan(
             goal=plan_model.goal,

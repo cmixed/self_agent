@@ -26,24 +26,37 @@ def assemble_document(
     outline = state.get("outline") or []
     sections = state.get("sections") or []
     validations = state.get("chapter_validations") or {}
-    failed = set(
-        failed_chapters(state, max_retries=max_retries, max_sections=max_sections)
-    )
+    failed = set(failed_chapters(state, max_retries=max_retries, max_sections=max_sections))
 
     parts: list[str] = []
     if goal:
         parts.append(f"# {goal}")
 
-    for index, section in enumerate(outline):
-        title = section.get("title", "")
-        content = sections[index].get("content", "").strip() if index < len(sections) else ""
+    if len(outline) == 1:
+        # 单章表示「整篇不划分章节」：只用任务目标做标题，不再额外生成 ## 章节标题。
+        index = 0
+        content = sections[0].get("content", "").strip() if sections else ""
         if index in failed:
             issues = (validations.get(chapter_target(index)) or {}).get("issues") or []
             reason = "；".join(issues) if issues else "未通过校验"
             content = (
-                f"> ⚠️ 本章未通过校验（已达重试上限 {max_retries}）：{reason}\n\n{content}"
+                f"> ⚠️ 内容未通过校验（已达重试上限 {max_retries}）：{reason}\n\n{content}"
             ).strip()
-        parts.append(f"## {title}\n\n{content}")
+        if not goal:
+            title = outline[0].get("title", "")
+            parts.append(f"# {title}")
+        parts.append(content)
+    else:
+        for index, section in enumerate(outline):
+            title = section.get("title", "")
+            content = sections[index].get("content", "").strip() if index < len(sections) else ""
+            if index in failed:
+                issues = (validations.get(chapter_target(index)) or {}).get("issues") or []
+                reason = "；".join(issues) if issues else "未通过校验"
+                content = (
+                    f"> ⚠️ 本章未通过校验（已达重试上限 {max_retries}）：{reason}\n\n{content}"
+                ).strip()
+            parts.append(f"## {title}\n\n{content}")
 
     body = "\n\n".join(part for part in parts if part.strip()).strip()
     if not body:
@@ -60,12 +73,8 @@ def make_summarizer_node(
     """构造 summarizer 节点。"""
 
     async def summarizer_node(state: AgentState) -> dict:
-        draft = assemble_document(
-            state, max_retries=max_retries, max_sections=max_sections
-        )
-        failed = failed_chapters(
-            state, max_retries=max_retries, max_sections=max_sections
-        )
+        draft = assemble_document(state, max_retries=max_retries, max_sections=max_sections)
+        failed = failed_chapters(state, max_retries=max_retries, max_sections=max_sections)
         summary = "已整合最终结果"
         if failed:
             summary += f"（{len(failed)} 个章节未通过校验）"

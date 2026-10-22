@@ -30,6 +30,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from app.agents.answer import make_answer_node
 from app.agents.outline import make_outline_node
 from app.agents.planner import make_planner_node, make_route_after_planner
 from app.agents.researcher import make_researcher_node
@@ -88,6 +89,7 @@ def build_graph(
     catalog = list(skill_catalog or [])
     graph = StateGraph(AgentState)
 
+    graph.add_node("answer", make_answer_node(llm, rag_tool_provider=rag_tool_provider))
     graph.add_node(
         "planner", make_planner_node(llm, max_retries=max_retries, skill_catalog=catalog)
     )
@@ -139,7 +141,18 @@ def build_graph(
         graph.add_edge("researcher", next_stage)
         routes["researcher"] = "researcher"
 
-    graph.add_edge(START, "planner")
+    # 入口路由：轻量模式（direct/brief）直接进 answer，长文才进入多步流水线。
+    # 没有 task_profile 的旧调用（含部分单测）默认走 longform，保持向后兼容。
+    def route_entry(state: AgentState) -> str:
+        mode = str((state.get("task_profile") or {}).get("mode") or "longform")
+        return "answer" if mode in {"direct", "brief"} else "planner"
+
+    graph.add_conditional_edges(
+        START,
+        route_entry,
+        {"answer": "answer", "planner": "planner"},
+    )
+    graph.add_edge("answer", END)
     graph.add_conditional_edges(
         "planner",
         make_route_after_planner(

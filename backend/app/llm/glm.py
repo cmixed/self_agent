@@ -22,6 +22,10 @@ class GLMProvider(OpenAICompatProvider):
 
     name = "glm"
     display_name = "GLM"
+    # 轻量任务（直接回答 / 简洁回答）关闭思考，避免思考 token 挤占输出预算。
+    # 若该端点/模型不认这个字段，OpenAICompatProvider 会按 optional_fields
+    # 自动去掉后重试一次（见 openai_compat.chat）。
+    _thinking_disabled_payload: dict[str, object] = {"thinking": {"type": "disabled"}}
 
     def __init__(
         self,

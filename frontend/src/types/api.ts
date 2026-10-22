@@ -223,9 +223,28 @@ export interface TokenUsage {
   models: string[]
 }
 
+export type TaskDepth = 'auto' | 'brief' | 'longform'
+
+/** 后端确定性路由产生的执行画像。 */
+export interface TaskProfile {
+  mode: string
+  needs_retrieval: boolean
+  target_chars: number
+  max_sections: number
+  validation: string
+  apply_preferences: string
+  allow_skills: boolean
+  thinking?: boolean | null
+  estimated_calls?: number | null
+  reason: string
+}
+
 export interface TaskResult {
   task_id: string
   status: string
+  /** direct / brief / longform（旧记录可能没有） */
+  mode?: string | null
+  profile?: TaskProfile | null
   plan: Plan | null
   outline: string[]
   step_results: StepResult[]
@@ -270,6 +289,7 @@ export interface TaskSummary {
   task_id: string
   query: string
   status: string
+  mode?: string | null
   created_at: string
   finished_at?: string | null
   error_type?: string | null
@@ -324,6 +344,9 @@ export interface TaskEvent {
   step?: string | null
   status: string
   message: string
+  /** task_started / task_completed：本次执行模式与画像 */
+  mode?: string | null
+  profile?: TaskProfile | null
   plan?: Plan | null
   outline?: string[]
   retrieved_count?: number

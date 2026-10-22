@@ -242,7 +242,13 @@ async def test_evaluate_comparison_offline(tmp_path: Path) -> None:
     )
 
     def factory(llm, rag_tool_provider):
-        return TaskService(llm, rag_tool_provider=rag_tool_provider, max_retries=0)
+        # 对比实验要评估完整的 Agent 流水线，不能被 auto 路由降级为 brief
+        return TaskService(
+            llm,
+            rag_tool_provider=rag_tool_provider,
+            max_retries=0,
+            default_depth="longform",
+        )
 
     class PerCallProvider:
         """每次 chat 都返回合适的假响应（json 用 PLAN/OUTLINE，文本用正文）。"""

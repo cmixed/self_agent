@@ -26,9 +26,7 @@ class RagTool:
         top_k: int | None = None,
         document_ids: Sequence[str] | None = None,
     ) -> list[RetrievedDocument]:
-        return await self._retriever.retrieve(
-            query, top_k=top_k, document_ids=document_ids
-        )
+        return await self._retriever.retrieve(query, top_k=top_k, document_ids=document_ids)
 
 
 def dedupe_documents(documents: Sequence[RetrievedDocument]) -> list[RetrievedDocument]:
@@ -69,11 +67,13 @@ def format_context(
     return "\n\n".join(blocks)
 
 
-def render_references(documents: Sequence[RetrievedDocument]) -> str:
-    """渲染「参考来源」小节。
+def render_references(documents: Sequence[RetrievedDocument], *, heading: bool = True) -> str:
+    """渲染「参考来源」列表。
 
     编号规则与 :func:`format_context` 及任务结果中的 ``sources`` 保持一致
     （统一走 :func:`dedupe_documents`）。
+
+    ``heading=False`` 用于简洁回答：保留来源列表，但不额外生成一个 Markdown 标题。
     """
     lines: list[str] = []
     for index, document in enumerate(dedupe_documents(documents), start=1):
@@ -82,4 +82,5 @@ def render_references(documents: Sequence[RetrievedDocument]) -> str:
         lines.append(f"[{index}] {document.get('filename', '')}{location}")
     if not lines:
         return ""
-    return "## 参考来源\n" + "\n".join(lines)
+    prefix = "## 参考来源\n" if heading else "参考来源：\n"
+    return prefix + "\n".join(lines)

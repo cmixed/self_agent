@@ -27,6 +27,7 @@ from app.llm.base import (
     LLMTimeoutError,
     LLMUpstreamError,
 )
+from app.llm.thinking import thinking_override
 from app.llm.usage import parse_usage
 
 logger = get_logger(__name__)
@@ -102,6 +103,9 @@ class OpenAICompatProvider(LLMProvider):
     _chat_path: str = _CHAT_COMPLETIONS_PATH
     _json_mode_field: str = "response_format"
     _json_mode_value: object = {"type": "json_object"}
+    # 关闭思考模式时附加到请求体的字段；空字典表示该端点不支持/不需要。
+    # 子类（如 GLM）按自家协议覆写，例如 {"thinking": {"type": "disabled"}}。
+    _thinking_disabled_payload: dict[str, object] = {}
 
     def __init__(
         self,
@@ -154,6 +158,10 @@ class OpenAICompatProvider(LLMProvider):
         # 已知该端点不支持该 JSON 模式字段时不再携带（首次探测失败后置 False）
         if json_mode and self._json_mode_supported is not False:
             payload[self._json_mode_field] = self._json_mode_value
+        # 轻量任务关闭思考：仅当 Provider 声明了关闭字段时才附加；
+        # 端点不认识该字段时由 optional_fields 回退逻辑自动去掉。
+        if thinking_override() is False and self._thinking_disabled_payload:
+            payload.update(self._thinking_disabled_payload)
         return payload
 
     def _local_unavailable(self, exc: Exception) -> LLMLocalServiceUnavailableError:
@@ -178,13 +186,11 @@ class OpenAICompatProvider(LLMProvider):
         json_fallback_available = True
         # 某些模型/IP 不接受可选的"开关类"字段（如 Ollama 的 think）：
         # 去掉后重试一次，避免把整个任务卡在一个可选参数上
-        optional_fields = ("think",)
+        optional_fields = ("think", "thinking", "reasoning_effort")
         dropped_optional_fields: set[str] = set()
         while attempt <= self._max_retries:
             try:
-                response = await self._client.post(
-                    self._chat_path, json=payload, headers=headers
-                )
+                response = await self._client.post(self._chat_path, json=payload, headers=headers)
             except httpx.TimeoutException as exc:
                 if self.is_local and isinstance(exc, httpx.ConnectTimeout):
                     raise self._local_unavailable(exc) from exc

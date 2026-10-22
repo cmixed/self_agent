@@ -35,6 +35,7 @@ from app.llm.base import LLMError, LLMProvider
 from app.llm.usage import UsageCollector, UsageTrackingProvider, collect_usage
 from app.memory.repository import TaskRepository
 from app.models.state import AgentState, RetrievalScope, RetrievedDocument, initial_state
+from app.models.task_profile import resolve_profile
 from app.rag.tools import RagTool, dedupe_documents
 
 logger = get_logger(__name__)
@@ -43,8 +44,10 @@ logger = get_logger(__name__)
 class TaskNotResumableError(Exception):
     """任务没有可用的检查点，无法「继续生成」（应改用重新生成）。"""
 
+
 # 节点 -> (进行中提示, 完成提示)。仅这些节点会推送给前端（§19）。
 _NODE_EVENTS: dict[str, tuple[str, str]] = {
+    "answer": ("正在生成回答", "回答已生成"),
     "planner": ("正在分析任务并生成计划", "已完成任务规划"),
     "researcher": ("正在检索个人知识库", "知识库检索完成"),
     "outline": ("正在生成文章大纲", "大纲已生成"),
@@ -86,9 +89,14 @@ def task_result(
     """把最终状态整理为 API 结果结构（TaskResponse 的字段集合）。"""
     failed = failed_chapters(state, max_retries=max_retries, max_sections=max_sections)
     scope = state.get("retrieval_scope") or None
+    profile = state.get("task_profile") or {}
     return {
         "task_id": state.get("task_id", ""),
         "status": state.get("task_status", "failed"),
+        # 本次任务采用的执行模式（direct / brief / longform）与完整画像，
+        # 供前端展示「轻量回答」或「长文流水线」，也便于评估时分组统计。
+        "mode": profile.get("mode"),
+        "profile": profile or None,
         "plan": state.get("plan"),
         "outline": [section.get("title", "") for section in (state.get("outline") or [])],
         "step_results": state.get("step_results", []),
@@ -152,9 +160,12 @@ class TaskService:
         target_sections: int = DEFAULT_TARGET_SECTIONS,
         max_sections: int = DEFAULT_MAX_SECTIONS,
         target_total_chars: int = DEFAULT_TOTAL_CHARS,
+        default_depth: str = "auto",
     ) -> None:
         self._catalog: list[CatalogEntry] = list(skill_catalog or [])
         self._max_sections = max(1, max_sections)
+        self._target_total_chars = target_total_chars
+        self._default_depth = default_depth
         # 统一在 Provider 外层计量：Agent 节点只关心业务，不感知用量统计
         self._llm = UsageTrackingProvider(llm)
         self._last_usage: dict[str, Any] | None = None
@@ -183,9 +194,7 @@ class TaskService:
     def _config_for(self, run_id: str) -> RunnableConfig:
         """图执行配置：超步上界 + （启用 Checkpoint 时）线程 id。"""
         config: RunnableConfig = {
-            "recursion_limit": recursion_limit(
-                self._max_retries, max_sections=self._max_sections
-            )
+            "recursion_limit": recursion_limit(self._max_retries, max_sections=self._max_sections)
         }
         if self._checkpointer is not None:
             config["configurable"] = {"thread_id": run_id}
@@ -205,6 +214,16 @@ class TaskService:
         """最近一次运行的用量（同步入口用它补齐 API 响应中的 usage）。"""
         return self._last_usage
 
+    def _profile_for(self, query: str, *, depth: str | None, use_skills: bool | None):
+        """解析任务画像（0 次 LLM 调用）。"""
+        return resolve_profile(
+            query,
+            depth=(depth or self._default_depth),
+            use_skills=bool(use_skills),
+            target_total_chars=self._target_total_chars,
+            max_sections=self._max_sections,
+        )
+
     async def run(
         self,
         query: str,
@@ -213,6 +232,8 @@ class TaskService:
         task_id: str | None = None,
         user_id: str | None = None,
         retrieval_scope: RetrievalScope | None = None,
+        depth: str | None = None,
+        use_skills: bool | None = None,
     ) -> AgentState:
         """同步执行入口：登记运行中的任务，使 /cancel 能精确取消。"""
         run_id = task_id or str(uuid4())
@@ -224,6 +245,8 @@ class TaskService:
                 task_id=run_id,
                 user_id=user_id,
                 retrieval_scope=retrieval_scope,
+                depth=depth,
+                use_skills=use_skills,
             )
         except asyncio.CancelledError:
             await self._mark_cancelled(run_id)
@@ -239,18 +262,27 @@ class TaskService:
         task_id: str | None = None,
         user_id: str | None = None,
         retrieval_scope: RetrievalScope | None = None,
+        depth: str | None = None,
+        use_skills: bool | None = None,
     ) -> AgentState:
         run_id = task_id or str(uuid4())
+        profile = self._profile_for(query, depth=depth, use_skills=use_skills)
         state = initial_state(
             query,
             task_id=run_id,
             user_preferences=user_preferences,
             retrieval_scope=retrieval_scope,
+            task_profile=profile.to_dict(),
         )
 
         logger.info(
             "任务开始",
-            extra={"task_id": run_id, "event": "task_started", "status": "running"},
+            extra={
+                "task_id": run_id,
+                "event": "task_started",
+                "status": "running",
+                "mode": profile.mode,
+            },
         )
         await self._start_run(run_id, query, user_id)
         self._last_usage = None
@@ -333,6 +365,8 @@ class TaskService:
         task_id: str | None = None,
         user_id: str | None = None,
         retrieval_scope: RetrievalScope | None = None,
+        depth: str | None = None,
+        use_skills: bool | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """SSE 入口：登记运行中的任务；被取消时标记为 cancelled 再向上抛出。"""
         run_id = task_id or str(uuid4())
@@ -344,6 +378,8 @@ class TaskService:
                 task_id=run_id,
                 user_id=user_id,
                 retrieval_scope=retrieval_scope,
+                depth=depth,
+                use_skills=use_skills,
             ):
                 yield event
         except asyncio.CancelledError:
@@ -360,6 +396,8 @@ class TaskService:
         task_id: str | None = None,
         user_id: str | None = None,
         retrieval_scope: RetrievalScope | None = None,
+        depth: str | None = None,
+        use_skills: bool | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """按 §19 协议逐条产出进度事件。
 
@@ -367,15 +405,24 @@ class TaskService:
         能正常结束并给出可读信息。
         """
         run_id = task_id or str(uuid4())
+        profile = self._profile_for(query, depth=depth, use_skills=use_skills)
         state = initial_state(
             query,
             task_id=run_id,
             user_preferences=user_preferences,
             retrieval_scope=retrieval_scope,
+            task_profile=profile.to_dict(),
         )
 
         await self._start_run(run_id, query, user_id)
-        yield _event(run_id, "task_started", status="running", message="任务已创建")
+        yield _event(
+            run_id,
+            "task_started",
+            status="running",
+            message=f"任务已创建（{'长文' if profile.mode == 'longform' else '轻量回答'}模式）",
+            mode=profile.mode,
+            profile=profile.to_dict(),
+        )
 
         async for event in self._run_graph(run_id, state):
             yield event
@@ -421,14 +468,13 @@ class TaskService:
         written = len([s for s in snapshot.get("sections") or [] if s.get("content")])
         outline = [str(s.get("title", "")) for s in snapshot.get("outline") or []]
         documents = snapshot.get("retrieved_documents") or []
+        profile = snapshot.get("task_profile") or {}
         yield _event(
             task_id,
             "task_resumed",
             status="running",
             message=(
-                f"已从断点继续（已完成 {written}/{len(outline)} 章）"
-                if outline
-                else "已从断点继续"
+                f"已从断点继续（已完成 {written}/{len(outline)} 章）" if outline else "已从断点继续"
             ),
             resumed=True,
             plan=snapshot.get("plan"),
@@ -437,6 +483,8 @@ class TaskService:
             chapters_written=written,
             retrieved_count=len(documents),
             sources=_sources(documents),
+            mode=profile.get("mode"),
+            profile=profile or None,
         )
 
         # 输入为 None：LangGraph 从该 thread 的最后一个检查点继续

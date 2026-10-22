@@ -19,6 +19,7 @@ from app.agents.chapters import (
     ensure_aligned,
     next_pending_index,
 )
+from app.agents.preferences import render_preferences
 from app.agents.skills import render_skill_outputs
 from app.core.limits import DEFAULT_TOTAL_CHARS
 from app.core.logging import get_logger
@@ -93,10 +94,9 @@ def _render_section_input(
             f"{skill_context}"
         )
 
-    preferences = state.get("user_preferences") or {}
-    if preferences:
-        rendered = "；".join(f"{key}={value}" for key, value in preferences.items())
-        lines.append(f"用户偏好：{rendered}")
+    rendered = render_preferences(state)
+    if rendered:
+        lines.append(rendered)
     return "\n".join(lines)
 
 
@@ -229,9 +229,7 @@ def make_writer_node(
             "sections": sections,
             "current_step": f"chapter_{chapter}",
             "task_status": "writing",
-            "messages": [
-                ChatMessage(role="assistant", content=f"[writer] {summary}")
-            ],
+            "messages": [ChatMessage(role="assistant", content=f"[writer] {summary}")],
             "step_results": [
                 StepResult(
                     step_id=f"chapter_{chapter}",

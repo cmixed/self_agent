@@ -73,7 +73,8 @@ def test_section_budget_is_clamped() -> None:
 
     too_small = Settings(_env_file=None, target_sections=1, max_sections=2)
     assert too_small.effective_target_sections == MIN_SECTIONS
-    assert too_small.effective_max_sections == MIN_SECTIONS
+    # max_sections 是生成上限，不应被 target 反向压低
+    assert too_small.effective_max_sections == 2
 
     too_large = Settings(_env_file=None, target_sections=99, max_sections=99)
     assert too_large.effective_max_sections == HARD_SECTION_CEILING

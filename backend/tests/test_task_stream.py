@@ -10,7 +10,6 @@ from fakes import (
     PLAN_PAYLOAD,
     ScriptedProvider,
     seed_knowledge_base,
-    validation_fail_json,
 )
 from fastapi.testclient import TestClient
 
@@ -86,7 +85,14 @@ async def test_stream_emits_events_in_execution_order() -> None:
 
 async def test_stream_emits_retrying_event_on_failure() -> None:
     provider = ScriptedProvider(
-        [PLAN_JSON, OUTLINE_JSON, "初稿", validation_fail_json("retry_writer")]
+        [
+            PLAN_JSON,
+            OUTLINE_JSON,
+            "初稿",
+            "这是修正后的第一章正文。为了让本章达到有效长度，这里补充了任务背景、"
+            "已有资料中的关键结论、方法之间的差异、适用条件与来源说明，"
+            "并确保后续章节可以在这些内容的基础上继续展开，而不是停留在空泛的概述上。",
+        ]
     )
     service = TaskService(provider, max_retries=2)
 
@@ -109,9 +115,7 @@ async def test_stream_emits_retrying_event_on_failure() -> None:
 
 async def test_stream_marks_exhausted_chapter_and_continues() -> None:
     """每章独立预算：达上限后跳过该章，其余章节继续。"""
-    provider = ScriptedProvider(
-        [PLAN_JSON, OUTLINE_JSON, "失败的第一章", validation_fail_json("retry_writer")]
-    )
+    provider = ScriptedProvider([PLAN_JSON, OUTLINE_JSON, "失败的第一章"])
     service = TaskService(provider, max_retries=1)
 
     events = await collect(service, "写一篇 RAG 综述")
@@ -133,7 +137,7 @@ async def test_stream_converts_error_to_task_failed() -> None:
     provider = ScriptedProvider(["这不是 JSON"], default="这也不是 JSON")
     service = TaskService(provider, max_retries=1)
 
-    events = await collect(service, "写点东西")
+    events = await collect(service, "写一篇 RAG 综述")
 
     assert events[-1]["event"] == "task_failed"
     assert events[-1]["status"] == "error"

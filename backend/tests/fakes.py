@@ -25,7 +25,13 @@ OUTLINE_PAYLOAD: dict = {
     "sections": [{"title": "引言"}, {"title": "chunk 大小的影响"}],
 }
 OUTLINE_JSON = json.dumps(OUTLINE_PAYLOAD, ensure_ascii=False)
-DRAFT_TEXT = "# RAG 技术综述\n\n这是草稿正文。"
+DRAFT_TEXT = (
+    "# RAG 技术综述\n\n"
+    "检索增强生成（RAG）把外部知识库的检索结果注入生成模型，"
+    "让回答能够引用用户资料。它的核心环节包括文档切分、向量化、"
+    "相似度检索和上下文拼接。合理的 chunk 大小与重叠比例会直接影响"
+    "召回质量，而引用编号则用于把生成内容与原始来源对应起来。"
+)
 VALIDATION_PASS_PAYLOAD: dict = {
     "passed": True,
     "issues": [],

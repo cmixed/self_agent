@@ -21,9 +21,7 @@ PLAN_JSON = (
     '{"id": "write", "type": "writing", "description": "写正文"}]}'
 )
 OUTLINE_JSON = '{"sections": [{"title": "第一章"}, {"title": "第二章"}]}'
-VALIDATION_FAIL = (
-    '{"passed": false, "issues": ["引用越界"], "suggested_action": "retry_writer"}'
-)
+VALIDATION_FAIL = '{"passed": false, "issues": ["引用越界"], "suggested_action": "retry_writer"}'
 # 正文引用 [9] 而只有 1 个来源 → 确定性预检查判该章引用越界（无需 LLM）
 CHAPTER_BAD = "本章内容引用了不存在的来源。[9]"
 CHAPTER_OK = "本章内容引用了来源。[1]"

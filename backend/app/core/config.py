@@ -110,13 +110,20 @@ class Settings(BaseSettings):
     # --- Agent ---
     # 单个节点的最大重试次数（Validator 重试见 Phase 4，§16）
     max_retries: int = 2
-    # 长文分章节预算（§15）：target 为提示词里的目标篇幅，max 为实际生成上限。
+    # 长文分章节预算（§15）：target 是提示词里的**参考上限**（章节数由大纲按
+    # 任务需要动态决定，可以是 1 章 = 不拆分），max 为实际生成上限。
     # 两者都会被夹到 [MIN_SECTIONS, HARD_SECTION_CEILING]，且 target ≤ max。
     target_sections: int = DEFAULT_TARGET_SECTIONS
     max_sections: int = DEFAULT_MAX_SECTIONS
     # 目标总字数（软目标）：按章节数分摊后写进写作/校验提示词。
     # 注意这不是 max_tokens 硬上限——硬截断只会得到半截章节。
     target_total_chars: int = DEFAULT_TOTAL_CHARS
+    # 默认执行深度：auto（确定性路由）/ brief / longform
+    default_depth: str = "auto"
+    # 是否在长文任务后自动提取长期偏好（direct/brief 始终不提取）
+    memory_auto_extract: bool = True
+    # 启动时是否自动写入 3 个内置技能；默认关闭（用户显式启用/创建即可）
+    seed_builtin_skills: bool = False
 
     # --- 技能（§ 技能生成）---
     # 从文档生成技能时送入模型的最大字符数（超出部分截断并如实提示）

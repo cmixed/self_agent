@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 
 from pydantic import BaseModel, Field
 
+from app.agents.preferences import render_preferences
 from app.core.limits import (
     DEFAULT_MAX_SECTIONS,
     DEFAULT_TARGET_SECTIONS,
@@ -23,14 +24,19 @@ from app.models.state import AgentState, Section, StepResult
 
 logger = get_logger(__name__)
 
+
 def _outline_system_prompt(target_sections: int) -> str:
-    """提示词中的章节数与配置同源（避免提示词与上限各写各的）。"""
+    """提示词中的章节上限与配置同源（避免提示词与上限各写各的）。"""
     return f"""你是一个写作大纲设计者。请为用户的写作任务设计章节大纲。
 
 要求：
 1. 只输出 JSON，不要输出解释文字或 Markdown 代码块。
 2. JSON 结构必须为：{{"sections": [{{"title": "章节标题"}}]}}
-3. 章节数量控制在 {MIN_SECTIONS}-{target_sections} 个，按逻辑顺序排列，标题简洁明确。
+3. 章节数量由任务实际需要决定，**不要为了凑数而拆分**：
+   - 内容适合单篇、篇幅不长 → 只给 1 章（表示整篇不划分章节）；
+   - 中等篇幅 → 2-4 章；
+   - 复杂长文 → 最多 {target_sections} 章。
+   所有情况至少要有 1 章，标题要能概括该部分主题。
 4. 如果提供了参考资料，请让大纲覆盖资料中的关键要点。
 """
 
@@ -41,9 +47,7 @@ class OutlineSectionModel(BaseModel):
 
 class OutlineModel(BaseModel):
     # 结构防爆上限远高于生成上限：模型多给几章时截断并说明，而不是校验失败
-    sections: list[OutlineSectionModel] = Field(
-        min_length=1, max_length=SCHEMA_SECTION_GUARD
-    )
+    sections: list[OutlineSectionModel] = Field(min_length=1, max_length=SCHEMA_SECTION_GUARD)
 
 
 def _render_outline_input(state: AgentState, documents_context: str) -> str:
@@ -53,10 +57,9 @@ def _render_outline_input(state: AgentState, documents_context: str) -> str:
         lines.append(f"任务目标：{plan.get('goal', '')}")
     if documents_context:
         lines.append(f"参考资料：\n{documents_context}")
-    preferences = state.get("user_preferences") or {}
-    if preferences:
-        rendered = "；".join(f"{key}={value}" for key, value in preferences.items())
-        lines.append(f"用户偏好：{rendered}")
+    rendered = render_preferences(state)
+    if rendered:
+        lines.append(rendered)
     return "\n".join(lines)
 
 
@@ -69,8 +72,9 @@ def make_outline_node(
 ) -> Callable[[AgentState], Awaitable[dict]]:
     """构造 outline 节点。
 
-    ``target_sections`` 决定提示词里的目标篇幅，``max_sections`` 是实际生成上限：
-    模型给出更多章节时按上限截断，并把截断事实写入 step_result 与消息（可见，不静默）。
+    ``target_sections`` 是提示词里的**参考上限**（不是强制章节数），
+    ``max_sections`` 是实际生成上限：模型给出更多章节时按上限截断，
+    并把截断事实写入 step_result 与消息（可见，不静默）。
     """
     target = max(MIN_SECTIONS, min(target_sections, max_sections))
 
@@ -141,9 +145,7 @@ def make_outline_node(
                     content=f"[outline] {summary}：{'、'.join(titles)}",
                 )
             ],
-            "step_results": [
-                StepResult(step_id="outline", status="ok", summary=summary)
-            ],
+            "step_results": [StepResult(step_id="outline", status="ok", summary=summary)],
         }
 
     return outline_node

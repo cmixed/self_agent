@@ -9,9 +9,12 @@
 
 - ``HARD_SECTION_CEILING``：安全兜底，只防异常，不参与产品决策；
 - ``DEFAULT_MAX_SECTIONS``：单次任务的生成上限（可配置，夹在 [MIN, CEILING]）；
-- ``DEFAULT_TARGET_SECTIONS``：提示词里的目标篇幅（可配置，≤ 生成上限）；
+- ``DEFAULT_TARGET_SECTIONS``：提示词里的**参考上限**（可配置，≤ 生成上限）；
 - ``SCHEMA_SECTION_GUARD``：模型输出结构的防爆上限，远高于生成上限——
   超出生成上限时**截断并说明**，而不是让整单任务失败。
+
+章节数由任务实际需要决定：简单内容可以只有 1 章（整篇不拆分），
+因此 ``MIN_SECTIONS`` 只作为「至少有一章正文」的结构下限，不再强制 3 章。
 
 篇幅（字数）同样分两件事：
 
@@ -30,8 +33,12 @@ DEFAULT_TOTAL_CHARS = 6000
 MAX_TOTAL_CHARS = 40000
 
 # --- 章节数 ---
-MIN_SECTIONS = 3
+MIN_SECTIONS = 1
 DEFAULT_TARGET_SECTIONS = 6
 DEFAULT_MAX_SECTIONS = 12
 HARD_SECTION_CEILING = 20
 SCHEMA_SECTION_GUARD = 50
+
+# --- 重新规划（replan）---
+# replan 会重置计划、大纲与全部章节，代价远高于章级重写；每单最多 1 次。
+MAX_REPLANS = 1

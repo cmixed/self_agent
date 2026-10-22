@@ -66,8 +66,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     with contextlib.suppress(Exception):
         await asyncio.to_thread(build_chroma_store)
 
-    # 内置技能 seed（幂等：已存在的不覆盖，用户修改保留）
-    await build_skill_service().ensure_seeded()
+    # 内置技能 seed（幂等：已存在的不覆盖，用户修改保留）。
+    # 默认关闭：清空测试数据后重启不应「复活」内置技能；需要时显式开启。
+    if settings.seed_builtin_skills:
+        await build_skill_service().ensure_seeded()
     await build_preset_service().ensure_seeded()
     if settings.checkpoint_enabled:
         await build_checkpoint_store().start()

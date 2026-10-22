@@ -227,7 +227,8 @@ async def test_outline_prompt_follows_target_sections() -> None:
     await node(initial_state("写综述", task_id="t-prompt"))
 
     system_prompt = provider.calls[0][0].content
-    assert "章节数量控制在 3-5 个" in system_prompt
+    assert "只给 1 章" in system_prompt
+    assert "最多 5 章" in system_prompt
 
 
 async def test_outline_truncates_extra_sections_with_visible_note() -> None:

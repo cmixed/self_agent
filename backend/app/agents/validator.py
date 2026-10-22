@@ -36,13 +36,17 @@ from app.agents.citations import (
 )
 from app.agents.summarizer import assemble_document
 from app.agents.writer import chapter_char_target
-from app.core.limits import DEFAULT_TOTAL_CHARS
+from app.core.limits import DEFAULT_TOTAL_CHARS, MAX_REPLANS
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, Section, StepResult, ValidationResult
 from app.rag.tools import dedupe_documents, format_context
 
 logger = get_logger(__name__)
+
+# 章级确定性检查的「过短」阈值：低于该长度基本可判定为无效章节。
+# 这是机械检查，不调用 LLM；阈值刻意很低，避免正常的短章节被误判。
+_MIN_CHAPTER_CHARS = 80
 
 _VALIDATOR_SYSTEM_PROMPT = """你是内容校验员。请检查给定内容是否满足任务要求。
 
@@ -109,9 +113,7 @@ def resolve_scope(
     # 已达重试上限的章节按「⚠️ 记录后放行」处理：继续重校验它只会
     # 在 validator 之间空转直到触发递归上限（该章内容不会因为再看一遍而变化）
     chapter_exhausted = is_chapter_failed(state, current, max_retries=max_retries)
-    pending = next_pending_index(
-        state, max_retries=max_retries, max_sections=max_sections
-    )
+    pending = next_pending_index(state, max_retries=max_retries, max_sections=max_sections)
 
     if pending is not None or (not chapter_done and not chapter_exhausted):
         return "chapter", current
@@ -186,6 +188,16 @@ def _resolve_action_and_target(
     if model.suggested_action == "continue":
         # 模型自相矛盾（未通过却说 continue）时按重写处理，避免空转
         return "retry_writer", target
+    all_chapters_exhausted = total_sections > 0 and all(
+        is_chapter_failed(state, index, max_retries=max_retries) for index in range(total_sections)
+    )
+    if (
+        scope == "document"
+        and all_chapters_exhausted
+        and model.suggested_action in {"retry_writer", "replan"}
+    ):
+        # 所有章节都已耗尽重试：重写/replan 都无法改变已有正文，按 §16 报告后收尾。
+        return "continue", "document"
     if scope == "document" and model.suggested_action == "retry_writer":
         chapter = model.chapter
         if chapter is not None and 1 <= chapter <= total_sections:
@@ -239,6 +251,34 @@ def _citation_precheck(
     return None, []
 
 
+def _deterministic_chapter_check(state: AgentState, *, index: int, max_retries: int) -> dict:
+    """长文章节的确定性检查（不调用 LLM）。
+
+    长文采用「每章确定性检查 + 整篇一次 LLM 校验」：章级只检查可机械判定的
+    问题（正文是否为空/过短；引用越界已在 ``_citation_precheck`` 处理），
+    避免每章都多花一次模型调用；整篇再交给 LLM 判断内容质量。
+    """
+    sections = state.get("sections") or []
+    content = str(sections[index].get("content") or "").strip() if index < len(sections) else ""
+    issues: list[str] = []
+    if len(content) < _MIN_CHAPTER_CHARS:
+        issues.append(f"章节正文过短（{len(content)} 字），不足以构成有效内容")
+
+    target = chapter_target(index)
+    passed = not issues
+    return _build_update(
+        state,
+        result=ValidationResult(
+            passed=passed,
+            issues=issues,
+            suggested_action="continue" if passed else "retry_writer",  # type: ignore[typeddict-item]
+            target=target,
+        ),
+        max_retries=max_retries,
+        origin="deterministic",
+    )
+
+
 def _build_update(
     state: AgentState,
     *,
@@ -255,13 +295,27 @@ def _build_update(
     replan_count = state.get("retry_count", 0)
     if not passed:
         if action == "replan":
-            replan_count += 1
+            # 只有实际还会触发 replan 时才计数；预算耗尽时把动作降级，
+            # 否则路由仍会看到 replan 并反复回到 planner（空转）。
+            replan_limit = min(MAX_REPLANS, max_retries)
+            if replan_count < replan_limit:
+                replan_count += 1
+            else:
+                action = (
+                    "retry_writer"
+                    if target != "document" and retry_counts.get(target, 0) < max_retries
+                    else "continue"
+                )
+                result = ValidationResult(
+                    passed=result["passed"],
+                    issues=list(result["issues"]),
+                    suggested_action=action,  # type: ignore[typeddict-item]
+                    target=target,
+                )
         else:
             retry_counts[target] = retry_counts.get(target, 0) + 1
     chapter_validations = {**(state.get("chapter_validations") or {}), target: result}
-    exhausted = (
-        not passed and action != "replan" and retry_counts.get(target, 0) >= max_retries
-    )
+    exhausted = not passed and action != "replan" and retry_counts.get(target, 0) >= max_retries
 
     if passed:
         summary = f"校验通过（{target}）"
@@ -272,6 +326,8 @@ def _build_update(
             summary = f"{summary}；该章节已达重试上限，跳过并继续其他章节"
     if origin == "citation":
         summary = f"[引用编号检查] {summary}"
+    elif origin == "deterministic":
+        summary = f"[确定性检查] {summary}"
     elif origin == "located":
         summary = f"[整篇校验定位到 {target}] {summary}"
 
@@ -313,15 +369,13 @@ def make_validator_node(
     """构造 validator 节点。"""
 
     async def validator_node(state: AgentState) -> dict:
-        scope, index = resolve_scope(
-            state, max_retries=max_retries, max_sections=max_sections
-        )
+        scope, index = resolve_scope(state, max_retries=max_retries, max_sections=max_sections)
         sections = state.get("sections") or []
 
         # --- 确定性预检查：引用编号越界 → 章级重试，不调用 LLM、不触发 replan ---
         citation_target, citation_issues = _citation_precheck(
-        state, scope=scope, index=index, max_retries=max_retries
-    )
+            state, scope=scope, index=index, max_retries=max_retries
+        )
         if citation_target is not None:
             return _build_update(
                 state,
@@ -334,6 +388,11 @@ def make_validator_node(
                 max_retries=max_retries,
                 origin="citation",
             )
+
+        # 长文章级只做确定性检查（空/过短），整篇才调用一次 LLM 校验。
+        profile = state.get("task_profile") or {}
+        if scope == "chapter" and index is not None and profile.get("validation") == "document":
+            return _deterministic_chapter_check(state, index=index, max_retries=max_retries)
 
         if scope == "chapter" and index is not None:
             target = chapter_target(index)
@@ -396,9 +455,7 @@ def make_route_after_validation(*, max_retries: int, max_sections: int = MAX_SEC
         is_document = target == "document"
         retry_counts = state.get("retry_counts") or {}
         replan_count = state.get("retry_count", 0)
-        pending = next_pending_index(
-            state, max_retries=max_retries, max_sections=max_sections
-        )
+        pending = next_pending_index(state, max_retries=max_retries, max_sections=max_sections)
 
         if result.get("passed"):
             if is_document:
@@ -408,7 +465,16 @@ def make_route_after_validation(*, max_retries: int, max_sections: int = MAX_SEC
             # 章节全部完成，进入整篇校验
             return "validator"
 
-        if result.get("suggested_action") == "replan" and replan_count < max_retries:
+        # replan 会重置整篇，代价远高于章级重写：每单最多 MAX_REPLANS 次，
+        # 且不超过本次任务的章节重试预算（max_retries=0 时完全不 replan）。
+        # 校验节点已经给本次 replan 计数（或在预算耗尽时降级动作），因此这里
+        # 用 ``<=`` 判断「这一次是否已获准」；未获准的情况不会留下 replan 动作。
+        replan_limit = min(MAX_REPLANS, max_retries)
+        if (
+            result.get("suggested_action") == "replan"
+            and replan_limit > 0
+            and replan_count <= replan_limit
+        ):
             return "planner"
 
         if not is_document and retry_counts.get(target, 0) < max_retries:

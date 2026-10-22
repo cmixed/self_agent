@@ -107,6 +107,9 @@ class AgentState(TypedDict, total=False):
 
     # --- 元数据 ---
     task_id: str
+    # 本次任务的执行画像（模式 / 篇幅 / 校验策略 / 是否允许技能），
+    # 由 app.agents.router 在进入图之前确定，随 checkpoint 持久化。
+    task_profile: dict[str, object]
     # --- 会话 ---
     messages: Annotated[list[ChatMessage], add]
     user_query: str
@@ -147,10 +150,16 @@ def initial_state(
     task_id: str,
     user_preferences: dict[str, str] | None = None,
     retrieval_scope: RetrievalScope | None = None,
+    task_profile: dict[str, object] | None = None,
 ) -> AgentState:
-    """构造一次任务运行的初始状态。"""
+    """构造一次任务运行的初始状态。
+
+    ``task_profile`` 缺省时由调用方（TaskService）补齐；直接调用图的测试
+    可以不传，路由会按 ``longform`` 兼容旧行为。
+    """
     return AgentState(
         task_id=task_id,
+        task_profile=task_profile or {},
         messages=[ChatMessage(role="user", content=query)],
         user_query=query,
         user_preferences=user_preferences or {},

@@ -20,8 +20,10 @@ import {
   App,
   Button,
   Card,
+  Checkbox,
   Input,
   Result,
+  Segmented,
   Skeleton,
   Space,
   Tabs,
@@ -46,7 +48,14 @@ import { listCategories, listDocuments, listTasks } from '../services/api'
 import { usePresets } from '../hooks/usePresets'
 import { useNav } from '../state/nav'
 import { useTaskRun } from '../state/taskRun'
-import type { CategoryInfo, DocumentInfo, PresetInfo, TaskScope, TaskSummary } from '../types/api'
+import type {
+  CategoryInfo,
+  DocumentInfo,
+  PresetInfo,
+  TaskDepth,
+  TaskScope,
+  TaskSummary,
+} from '../types/api'
 import {
   cacheHitRate,
   formatDateTime,
@@ -65,6 +74,7 @@ const IDLE_DESC = 'Agent 会规划任务、检索你的知识库，再分章节�
 
 /** 执行阶段的图标（与真实拓扑的 6 个节点一一对应） */
 const STAGE_ICONS: Record<string, ReactNode> = {
+  answer: <ThunderboltOutlined />,
   planner: <BulbOutlined />,
   researcher: <DatabaseOutlined />,
   skills: <ApiOutlined />,
@@ -86,6 +96,12 @@ const PIPELINE_STEPS = [
 
 const TARGET_LABEL = (target: string) =>
   target === 'document' ? '整篇文档' : `章节 ${target.replace('chapter_', '')}`
+
+const MODE_LABEL: Record<string, string> = {
+  direct: '直接回答',
+  brief: '简洁回答',
+  longform: '长文',
+}
 
 /** 计划步骤类型 -> 中文标签（skill 为技能调用） */
 const STEP_TYPE_LABEL = (type: string) =>
@@ -133,6 +149,12 @@ export default function TaskPage() {
     replans,
     failedCount,
     passedCount,
+    mode,
+    profile,
+    depth,
+    setDepth,
+    useSkills,
+    setUseSkills,
     copied,
     run: startRun,
     abort,
@@ -249,67 +271,87 @@ export default function TaskPage() {
 
   const skillSteps = (plan?.steps ?? []).filter((step) => step.type === 'skill')
   const hasSkillStage = skillSteps.length > 0 || nodes.skills !== 'wait'
+  const isLight = mode === 'direct' || mode === 'brief'
 
-  const macroStages: MacroStage[] = [
-    {
-      key: 'planner',
-      title: '分析任务',
-      status: nodes.planner as MacroStage['status'],
-      badge: replans > 0 ? <Tag color="volcano">重新规划 {replans} 次</Tag> : undefined,
-      notes: plannerNotes,
-    },
-    {
-      key: 'researcher',
-      title: '检索知识库',
-      status: nodes.researcher as MacroStage['status'],
-      skipped: retrievalSkipped,
-      badge:
-        retrievedCount !== null ? (
-          <Tag color={retrievedCount > 0 ? 'blue' : 'orange'}>{retrievedCount} 条片段</Tag>
-        ) : undefined,
-    },
-    ...(hasSkillStage
-      ? [
-          {
-            key: 'skills',
-            title: '应用技能',
-            status: nodes.skills as MacroStage['status'],
-            badge:
-              skillSteps.length > 0 ? <Tag color="green">{skillSteps.length} 个</Tag> : undefined,
-            notes: skillNotes,
-          },
-        ]
-      : []),
-    {
-      key: 'outline',
-      title: '生成文章大纲',
-      status: nodes.outline as MacroStage['status'],
-      badge: outline.length > 0 ? <Tag>{outline.length} 章</Tag> : undefined,
-    },
-    {
-      key: 'writer',
-      title: '逐章撰写',
-      status: nodes.writer as MacroStage['status'],
-      note: outline.length > 0 ? `已写 ${writtenChapters}/${outline.length} 章` : undefined,
-      progress: outline.length > 0 ? { done: writtenChapters, total: outline.length } : undefined,
-      chapters: chapterList,
-    },
-    {
-      key: 'validator',
-      title: '校验与重试',
-      status: nodes.validator as MacroStage['status'],
-      badge: validatorBadge,
-      notes: validatorNotes,
-    },
-    {
-      key: 'summarizer',
-      title: '整合结果',
-      status: nodes.summarizer as MacroStage['status'],
-      badge: finalAnswer !== null ? <Tag color="green">已整合</Tag> : undefined,
-    },
-  ]
+  const macroStages: MacroStage[] = isLight
+    ? [
+        {
+          key: 'answer',
+          title:
+            mode === 'direct'
+              ? '生成直接回答'
+              : profile?.needs_retrieval
+                ? '检索并生成简洁回答'
+                : '生成简洁回答',
+          status: nodes.answer as MacroStage['status'],
+          note: profile?.reason,
+          badge: finalAnswer !== null ? <Tag color="green">已生成</Tag> : undefined,
+        },
+      ]
+    : [
+        {
+          key: 'planner',
+          title: '分析任务',
+          status: nodes.planner as MacroStage['status'],
+          badge: replans > 0 ? <Tag color="volcano">重新规划 {replans} 次</Tag> : undefined,
+          notes: plannerNotes,
+        },
+        {
+          key: 'researcher',
+          title: '检索知识库',
+          status: nodes.researcher as MacroStage['status'],
+          skipped: retrievalSkipped,
+          badge:
+            retrievedCount !== null ? (
+              <Tag color={retrievedCount > 0 ? 'blue' : 'orange'}>{retrievedCount} 条片段</Tag>
+            ) : undefined,
+        },
+        ...(hasSkillStage
+          ? [
+              {
+                key: 'skills',
+                title: '应用技能',
+                status: nodes.skills as MacroStage['status'],
+                badge:
+                  skillSteps.length > 0 ? (
+                    <Tag color="green">{skillSteps.length} 个</Tag>
+                  ) : undefined,
+                notes: skillNotes,
+              },
+            ]
+          : []),
+        {
+          key: 'outline',
+          title: '生成文章大纲',
+          status: nodes.outline as MacroStage['status'],
+          badge: outline.length > 0 ? <Tag>{outline.length} 章</Tag> : undefined,
+        },
+        {
+          key: 'writer',
+          title: '逐章撰写',
+          status: nodes.writer as MacroStage['status'],
+          note: outline.length > 0 ? `已写 ${writtenChapters}/${outline.length} 章` : undefined,
+          progress:
+            outline.length > 0 ? { done: writtenChapters, total: outline.length } : undefined,
+          chapters: chapterList,
+        },
+        {
+          key: 'validator',
+          title: '校验与重试',
+          status: nodes.validator as MacroStage['status'],
+          badge: validatorBadge,
+          notes: validatorNotes,
+        },
+        {
+          key: 'summarizer',
+          title: '整合结果',
+          status: nodes.summarizer as MacroStage['status'],
+          badge: finalAnswer !== null ? <Tag color="green">已整合</Tag> : undefined,
+        },
+      ]
 
   const metrics: string[] = []
+  if (mode) metrics.push(`模式：${MODE_LABEL[mode] ?? mode}`)
   if (scopeLabel) metrics.push(`范围：${scopeLabel}`)
   if (outline.length > 0) metrics.push(`${outline.length} 章`)
   if (retrievedCount !== null) metrics.push(`命中 ${retrievedCount} 条`)
@@ -331,6 +373,11 @@ export default function TaskPage() {
   const lastLog = log.length > 0 ? log[log.length - 1] : null
 
   const currentFacts: string[] = []
+  if (activeStage?.key === 'answer') {
+    if (profile?.reason) currentFacts.push(profile.reason)
+    if (profile?.needs_retrieval) currentFacts.push('会先检索个人知识库')
+    if (profile?.estimated_calls) currentFacts.push(`预计 ${profile.estimated_calls} 次模型调用`)
+  }
   if (activeStage?.key === 'planner' && plan?.goal) currentFacts.push(plan.goal)
   if (activeStage?.key === 'researcher' && retrievedCount !== null) {
     currentFacts.push(`命中 ${retrievedCount} 个文本块`)
@@ -518,6 +565,32 @@ export default function TaskPage() {
               }
             }}
           />
+
+          <div className="ws-compose__scope">
+            <Space size={8} wrap>
+              <Text type="secondary">执行深度：</Text>
+              <Segmented
+                size="small"
+                value={depth}
+                disabled={running}
+                onChange={(value) => setDepth(value as TaskDepth)}
+                options={[
+                  { label: '自动', value: 'auto' },
+                  { label: '简洁', value: 'brief' },
+                  { label: '长文', value: 'longform' },
+                ]}
+              />
+              <Tooltip title="默认关闭；勾选后 Planner 才会看到技能目录，并可能增加模型调用">
+                <Checkbox
+                  checked={useSkills}
+                  disabled={running || depth === 'brief'}
+                  onChange={(event) => setUseSkills(event.target.checked)}
+                >
+                  允许技能
+                </Checkbox>
+              </Tooltip>
+            </Space>
+          </div>
 
           <div className="ws-compose__scope">
             <Space size={8} wrap>
@@ -741,6 +814,7 @@ export default function TaskPage() {
     >
       <div className="ws-run__bar">
         <StatusTag status={statusKey} />
+        {mode ? <Tag color={isLight ? 'cyan' : 'geekblue'}>{MODE_LABEL[mode] ?? mode}</Tag> : null}
         <span className="ws-run__meta">{metrics.join(' · ')}</span>
         <div className="ws-run__actions">
           {running ? (

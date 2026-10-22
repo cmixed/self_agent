@@ -25,6 +25,7 @@ from app.api.deps import (
     get_user_id,
 )
 from app.core.checkpoint import CheckpointStore
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.task_registry import TaskRegistry
 from app.memory.repository import TaskRepository
@@ -61,9 +62,7 @@ async def _resolve_retrieval_scope(
     if not category_ids and not document_ids:
         return None
 
-    resolved = await categories.resolve_scope(
-        category_ids=category_ids, document_ids=document_ids
-    )
+    resolved = await categories.resolve_scope(category_ids=category_ids, document_ids=document_ids)
     labels: list[str] = []
     if category_ids:
         known = {item.category_id: item.name for item in await categories.list_categories()}
@@ -77,7 +76,29 @@ async def _resolve_retrieval_scope(
         "selected_document_ids": document_ids,
         "label": " + ".join(labels),
     }
+
+
 logger = get_logger(__name__)
+
+
+async def _maybe_extract_memories(
+    memory_service: MemoryService,
+    user_id: str,
+    *,
+    query: str,
+    result: dict[str, Any],
+    task_id: str,
+) -> None:
+    """只在长文任务后提取长期记忆（best-effort）。
+
+    轻量任务（direct/brief）往往是一次性指令，提取偏好既无价值、又会多一次
+    LLM 调用；长文任务才更可能暴露稳定的写作风格/格式偏好。
+    """
+    if not get_settings().memory_auto_extract:
+        return
+    if result.get("mode") != "longform":
+        return
+    await memory_service.extract_from_task(user_id, query=query, result=result, task_id=task_id)
 
 
 @router.post("/tasks", response_model=TaskResponse)
@@ -111,10 +132,12 @@ async def create_task(
         task_id=task_id,
         user_id=user_id,
         retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
+        depth=payload.depth,
+        use_skills=payload.use_skills,
     )
     result = task_result(state, max_retries=service.max_retries, usage=service.last_usage)
-    await memory_service.extract_from_task(
-        user_id, query=payload.query, result=result, task_id=task_id
+    await _maybe_extract_memories(
+        memory_service, user_id, query=payload.query, result=result, task_id=task_id
     )
     return TaskResponse.model_validate(result)
 
@@ -125,6 +148,7 @@ def _to_summary(record: Any) -> TaskSummaryOut:
         task_id=record.task_id,
         query=record.query,
         status=record.status,
+        mode=result.get("mode"),
         created_at=record.created_at,
         finished_at=record.finished_at,
         error_type=record.error_type,
@@ -286,15 +310,17 @@ async def stream_task(
             task_id=task_id,
             user_id=user_id,
             retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
+            depth=payload.depth,
+            use_skills=payload.use_skills,
         ):
             if event.get("event") == "task_completed" and event.get("result"):
                 completed.update(event["result"])
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
-        # 任务完成后提取长期记忆（best-effort，失败不影响已推送的结果）
+        # 任务完成后提取长期记忆（仅长文；best-effort，失败不影响已推送的结果）
         if completed:
-            await memory_service.extract_from_task(
-                user_id, query=payload.query, result=completed, task_id=task_id
+            await _maybe_extract_memories(
+                memory_service, user_id, query=payload.query, result=completed, task_id=task_id
             )
 
     return StreamingResponse(
@@ -302,6 +328,7 @@ async def stream_task(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
 
 @router.post("/tasks/{task_id}/resume")
 async def resume_task(
@@ -334,16 +361,14 @@ async def resume_task(
     completed: dict = {}
 
     async def event_source() -> AsyncIterator[str]:
-        async for event in service.resume(
-            task_id, user_preferences=stored, user_id=user_id
-        ):
+        async for event in service.resume(task_id, user_preferences=stored, user_id=user_id):
             if event.get("event") == "task_completed" and event.get("result"):
                 completed.update(event["result"])
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
         if completed:
-            await memory_service.extract_from_task(
-                user_id, query=record.query, result=completed, task_id=task_id
+            await _maybe_extract_memories(
+                memory_service, user_id, query=record.query, result=completed, task_id=task_id
             )
 
     return StreamingResponse(
@@ -391,12 +416,17 @@ async def rerun_task(
         )
 
     async def event_source() -> AsyncIterator[str]:
+        previous = record.result or {}
+        previous_mode = previous.get("mode")
+        rerun_depth = previous_mode if previous_mode in {"brief", "longform"} else "auto"
         async for event in service.stream(
             record.query,
             user_preferences=stored,
             task_id=new_task_id,
             user_id=user_id,
             retrieval_scope=rerun_scope,  # type: ignore[arg-type]
+            depth=rerun_depth,
+            use_skills=bool((previous.get("profile") or {}).get("allow_skills")),
         ):
             # 让前端知道这是一次重新生成（并指向原任务）
             if event.get("event") == "task_started":
@@ -406,8 +436,8 @@ async def rerun_task(
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
         if completed:
-            await memory_service.extract_from_task(
-                user_id, query=record.query, result=completed, task_id=new_task_id
+            await _maybe_extract_memories(
+                memory_service, user_id, query=record.query, result=completed, task_id=new_task_id
             )
 
     return StreamingResponse(

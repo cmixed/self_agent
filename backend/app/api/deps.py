@@ -209,6 +209,7 @@ async def get_task_service(provider: LLMProvider = Depends(get_llm_provider)) ->
         target_sections=settings.effective_target_sections,
         max_sections=settings.effective_max_sections,
         target_total_chars=settings.effective_total_chars,
+        default_depth=settings.default_depth,
     )
 
 

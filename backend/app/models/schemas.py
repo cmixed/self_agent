@@ -270,6 +270,9 @@ class SkillGenerateResponse(BaseModel):
     duplicate_of: SkillDuplicate | None = None
 
 
+TaskDepth = Literal["auto", "brief", "longform"]
+
+
 class TaskRequest(BaseModel):
     """提交一个 Agent 任务。"""
 
@@ -277,6 +280,10 @@ class TaskRequest(BaseModel):
     user_preferences: dict[str, str] = Field(default_factory=dict)
     # 检索范围（可选）：缺省或为空 = 整个知识库
     scope: TaskScope | None = None
+    # 执行深度：auto = 由确定性规则选择；brief = 简洁回答；longform = 长文流水线
+    depth: TaskDepth = "auto"
+    # 技能默认关闭（显式 opt-in），避免简单任务被技能步骤放大
+    use_skills: bool = False
 
 
 class PlanStepOut(BaseModel):
@@ -336,9 +343,27 @@ class UsageOut(BaseModel):
     models: list[str] = Field(default_factory=list)
 
 
+class TaskProfileOut(BaseModel):
+    """任务执行画像（由确定性路由产生，0 次 LLM 调用）。"""
+
+    mode: str
+    needs_retrieval: bool = False
+    target_chars: int = 0
+    max_sections: int = 1
+    validation: str = "none"
+    apply_preferences: str = "all"
+    allow_skills: bool = False
+    thinking: bool | None = None
+    estimated_calls: int | None = None
+    reason: str = ""
+
+
 class TaskResponse(BaseModel):
     task_id: str
     status: str
+    # direct / brief / longform；旧记录为 None
+    mode: str | None = None
+    profile: TaskProfileOut | None = None
     plan: PlanOut | None = None
     outline: list[str] = Field(default_factory=list)
     step_results: list[StepResultOut] = Field(default_factory=list)
@@ -370,6 +395,7 @@ class TaskSummaryOut(BaseModel):
     task_id: str
     query: str
     status: str
+    mode: str | None = None
     created_at: str
     finished_at: str | None = None
     error_type: str | None = None

@@ -12,7 +12,6 @@ from fakes import (
     PLAN_PAYLOAD,
     ScriptedProvider,
     seed_knowledge_base,
-    validation_fail_json,
 )
 from fastapi.testclient import TestClient
 
@@ -118,7 +117,14 @@ def test_create_task_with_retrieval_returns_sources(tmp_path: Path) -> None:
 
 def test_create_task_reports_validation_failure_and_retry(tmp_path: Path) -> None:
     provider = ScriptedProvider(
-        [PLAN_JSON, OUTLINE_JSON, "初稿", validation_fail_json("retry_writer")]
+        [
+            PLAN_JSON,
+            OUTLINE_JSON,
+            "初稿",
+            "这是修正后的第一章正文。为了让本章达到有效长度，这里补充了任务背景、"
+            "已有资料中的关键结论、方法之间的差异、适用条件与来源说明，"
+            "并确保后续章节可以在这些内容的基础上继续展开，而不是停留在空泛的概述上。",
+        ]
     )
     with make_client(provider, max_retries=2) as client:
         response = client.post("/api/tasks", json={"query": "写一篇 RAG 综述"})
@@ -133,9 +139,7 @@ def test_create_task_reports_validation_failure_and_retry(tmp_path: Path) -> Non
 
 def test_create_task_marks_failed_chapter_and_keeps_going(tmp_path: Path) -> None:
     """每章独立预算：第 1 章达上限被标记，第 2 章仍继续产出。"""
-    provider = ScriptedProvider(
-        [PLAN_JSON, OUTLINE_JSON, "失败的第一章", validation_fail_json("retry_writer")]
-    )
+    provider = ScriptedProvider([PLAN_JSON, OUTLINE_JSON, "失败的第一章"])
     with make_client(provider, max_retries=1) as client:
         response = client.post("/api/tasks", json={"query": "写一篇 RAG 综述"})
 
@@ -165,7 +169,7 @@ def test_create_task_maps_planner_format_error_to_502() -> None:
     # 始终返回非 JSON，planner 有限重试后抛出格式错误
     provider = ScriptedProvider(["这不是 JSON"], default="这也不是 JSON")
     with make_client(provider) as client:
-        response = client.post("/api/tasks", json={"query": "写点东西"})
+        response = client.post("/api/tasks", json={"query": "写一篇 RAG 综述"})
 
     assert response.status_code == 502
     assert response.json()["error_type"] == "llm_response_format_error"
@@ -214,7 +218,7 @@ def test_create_task_honours_user_header() -> None:
 def test_failed_task_is_persisted_as_failed() -> None:
     provider = ScriptedProvider(["这不是 JSON"], default="这也不是 JSON")
     with make_client(provider) as client:
-        created = client.post("/api/tasks", json={"query": "写点东西"})
+        created = client.post("/api/tasks", json={"query": "写一篇 RAG 综述"})
         assert created.status_code == 502
 
     # 失败也要落库，便于排查

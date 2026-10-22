@@ -266,13 +266,36 @@ def test_route_does_not_replan_beyond_budget() -> None:
 
 def test_route_chapter_replans_do_not_loop_forever() -> None:
     """章节级 replan 超预算后不再回 planner，而是继续处理章节。"""
-    route = make_route_after_validation(max_retries=1)
+    route = make_route_after_validation(max_retries=2)
     state = _route_state(
         passed=False,
         action="replan",
         target="chapter_1",
         written=[0],
-        replan_count=1,
+        replan_count=2,
     )
     # 超预算：不再 replan；该章仍有预算（retry_counts 空）-> 重写
     assert route(state) == "writer"
+
+
+async def test_validator_downgrades_replan_when_budget_exhausted() -> None:
+    """预算耗尽时校验节点必须降级 replan 动作，避免路由回 planner 空转。"""
+    validations = {
+        "chapter_1": {
+            "passed": True,
+            "issues": [],
+            "suggested_action": "continue",
+            "target": "chapter_1",
+        }
+    }
+    state = _state(outline=1, written=[0], validations=validations)
+    state["retry_count"] = 1
+    provider = ScriptedProvider([validation_fail_json("replan", ["计划不合理"])])
+    node = make_validator_node(provider, max_retries=1)
+
+    update = await node(state)
+
+    assert update["retry_count"] == 1
+    assert update["validation_result"]["suggested_action"] == "continue"
+    route = make_route_after_validation(max_retries=1)
+    assert route({**state, **update}) == "summarize"

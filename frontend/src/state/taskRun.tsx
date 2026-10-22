@@ -8,11 +8,21 @@ import type {
   StageStatus,
 } from '../components/AgentProgress'
 import { ApiError, cancelTask, streamRerun, streamResume, streamTask } from '../services/api'
-import type { Plan, Source, TaskEvent, TaskScope, TokenUsage, Validation } from '../types/api'
+import type {
+  Plan,
+  Source,
+  TaskDepth,
+  TaskEvent,
+  TaskProfile,
+  TaskScope,
+  TokenUsage,
+  Validation,
+} from '../types/api'
 import { downloadMarkdown } from '../utils/download'
 
 /** 图中可能出现的节点（skills 仅在存在启用技能时挂载） */
 const NODE_KEYS = [
+  'answer',
   'planner',
   'researcher',
   'skills',
@@ -24,6 +34,7 @@ const NODE_KEYS = [
 type NodeKey = (typeof NODE_KEYS)[number]
 
 const INITIAL_NODES: Record<NodeKey, StageStatus> = {
+  answer: 'wait',
   planner: 'wait',
   researcher: 'wait',
   skills: 'wait',
@@ -34,6 +45,7 @@ const INITIAL_NODES: Record<NodeKey, StageStatus> = {
 }
 
 const NODE_LABELS: Record<string, string> = {
+  answer: '回答',
   planner: '规划',
   researcher: '检索',
   skills: '技能',
@@ -108,6 +120,14 @@ export interface TaskRunValue {
   replans: number
   failedCount: number
   passedCount: number
+  /** 本次任务的执行模式（direct / brief / longform），来自 task_started */
+  mode: string | null
+  profile: TaskProfile | null
+  /** 用户选择的执行深度（仅影响新任务；续跑/重跑沿用原记录） */
+  depth: TaskDepth
+  setDepth: (depth: TaskDepth) => void
+  useSkills: boolean
+  setUseSkills: (value: boolean) => void
   activeTab: string
   setActiveTab: (key: string) => void
   copied: boolean
@@ -153,6 +173,10 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   const [sources, setSources] = useState<Source[]>([])
   const [finalAnswer, setFinalAnswer] = useState<string | null>(null)
   const [usage, setUsage] = useState<TokenUsage | null>(null)
+  const [mode, setMode] = useState<string | null>(null)
+  const [profile, setProfile] = useState<TaskProfile | null>(null)
+  const [depth, setDepth] = useState<TaskDepth>('auto')
+  const [useSkills, setUseSkills] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [elapsed, setElapsed] = useState(0)
@@ -211,7 +235,16 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     (event: TaskEvent) => {
       if (event.task_id) setTaskId(event.task_id)
 
+      if (event.event === 'task_started') {
+        if (event.mode) setMode(event.mode)
+        if (event.profile) setProfile(event.profile)
+        pushLog('开始', event.message, 'info')
+        return
+      }
+
       if (event.event === 'task_resumed') {
+        if (event.mode) setMode(event.mode)
+        if (event.profile) setProfile(event.profile)
         pushLog('继续', event.message, 'info')
         if (event.scope?.label) {
           setScopeLabel(event.scope.label)
@@ -258,6 +291,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
       if (event.event === 'task_completed') {
         pushLog('完成', '任务完成')
         setNodes({
+          answer: 'finish',
           planner: 'finish',
           researcher: 'finish',
           skills: 'finish',
@@ -266,6 +300,8 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
           validator: 'finish',
           summarizer: 'finish',
         })
+        if (event.result?.mode) setMode(event.result.mode)
+        if (event.result?.profile) setProfile(event.result.profile)
         setFinalAnswer(event.result?.final_answer ?? '')
         setUsage(event.result?.usage ?? null)
         setSources(event.result?.sources ?? [])
@@ -320,7 +356,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
       }
 
       const match =
-        /^(planner|researcher|skills|outline|writer|validator|summarizer)_(started|completed)$/.exec(
+        /^(answer|planner|researcher|skills|outline|writer|validator|summarizer)_(started|completed)$/.exec(
           event.event,
         )
       if (match) {
@@ -429,6 +465,8 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     setSources([])
     setFinalAnswer(null)
     setUsage(null)
+    setMode(null)
+    setProfile(null)
     setCopied(false)
     setError(null)
     setElapsed(0)
@@ -483,9 +521,11 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
       if (overrideQuery !== undefined && overrideQuery !== query) {
         setQuery(overrideQuery)
       }
-      await runStream((onEvent, signal) => streamTask(trimmed, onEvent, signal, scope))
+      await runStream((onEvent, signal) =>
+        streamTask(trimmed, onEvent, signal, scope, depth, useSkills),
+      )
     },
-    [query, running, runStream, setQuery],
+    [depth, query, running, runStream, setQuery, useSkills],
   )
 
   const resume = useCallback(
@@ -576,6 +616,12 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     replans,
     failedCount,
     passedCount,
+    mode,
+    profile,
+    depth,
+    setDepth,
+    useSkills,
+    setUseSkills,
     activeTab,
     setActiveTab,
     copied,
