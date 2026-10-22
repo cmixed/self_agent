@@ -40,6 +40,7 @@ from app.core.limits import DEFAULT_TOTAL_CHARS, MAX_REPLANS
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, Section, StepResult, ValidationResult
+from app.prompts import render_prompt
 from app.rag.tools import dedupe_documents, format_context
 
 logger = get_logger(__name__)
@@ -48,38 +49,7 @@ logger = get_logger(__name__)
 # 这是机械检查，不调用 LLM；阈值刻意很低，避免正常的短章节被误判。
 _MIN_CHAPTER_CHARS = 80
 
-_VALIDATOR_SYSTEM_PROMPT = """你是内容校验员。请检查给定内容是否满足任务要求。
-
-**仅在存在以下明显缺陷时**判为不通过（passed=false）：
-1. 事实性错误，或内容与「检索到的资料」相矛盾；
-2. 严重遗漏：未覆盖任务计划的关键要点；
-3. 引用问题：[编号] 与资料不对应，或存在资料无法支撑的断言；
-4. 明显的整段重复、明显跑题，或空洞到没有任何实质信息；
-5. 整篇校验时：章节结构残缺、顺序明显不合理；
-6. 内容被截断（在半句话或半个列表处突然结束）导致不完整。
-
-篇幅：如果输入给出了「目标篇幅」而实际明显偏离，请在 issues 中**提示**
-（例如「实际 300 字，明显少于目标 800-1300 字」），但**仅当内容因此空泛或
-残缺时才判不通过**；篇幅偏差本身不触发重写。
-
-以下情况**不应**判为不通过：措辞与文风偏好、句式重复、
-可以进一步展开等非实质性改进空间。
-
-只输出 JSON，不要输出解释文字：
-{"passed": true/false, "issues": ["问题1"],
- "suggested_action": "continue|retry_writer|replan", "chapter": null 或 章节号}
-
-suggested_action 取值含义：
-- continue：内容合格（通过时固定用 continue）；
-- retry_writer：局部实质问题，重写相关章节即可；
-- replan：计划本身方向或拆分有问题，需要重新规划。
-
-"chapter" 用法（**整篇校验时尤其重要**）：
-- 问题能定位到某一章 → 填写该章的序号（从 1 开始）并把 suggested_action 设为
-  retry_writer：系统只会重写这一章，代价远小于重新规划；
-- 只有计划/结构本身有问题（整体跑题、章节划分不合理、顺序错误）才用 replan；
-- 无法定位到具体章节时填 null。
-"""
+_VALIDATOR_SYSTEM_PROMPT = render_prompt("validator.md")
 
 
 class ValidationModel(BaseModel):

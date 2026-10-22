@@ -12,46 +12,32 @@ from __future__ import annotations
 
 from app.memory.repository import SkillRecord, SkillRepository
 from app.memory.sqlite import SqliteDatabase
+from app.prompts import load_prompt
+from app.prompts.manifest import BUILTIN_SKILL_PROMPTS
+
+
+def _builtin_content(skill_id: str) -> str:
+    return load_prompt(BUILTIN_SKILL_PROMPTS[skill_id]).strip()
+
 
 BUILTIN_SKILLS: list[dict[str, str]] = [
     {
         "skill_id": "builtin-compare",
         "name": "对比分析",
         "description": "当任务需要比较资料中的多个技术方案/方法时使用",
-        "content": (
-            "你是技术对比分析专家。请基于给定的资料，对任务中涉及的多个对象"
-            "（技术/方法/工具）进行结构化对比：\n"
-            "1. 先列出参与对比的对象与来源；\n"
-            "2. 选择 3-6 个关键维度（如原理、性能、成本、适用场景）；\n"
-            "3. 逐维度对比，每条结论注明依据来自哪份资料；\n"
-            "4. 最后给出结论：各对象的适用条件与选择建议。\n"
-            "资料中不存在的信息不得编造；资料不足时明确指出缺口。"
-        ),
+        "content": _builtin_content("builtin-compare"),
     },
     {
         "skill_id": "builtin-takeaways",
         "name": "要点提炼",
         "description": "当需要从大量资料中提炼核心要点时使用",
-        "content": (
-            "你是资料要点提炼专家。请基于给定的资料，围绕任务目标提炼要点：\n"
-            "1. 核心结论层：3-5 条最关键的结论，每条一句话；\n"
-            "2. 关键细节层：支撑每条结论的关键事实、数据或方法；\n"
-            "3. 逐条标注信息来自哪份资料；\n"
-            "4. 与任务目标无关的内容一律舍弃。\n"
-            "只做提炼与归纳，不新增资料之外的推断。"
-        ),
+        "content": _builtin_content("builtin-takeaways"),
     },
     {
         "skill_id": "builtin-glossary",
         "name": "术语梳理",
         "description": "当资料涉及大量专业术语、需要统一口径时使用",
-        "content": (
-            "你是术语整理专家。请基于给定的资料，梳理任务涉及的专业术语：\n"
-            "1. 以表格形式输出：术语 | 定义（基于资料） | 在本任务语境中的含义；\n"
-            "2. 同一概念在不同资料中的不同叫法要合并并说明；\n"
-            "3. 资料中未给出定义的术语标注「资料中未定义」；\n"
-            "4. 按重要性排序，最多 15 条。"
-        ),
+        "content": _builtin_content("builtin-glossary"),
     },
 ]
 

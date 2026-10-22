@@ -21,27 +21,11 @@ from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMError, LLMProvider, LLMUpstreamError
 from app.llm.thinking import thinking_scope
 from app.models.state import AgentState, Plan, PlanStep, RetrievedDocument, StepResult
+from app.prompts import render_prompt
 from app.rag.loader import DocumentError
 from app.rag.tools import RagTool, dedupe_documents, format_context, render_references
 
 logger = get_logger(__name__)
-
-_DIRECT_PROMPT = """你是一个直接回答问题的助手。请严格按用户要求作答。
-
-要求：
-1. 直接给出答案，不要生成标题、章节、大纲或「参考来源」列表。
-2. 如果用户要求「只输出/仅回答」某个内容，就严格只输出该内容，不要解释、不要补充。
-3. 不要输出思考过程或推理步骤。
-4. 回答控制在约 {target_chars} 字以内，不要为凑字数而注水。"""
-
-_BRIEF_PROMPT = """你是一个简洁回答问题的助手。请围绕用户任务给出一次完整、简明的回答。
-
-要求：
-1. 不要生成章节大纲，也不要把回答拆成多个「章」；最多使用少量小标题或列表。
-2. 如果提供了「检索到的资料」，优先依据资料作答，并用 [编号] 标注引用。
-3. 如果资料为空或不相关，只依据通用知识作答，并明确说明未引用用户资料。
-4. 不要输出思考过程或推理步骤。
-5. 回答控制在约 {target_chars} 字以内，结论先行，不要为凑字数而注水。"""
 
 
 def make_answer_node(
@@ -191,7 +175,8 @@ def _build_messages(
     target_chars: int,
     documents: list[RetrievedDocument],
 ) -> list[ChatMessage]:
-    template = _BRIEF_PROMPT if mode == "brief" else _DIRECT_PROMPT
+    prompt_name = "answer_brief.md" if mode == "brief" else "answer_direct.md"
+    system_prompt = render_prompt(prompt_name, target_chars=target_chars)
     parts = [f"用户任务：{state.get('user_query', '')}"]
     rendered = render_preferences(state)
     if rendered:
@@ -203,7 +188,7 @@ def _build_messages(
         parts.append("注意：知识库没有检索到相关资料，请只依据通用知识作答，并说明未引用用户资料。")
 
     return [
-        ChatMessage(role="system", content=template.format(target_chars=target_chars)),
+        ChatMessage(role="system", content=system_prompt),
         ChatMessage(role="user", content="\n\n".join(parts)),
     ]
 
@@ -227,10 +212,7 @@ async def _repair_citations(
         ChatMessage(role="assistant", content=content),
         ChatMessage(
             role="user",
-            content=(
-                f"{issue}\n请只修正引用编号（删除越界编号或改为不编号），"
-                "不要改变其他内容，也不要添加解释。"
-            ),
+            content=render_prompt("answer_repair.md", issue=issue),
         ),
     ]
     try:

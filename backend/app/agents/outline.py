@@ -21,24 +21,18 @@ from app.core.limits import (
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, Section, StepResult
+from app.prompts import render_prompt
 
 logger = get_logger(__name__)
 
 
 def _outline_system_prompt(target_sections: int) -> str:
     """提示词中的章节上限与配置同源（避免提示词与上限各写各的）。"""
-    return f"""你是一个写作大纲设计者。请为用户的写作任务设计章节大纲。
-
-要求：
-1. 只输出 JSON，不要输出解释文字或 Markdown 代码块。
-2. JSON 结构必须为：{{"sections": [{{"title": "章节标题"}}]}}
-3. 章节数量由任务实际需要决定，**不要为了凑数而拆分**：
-   - 内容适合单篇、篇幅不长 → 只给 1 章（表示整篇不划分章节）；
-   - 中等篇幅 → 2-4 章；
-   - 复杂长文 → 最多 {target_sections} 章。
-   所有情况至少要有 1 章，标题要能概括该部分主题。
-4. 如果提供了参考资料，请让大纲覆盖资料中的关键要点。
-"""
+    return render_prompt(
+        "outline.md",
+        min_sections=MIN_SECTIONS,
+        target_sections=target_sections,
+    )
 
 
 class OutlineSectionModel(BaseModel):

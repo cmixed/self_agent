@@ -25,20 +25,12 @@ from app.core.limits import DEFAULT_TOTAL_CHARS
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, Section, StepResult
+from app.prompts import render_prompt
 from app.rag.tools import format_context
 
 logger = get_logger(__name__)
 
-_WRITER_SYSTEM_PROMPT = """你是一个中文写作助手。请撰写指定章节的正文。
-
-要求：
-1. 只输出该章节的正文，不要重复章节标题，也不要输出「参考来源」列表。
-2. 章节内部的小标题必须使用 ### 或更深层级（###/####）；严禁使用 # 或 ##，
-   因为章节标题由系统以 ## 层级统一生成。
-3. 如果提供了「检索到的资料」，请优先依据资料作答，并用 [编号] 标注引用，
-   例如：RAG 通过向量检索增强能力[1]。
-4. 如果未提供资料，请只依据通用知识作答，并说明未引用用户资料。
-"""
+_WRITER_SYSTEM_PROMPT = render_prompt("writer.md")
 
 
 def chapter_char_target(total_chars: int, total_sections: int) -> tuple[int, int]:
@@ -183,11 +175,10 @@ def make_writer_node(
                     ChatMessage(role="system", content=_WRITER_SYSTEM_PROMPT),
                     ChatMessage(
                         role="user",
-                        content=(
-                            f"以下是「{title}」已写好的结尾部分（因长度上限被截断）：\n"
-                            f"……{tail}\n\n"
-                            "请从中断处**继续**输出后续内容，不要重复已写内容，"
-                            "不要重复章节标题，也不要输出「参考来源」。"
+                        content=render_prompt(
+                            "writer_continue.md",
+                            title=title,
+                            tail=tail,
                         ),
                     ),
                 ],
