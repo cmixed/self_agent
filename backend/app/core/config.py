@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     glm_api_key: SecretStr | None = None
     glm_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     glm_model: str = "glm-5.3-flash"
+    # 复用同一把 GLM_API_KEY 的额外模型（逗号分隔，如 glm-5.3-flashx）。
+    # 每个模型会成为切换器里的独立条目（id = ``glm:<model>``），无需重复填密钥。
+    glm_extra_models: str = ""
     glm_timeout_seconds: float = 60.0
     glm_max_retries: int = 2
 
@@ -144,13 +147,24 @@ class Settings(BaseSettings):
         """是否具备调用当前 LLM Provider 的必要配置（不校验可用性）。"""
         return self.provider_configured(self.llm_provider)
 
+    @property
+    def glm_extra_model_list(self) -> list[str]:
+        """GLM 额外模型列表（去空、去重，保持配置顺序）。"""
+        models: list[str] = []
+        for item in self.glm_extra_models.split(","):
+            model = item.strip()
+            if model and model not in models:
+                models.append(model)
+        return models
+
     def provider_configured(self, provider: str) -> bool:
         """按 Provider 名称检查配置是否就绪（不校验可用性；占位符视为未配置）。"""
         name = provider.strip().lower()
         key: SecretStr | None
         if name == "deepseek":
             key = self.deepseek_api_key
-        elif name == "glm":
+        elif name == "glm" or name.startswith("glm:"):
+            # glm:<model> 是同一把 GLM_API_KEY 下的额外模型
             key = self.glm_api_key
         elif name == "custom":
             if not self.custom_base_url.strip() or not self.custom_model.strip():
@@ -190,6 +204,8 @@ class Settings(BaseSettings):
             return self.deepseek_model
         if name == "glm":
             return self.glm_model
+        if name.startswith("glm:"):
+            return name.partition(":")[2] or self.glm_model
         if name == "custom":
             return self.custom_model
         if name == "ollama":

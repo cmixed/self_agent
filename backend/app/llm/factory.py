@@ -62,6 +62,23 @@ def provider_configs(settings: Settings) -> dict[str, ProviderConfig]:
         ),
     }
 
+    # 同一把 GLM_API_KEY 下的额外模型（如 glm-5.3-flashx）：拆成独立条目，
+    # 才能在顶栏一键切换，不需要把密钥再填一遍。
+    for model in settings.glm_extra_model_list:
+        if model == settings.glm_model:
+            continue
+        configs[f"glm:{model}"] = ProviderConfig(
+            id=f"glm:{model}",
+            label="GLM",
+            base_url=settings.glm_base_url,
+            model=model,
+            api_key=_secret(settings.glm_api_key),
+            api_key_env="GLM_API_KEY",
+            timeout_seconds=settings.glm_timeout_seconds,
+            max_retries=settings.glm_max_retries,
+            key_hint=mask_api_key(_secret(settings.glm_api_key)),
+        )
+
     # Ollama：本地服务无需密钥。**仅在配置了模型后列出**——未配置的条目在切换器里
     # 只是一个灰掉的项，容易被误认为"坏了"；发现入口统一放在「模型服务」页。
     if settings.ollama_model.strip():
@@ -129,7 +146,7 @@ def _build_provider(config: ProviderConfig) -> LLMProvider:
             timeout_seconds=config.timeout_seconds,
             max_retries=config.max_retries,
         )
-    if config.id == "glm":
+    if config.id == "glm" or config.id.startswith("glm:"):
         return GLMProvider(
             api_key=config.api_key,
             base_url=config.base_url,

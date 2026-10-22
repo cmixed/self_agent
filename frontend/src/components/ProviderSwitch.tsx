@@ -66,7 +66,9 @@ export default function ProviderSwitch({
       setSwitching(true)
       try {
         await updateLlmProvider(next)
-        message.success(`已切换到 ${providerLabelOf(next)}`)
+        // 同一把 key 下可能有多个 GLM 模型：提示里带上模型名，避免只显示「GLM」
+        const target = settings?.providers.find((item) => item.id === next)
+        message.success(`已切换到 ${target?.model || providerLabelOf(next, target?.label)}`)
         setSettings((prev) => (prev ? { ...prev, llm_provider: next } : prev))
         onSwitched()
       } catch (error) {
@@ -76,7 +78,7 @@ export default function ProviderSwitch({
         setSwitching(false)
       }
     },
-    [activeProvider, message, onSwitched],
+    [activeProvider, message, onSwitched, settings],
   )
 
   if (!settings) return null

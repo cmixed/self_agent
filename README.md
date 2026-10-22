@@ -131,6 +131,13 @@ Ollama 的 OpenAI 兼容层（/v1）不接受 think 字段，Qwen3 的 /no_think
 - 前端切换会**立即生效**并持久化到 `data/settings.json`，重启后保持；
   `LLM_PROVIDER` 仅作为首次启动的默认值；
 - 两个服务商互为独立配置：`DEEPSEEK_*` 与 `GLM_*` 各自保留，切换互不影响。
+- **同一把 GLM Key 下的多个模型**：`GLM_EXTRA_MODELS`（逗号分隔）会为每个模型
+  生成一个独立条目（如 `glm-5.3-flashx`），在顶栏可直接切换，无需重复填密钥：
+
+  ```env
+  GLM_MODEL=glm-5.3-flash
+  GLM_EXTRA_MODELS=glm-5.3-flashx
+  ```
 
 ### 数据存储（重要）
 
