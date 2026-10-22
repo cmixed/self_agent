@@ -87,6 +87,11 @@ export default function ProviderSwitch({
     ...settings.providers.filter((item: LlmProviderOption) => !item.is_local),
   ]
 
+  const currentId = activeProvider || settings.llm_provider
+  const currentOption = ordered.find((item: LlmProviderOption) => item.id === currentId)
+  // 顶栏展示的是「模型名」，切换器宽度与悬停提示都基于它
+  const currentModel = currentOption?.model || providerLabelOf(currentId, currentOption?.label)
+
   const options = ordered.map((item: LlmProviderOption) => {
     const unconfigured = !item.configured && item.id !== settings.llm_provider
     // 展示「图标 + 模型名」：本地用硬盘图标，云端用服务图标
@@ -105,7 +110,11 @@ export default function ProviderSwitch({
   })
 
   return (
-    <Tooltip title={running ? '任务执行中，暂不能切换模型' : '切换模型服务商（对后续任务生效）'}>
+    <Tooltip
+      title={
+        running ? '任务执行中，暂不能切换模型' : `当前模型：${currentModel}（切换对后续任务生效）`
+      }
+    >
       <Select
         size="small"
         className="app-header-provider"
@@ -113,6 +122,8 @@ export default function ProviderSwitch({
         value={activeProvider || settings.llm_provider}
         loading={switching}
         disabled={running || switching}
+        // 下拉宽度按最长的「模型名」自适应，避免列表里被截断
+        popupMatchSelectWidth={false}
         onOpenChange={(open) => {
           // 在「模型服务」页刚添加的 Provider 需要立刻可切换：打开时重新拉取
           if (open) void load()
@@ -126,9 +137,11 @@ export default function ProviderSwitch({
             <button
               type="button"
               className="app-header-provider__manage"
+              aria-label="管理模型服务"
               onClick={() => navigate('providers')}
             >
-              <SettingOutlined /> 模型服务
+              <SettingOutlined />
+              <span>模型服务</span>
             </button>
           </>
         )}
