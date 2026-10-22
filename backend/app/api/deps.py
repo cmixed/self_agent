@@ -29,6 +29,7 @@ from app.services.document_service import DocumentService
 from app.services.memory_service import MemoryService
 from app.services.preset_service import PresetService
 from app.services.provider_service import ProviderService
+from app.services.skill_generation_service import SkillGenerationService
 from app.services.skill_service import SkillService
 from app.services.task_service import TaskService
 
@@ -149,6 +150,21 @@ def build_skill_repository() -> SkillRepository:
 
 def build_skill_service() -> SkillService:
     return SkillService(build_database())
+
+
+def build_skill_generation_service() -> SkillGenerationService:
+    """从文档生成技能草稿（不落库）；LLM 与文档服务按请求构造。"""
+    settings = get_settings()
+    return SkillGenerationService(
+        llm=get_llm(),
+        document_service=build_document_service(),
+        skill_service=build_skill_service(),
+        max_chars=settings.skill_generate_max_chars,
+    )
+
+
+def get_skill_generation_service() -> SkillGenerationService:
+    return build_skill_generation_service()
 
 
 def build_preset_service() -> PresetService:

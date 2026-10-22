@@ -75,6 +75,8 @@ CREATE TABLE IF NOT EXISTS skills (
     content     TEXT NOT NULL,
     enabled     INTEGER NOT NULL DEFAULT 1,
     builtin     INTEGER NOT NULL DEFAULT 0,
+    -- 由文档生成的技能记录来源文件名（NULL = 手写/内置）
+    source_filename TEXT,
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
@@ -169,6 +171,11 @@ MIGRATIONS: tuple[tuple[str, str, str], ...] = (
         "presets",
         "auto_run",
         "ALTER TABLE presets ADD COLUMN auto_run INTEGER NOT NULL DEFAULT 0",
+    ),
+    (
+        "skills",
+        "source_filename",
+        "ALTER TABLE skills ADD COLUMN source_filename TEXT",
     ),
 )
 

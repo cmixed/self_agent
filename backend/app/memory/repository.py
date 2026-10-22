@@ -443,6 +443,8 @@ class SkillRecord:
     builtin: bool
     created_at: str
     updated_at: str
+    # 由文档生成时的来源文件名（手写/内置为 None）
+    source_filename: str | None = None
 
 
 class SkillRepository:
@@ -457,8 +459,12 @@ class SkillRepository:
     async def get_skill(self, skill_id: str) -> SkillRecord | None:
         return await asyncio.to_thread(self._get_skill, skill_id)
 
-    async def create_skill(self, *, name: str, description: str, content: str) -> SkillRecord:
-        return await asyncio.to_thread(self._create_skill, name, description, content)
+    async def create_skill(
+        self, *, name: str, description: str, content: str, source_filename: str | None = None
+    ) -> SkillRecord:
+        return await asyncio.to_thread(
+            self._create_skill, name, description, content, source_filename
+        )
 
     async def update_skill(
         self,
@@ -483,7 +489,8 @@ class SkillRepository:
     # --- 同步实现（在线程中执行）---
 
     _SELECT = """
-        SELECT skill_id, name, description, content, enabled, builtin, created_at, updated_at
+        SELECT skill_id, name, description, content, enabled, builtin, source_filename,
+               created_at, updated_at
           FROM skills
     """
 
@@ -498,6 +505,7 @@ class SkillRepository:
             builtin=bool(row["builtin"]),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            source_filename=row["source_filename"],
         )
 
     def _list_skills(self, enabled_only: bool) -> list[SkillRecord]:
@@ -516,17 +524,19 @@ class SkillRepository:
             ).fetchone()
         return self._record(row) if row is not None else None
 
-    def _create_skill(self, name: str, description: str, content: str) -> SkillRecord:
+    def _create_skill(
+        self, name: str, description: str, content: str, source_filename: str | None = None
+    ) -> SkillRecord:
         now = utc_now()
         skill_id = str(uuid4())
         with self._database.connect() as connection:
             connection.execute(
                 """
                 INSERT INTO skills(skill_id, name, description, content,
-                                   enabled, builtin, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 1, 0, ?, ?)
+                                   enabled, builtin, source_filename, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 1, 0, ?, ?, ?)
                 """,
-                (skill_id, name, description, content, now, now),
+                (skill_id, name, description, content, source_filename, now, now),
             )
             connection.commit()
         return SkillRecord(
@@ -538,6 +548,7 @@ class SkillRepository:
             builtin=False,
             created_at=now,
             updated_at=now,
+            source_filename=source_filename,
         )
 
     def _update_skill(

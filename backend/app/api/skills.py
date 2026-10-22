@@ -1,6 +1,9 @@
-"""技能 API：Agent 可调用技能的 CRUD。
+"""技能 API：Agent 可调用技能的 CRUD + 从文档生成技能草稿。
 
 内置技能（``builtin=true``）不可删除（重启会被 seed 复活），只能编辑或停用。
+
+``POST /api/skills/generate`` 只返回**草稿**、不落库：用户在前端审核/编辑后
+再走 ``POST /api/skills`` 保存（避免低质量生成污染技能库）。
 """
 
 from __future__ import annotations
@@ -8,13 +11,23 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from app.api.deps import get_skill_service
+from app.api.deps import get_skill_generation_service, get_skill_service
 from app.models.schemas import (
     ErrorResponse,
     SkillCreate,
+    SkillDraft,
+    SkillDuplicate,
+    SkillGenerateRequest,
+    SkillGenerateResponse,
     SkillInfo,
     SkillListResponse,
     SkillUpdate,
+)
+from app.services.skill_generation_service import (
+    SkillDocumentEmptyError,
+    SkillDocumentNotFoundError,
+    SkillGenerationError,
+    SkillGenerationService,
 )
 from app.services.skill_service import BuiltinSkillProtectedError, SkillNotFoundError, SkillService
 
@@ -31,6 +44,7 @@ def _info(record) -> SkillInfo:
         builtin=record.builtin,
         created_at=record.created_at,
         updated_at=record.updated_at,
+        source_filename=record.source_filename,
     )
 
 
@@ -53,9 +67,46 @@ async def create_skill(
     payload: SkillCreate, service: SkillService = Depends(get_skill_service)
 ) -> SkillInfo:
     record = await service.create_skill(
-        name=payload.name, description=payload.description, content=payload.content
+        name=payload.name,
+        description=payload.description,
+        content=payload.content,
+        source_filename=payload.source_filename,
     )
     return _info(record)
+
+
+@router.post("/generate", response_model=SkillGenerateResponse)
+async def generate_skill(
+    payload: SkillGenerateRequest,
+    service: SkillGenerationService = Depends(get_skill_generation_service),
+) -> SkillGenerateResponse | JSONResponse:
+    """根据知识库文档生成技能草稿（不落库）。"""
+    try:
+        result = await service.generate(
+            document_ids=payload.document_ids, hint=payload.hint
+        )
+    except SkillDocumentNotFoundError as exc:
+        return _error(404, exc.error_type, exc.message)
+    except SkillDocumentEmptyError as exc:
+        return _error(422, exc.error_type, exc.message)
+    except SkillGenerationError as exc:
+        return _error(502, exc.error_type, exc.message)
+
+    return SkillGenerateResponse(
+        draft=SkillDraft(
+            name=result.name,
+            description=result.description,
+            content=result.content,
+            source_filename=result.source_filename,
+        ),
+        truncated=result.truncated,
+        warnings=result.warnings,
+        duplicate_of=(
+            SkillDuplicate(skill_id=result.duplicate_of[0], name=result.duplicate_of[1])
+            if result.duplicate_of
+            else None
+        ),
+    )
 
 
 @router.put("/{skill_id}", response_model=SkillInfo)

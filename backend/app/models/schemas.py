@@ -215,6 +215,8 @@ class SkillInfo(BaseModel):
     builtin: bool
     created_at: str
     updated_at: str
+    # 由文档生成时的来源文件名（手写/内置为 None）
+    source_filename: str | None = None
 
 
 class SkillListResponse(BaseModel):
@@ -225,6 +227,7 @@ class SkillCreate(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     description: str = Field(min_length=1, max_length=200)
     content: str = Field(min_length=1)
+    source_filename: str | None = Field(default=None, max_length=260)
 
 
 class SkillUpdate(BaseModel):
@@ -232,6 +235,39 @@ class SkillUpdate(BaseModel):
     description: str | None = Field(default=None, min_length=1, max_length=200)
     content: str | None = Field(default=None, min_length=1)
     enabled: bool | None = None
+
+
+class SkillGenerateRequest(BaseModel):
+    """从知识库文档生成技能草稿（只生成，不落库）。"""
+
+    # 一次最多 3 篇：多篇会被拼接后一起提炼，过多会挤占上下文
+    document_ids: list[str] = Field(min_length=1, max_length=3)
+    hint: str = Field(default="", max_length=200)
+
+
+class SkillDraft(BaseModel):
+    """生成的技能草稿：用户在前端确认/编辑后再走 ``POST /api/skills`` 保存。"""
+
+    name: str
+    description: str
+    content: str
+    source_filename: str | None = None
+
+
+class SkillDuplicate(BaseModel):
+    """草稿与已有技能同名（供前端提示「更新已有」而不是重复新建）。"""
+
+    skill_id: str
+    name: str
+
+
+class SkillGenerateResponse(BaseModel):
+    draft: SkillDraft
+    # 文档超长时只用了前 N 字，前端须如实提示
+    truncated: bool = False
+    # 不影响保存、但值得提醒用户的问题（如描述缺少触发条件）
+    warnings: list[str] = Field(default_factory=list)
+    duplicate_of: SkillDuplicate | None = None
 
 
 class TaskRequest(BaseModel):

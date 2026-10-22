@@ -115,6 +115,10 @@ class Settings(BaseSettings):
     # 注意这不是 max_tokens 硬上限——硬截断只会得到半截章节。
     target_total_chars: int = DEFAULT_TOTAL_CHARS
 
+    # --- 技能（§ 技能生成）---
+    # 从文档生成技能时送入模型的最大字符数（超出部分截断并如实提示）
+    skill_generate_max_chars: int = 12000
+
     # --- Embedding（独立于 LLM Provider，§12）---
     embedding_provider: str = "local"
     embedding_model: str = "BAAI/bge-small-zh-v1.5"

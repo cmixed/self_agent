@@ -81,9 +81,19 @@ class SkillService:
         """Agent 技能目录：仅启用中的技能。"""
         return await self._repository.list_skills(enabled_only=True)
 
-    async def create_skill(self, *, name: str, description: str, content: str) -> SkillRecord:
+    async def create_skill(
+        self,
+        *,
+        name: str,
+        description: str,
+        content: str,
+        source_filename: str | None = None,
+    ) -> SkillRecord:
         return await self._repository.create_skill(
-            name=name.strip(), description=description.strip(), content=content.strip()
+            name=name.strip(),
+            description=description.strip(),
+            content=content.strip(),
+            source_filename=source_filename.strip() if source_filename else None,
         )
 
     async def update_skill(
