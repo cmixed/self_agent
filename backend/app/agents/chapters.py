@@ -12,11 +12,62 @@
 
 from __future__ import annotations
 
+import re
+
 from app.core.limits import DEFAULT_MAX_SECTIONS
 from app.models.state import AgentState, Section
 
 # 兼容旧名：当前任务默认生成上限（真正的夹取在 config.effective_max_sections）
 MAX_SECTIONS = DEFAULT_MAX_SECTIONS
+
+# 「第二章」「第 2 章」这类问题描述里的章节引用。
+_CHAPTER_REFERENCE = re.compile(r"第\s*([0-9]+|[一二三四五六七八九十]+)\s*章")
+
+_CN_DIGITS = {
+    "一": 1,
+    "二": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+
+
+def _parse_chapter_number(token: str) -> int | None:
+    """解析章节号：``"2"`` / ``"二"`` / ``"十二"`` / ``"二十"``。"""
+    if token.isdigit():
+        return int(token)
+    if token == "十":
+        return 10
+    if "十" in token:
+        tens, _, units = token.partition("十")
+        tens_value = _CN_DIGITS.get(tens, 1) if tens else 1
+        units_value = _CN_DIGITS.get(units, 0) if units else 0
+        return tens_value * 10 + units_value
+    return _CN_DIGITS.get(token)
+
+
+def infer_chapter_from_issues(issues: list[str], *, total_sections: int) -> int | None:
+    """从整篇校验的 issues 文本推断问题章节（1 基），推断不出返回 ``None``。
+
+    只在**唯一命中**时返回：如果 issues 同时提到多个章节，说明问题不是局部的，
+    继续按计划级问题处理；越界章节号同样忽略。这样可以避免把全局问题误判成
+    局部问题（只重写一章并不能修复它）。
+    """
+    if total_sections <= 0:
+        return None
+    found: set[int] = set()
+    for issue in issues:
+        for token in _CHAPTER_REFERENCE.findall(issue):
+            number = _parse_chapter_number(token)
+            if number is not None and 1 <= number <= total_sections:
+                found.add(number)
+    if len(found) != 1:
+        return None
+    return next(iter(found))
 
 
 def chapter_target(index: int) -> str:

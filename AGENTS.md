@@ -628,6 +628,9 @@ Agent
   `ChromaStore.query(document_ids=...)` → Chroma `where`。
   **空列表代表「范围内没有文档」必须返回空结果**，绝不能退化成不过滤。
 - 检索结果必须保留 source metadata。
+- **`retrieved_documents` 是覆盖语义**：每次检索代表「本次计划可见的资料」。
+  replan 后 researcher 会重新检索并整体替换，不得追加旧资料
+  （追加会让同一 chunk 重复出现，引用编号与写作预算随之失真）。
 - 最终答案尽可能引用对应来源。
 - 修改 chunk size / overlap / retrieval top-k 后应重新进行检索评估。
 
@@ -877,13 +880,16 @@ Validator
 整篇校验遵循**定位优先**，不得把局部问题当计划问题：
 
 ```text
-整篇校验判 retry_writer + 给出合法 chapter  →  只重写该章（章级重写）
-整篇校验判 retry_writer + 无法定位/越界     →  升级为 replan（计划级问题）
-模型明确判 replan                          →  按 replan
+整篇校验判 retry_writer + 给出合法 chapter        →  只重写该章（章级重写）
+整篇校验判 retry_writer + chapter 缺失/越界，
+                          但 issues 唯一定位章节  →  只重写该章（章级重写）
+整篇校验判 retry_writer + 无法定位/多章命中       →  升级为 replan（计划级问题）
+模型明确判 replan                                →  按 replan
 ```
 
 理由：一次 replan 会重置计划、大纲与全部章节（实测耗时与额度翻倍），
-而整篇校验能发现的问题里多数都能定位到具体章节。
+而整篇校验能发现的问题里多数都能定位到具体章节。`issues` 推断只接受
+**唯一且合法**的章节引用，避免把全局问题误判成局部问题。
 
 必须限制最大 retry 次数。
 

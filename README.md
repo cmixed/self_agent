@@ -453,8 +453,9 @@ uv run python -m app.evaluation.run --suite compare --real --top-k 5 \
 - 编号唯一来源统一在 `rag/tools.py: dedupe_documents()`——作家看到的可引用列表、
   「参考来源」小节与结果里的 `sources` 三者编号严格一致（重复 chunk 不再造成错位）；
 - 重试耗尽后只报告并在文档内 ⚠️ 标记，不静默改写模型原文；
-- 整篇校验遵循**定位优先**：能定位到章节就只重写那一章，只有计划/结构问题
-  （模型明确判 replan 或无法定位）才触发全文重新规划。
+- 整篇校验遵循**定位优先**：能定位到章节就只重写那一章（模型给出 `chapter`，
+  或 `chapter` 缺失时从 `issues` 中唯一命中的章节引用推断），只有计划/结构问题
+  （模型明确判 replan、无法定位或 issues 指向多章）才触发全文重新规划。
 
 ## 技能（Agent 可调用指令）
 

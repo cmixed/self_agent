@@ -30,6 +30,7 @@ from app.agents.chapters import (
     MAX_SECTIONS,
     chapter_target,
     failed_chapters,
+    infer_chapter_from_issues,
     is_chapter_failed,
     last_written_index,
     next_pending_index,
@@ -177,8 +178,13 @@ def _resolve_action_and_target(
     """把模型判定归一化为 ``(action, target)``。
 
     整篇校验的 ``retry_writer`` 原先一律升级为 ``replan``（全文重写），代价过大：
-    只要能定位到具体章节，就改成**章级重写**；只有确实定位不到（计划/结构问题）
-    才升级为 replan。章节序号非法（缺失/越界）时按原规则处理，模型输出不会破坏流程。
+    只要能定位到具体章节，就改成**章级重写**。定位来源有两处：
+
+    1. 模型显式给出的合法 ``chapter``；
+    2. ``chapter`` 缺失/越界时，从 ``issues`` 文本推断（仅唯一章节命中时生效）。
+
+    只有确实定位不到（计划/结构问题）才升级为 replan。章节序号非法（缺失/越界）
+    时按原规则处理，模型输出不会破坏流程。
 
     **定位到的章节若已耗尽重试**：重写不会发生，此时必须降级为「整篇报告后收尾」
     （``action=continue`` 且 ``target=document``）。否则结果里的 target 是 ``chapter_N``，
@@ -201,8 +207,14 @@ def _resolve_action_and_target(
         # 所有章节都已耗尽重试：重写/replan 都无法改变已有正文，按 §16 报告后收尾。
         return "continue", "document"
     if scope == "document" and model.suggested_action == "retry_writer":
+        # 定位优先：先信模型显式给出的合法章节号；缺失/越界时再从 issues 文本
+        # 确定性推断（例如「第二章内容重复冗余」）。只有确实定位不到时才 replan。
         chapter = model.chapter
-        if chapter is not None and 1 <= chapter <= total_sections:
+        if chapter is None or not 1 <= chapter <= total_sections:
+            chapter = infer_chapter_from_issues(
+                list(model.issues), total_sections=total_sections
+            )
+        if chapter is not None:
             index = chapter - 1
             if is_chapter_failed(state, index, max_retries=max_retries):
                 return "continue", "document"

@@ -150,7 +150,10 @@ class AgentState(TypedDict, total=False):
     # --- 检索（Phase 3）---
     # 本次任务的检索范围；None 表示整个知识库
     retrieval_scope: RetrievalScope | None
-    retrieved_documents: Annotated[list[RetrievedDocument], add]
+    # 覆盖语义：researcher 每次检索都代表「本次计划可见的资料」。
+    # 若用追加语义，replan 后重新检索会把旧资料继续堆进 state（同一 chunk 重复出现，
+    # 引用编号与预算也会随之失真）。
+    retrieved_documents: list[RetrievedDocument]
     # --- 技能（Agent 可调用的指令模块，按计划中的 skill 步骤逐个执行）---
     skill_outputs: Annotated[list[SkillOutput], add]
     # --- 生成 ---

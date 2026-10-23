@@ -5,6 +5,7 @@ from app.agents.chapters import (
     chapter_target,
     ensure_aligned,
     failed_chapters,
+    infer_chapter_from_issues,
     is_chapter_failed,
     last_written_index,
     next_pending_index,
@@ -113,3 +114,23 @@ def test_ensure_aligned_pads_sections() -> None:
     assert len(aligned) == 2
     assert aligned[0]["content"] == "x"
     assert aligned[1] == {"title": "b", "content": ""}
+
+
+def test_infer_chapter_from_issues_parses_arabic_and_chinese() -> None:
+    assert infer_chapter_from_issues(["第二章内容重复冗余"], total_sections=3) == 2
+    assert infer_chapter_from_issues(["第 3 章缺少引用"], total_sections=3) == 3
+    assert infer_chapter_from_issues(["第十二章与计划不符"], total_sections=12) == 12
+    assert infer_chapter_from_issues(["第二十章需要删减"], total_sections=20) == 20
+
+
+def test_infer_chapter_from_issues_requires_unique_valid_hit() -> None:
+    # 没有章节引用（计划/结构问题）→ 不推断
+    assert infer_chapter_from_issues(["整体跑题", "章节顺序不合理"], total_sections=3) is None
+    # 同时提到多章 → 问题不是局部的
+    assert infer_chapter_from_issues(["第一章过短", "第二章重复"], total_sections=3) is None
+    # 同一章重复出现仍算唯一命中
+    assert infer_chapter_from_issues(["第二章重复", "第二章需要删减"], total_sections=3) == 2
+    # 越界章节号忽略
+    assert infer_chapter_from_issues(["第九章不存在"], total_sections=3) is None
+    # 没有章节时不做推断
+    assert infer_chapter_from_issues(["第一章问题"], total_sections=0) is None

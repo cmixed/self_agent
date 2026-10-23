@@ -207,6 +207,33 @@ async def test_graph_with_retrieval_runs_researcher_and_feeds_writer(
     assert "rag.md" in first_chapter_message
 
 
+async def test_graph_replan_does_not_accumulate_retrieved_documents(tmp_path: Path) -> None:
+    """replan 会重新检索：结果应覆盖旧资料，而不是继续追加（同一 chunk 不重复堆叠）。"""
+    _, tool = await seed_knowledge_base(
+        tmp_path, text="# RAG\n\n检索增强生成使用向量数据库存储文档向量。"
+    )
+    provider = ScriptedProvider(
+        [
+            PLAN_JSON,
+            OUTLINE_JSON,
+            "初稿第一章",
+            validation_fail_json("replan", ["计划拆分不合理"]),
+            PLAN_JSON,
+            OUTLINE_JSON,
+            "重新规划后的第一章",
+        ]
+    )
+    graph = build_graph(provider, rag_tool_provider=lambda: tool, max_retries=2)
+
+    final = await graph.ainvoke(initial_state("写一篇 RAG 综述", task_id="t-replan-rag"))
+
+    assert final["task_status"] == "completed"
+    assert _step_ids(final).count("research") == 2  # 两次计划都执行了检索
+    # 知识库里只有 1 个 chunk；若是追加语义，这里会变成 2
+    assert len(final["retrieved_documents"]) == 1
+    assert len({doc["chunk_id"] for doc in final["retrieved_documents"]}) == 1
+
+
 async def test_task_service_reports_sources_and_references(tmp_path: Path) -> None:
     _, tool = await seed_knowledge_base(tmp_path, text="# RAG\n\n检索增强生成使用向量数据库。")
     service = TaskService(
