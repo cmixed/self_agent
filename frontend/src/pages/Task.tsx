@@ -140,6 +140,7 @@ export default function TaskPage() {
     writtenChapters,
     retrievalSkipped,
     plan,
+    writingBudget,
     outline,
     sources,
     validation,
@@ -324,7 +325,15 @@ export default function TaskPage() {
           key: 'outline',
           title: '生成文章大纲',
           status: nodes.outline as MacroStage['status'],
-          badge: outline.length > 0 ? <Tag>{outline.length} 章</Tag> : undefined,
+          badge:
+            outline.length > 0 ? (
+              <Tag color={writingBudget?.source_limited ? 'orange' : undefined}>
+                {outline.length} 章
+              </Tag>
+            ) : undefined,
+          note: writingBudget?.source_limited
+            ? `资料约 ${writingBudget.source_chars} 字，参考篇幅调整为 ${writingBudget.effective_chars} 字`
+            : undefined,
         },
         {
           key: 'writer',
@@ -354,6 +363,11 @@ export default function TaskPage() {
   if (mode) metrics.push(`模式：${MODE_LABEL[mode] ?? mode}`)
   if (scopeLabel) metrics.push(`范围：${scopeLabel}`)
   if (outline.length > 0) metrics.push(`${outline.length} 章`)
+  if (writingBudget?.source_limited) {
+    metrics.push(
+      `资料约 ${writingBudget.source_chars} 字 → 参考 ${writingBudget.effective_chars} 字`,
+    )
+  }
   if (retrievedCount !== null) metrics.push(`命中 ${retrievedCount} 条`)
   if (replans > 0) metrics.push(`重新规划 ${replans} 次`)
   metrics.push(`用时 ${formatDuration(duration ?? elapsed)}`)
@@ -384,6 +398,11 @@ export default function TaskPage() {
   }
   if (activeStage?.key === 'outline' && outline.length > 0) {
     currentFacts.push(`共 ${outline.length} 章`)
+  }
+  if (activeStage?.key === 'outline' && writingBudget?.source_limited) {
+    currentFacts.push(
+      `资料约 ${writingBudget.source_chars} 字，按可支撑范围收束为 ${writingBudget.effective_chars} 字`,
+    )
   }
   if (activeStage?.key === 'writer' && outline.length > 0) {
     currentFacts.push(`已写 ${writtenChapters}/${outline.length} 章`)
@@ -951,6 +970,13 @@ export default function TaskPage() {
                 { label: '来源文档', value: sourceDocs.length },
                 { label: '正文引用', value: citationCount },
                 { label: '检索文本块', value: retrievedCount ?? 0 },
+                {
+                  label: '参考篇幅',
+                  value: writingBudget ? `${writingBudget.effective_chars} 字` : '—',
+                  hint: writingBudget
+                    ? `请求 ${writingBudget.requested_chars} 字 · 资料 ${writingBudget.source_chars} 字`
+                    : undefined,
+                },
                 {
                   label: '质量校验',
                   value: validation ? (

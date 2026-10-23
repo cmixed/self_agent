@@ -383,6 +383,19 @@ class TaskProfileOut(BaseModel):
     reason: str = ""
 
 
+class WritingBudgetOut(BaseModel):
+    """本次长文的资料量自适应写作预算。"""
+
+    requested_chars: int
+    source_chars: int
+    source_count: int
+    effective_chars: int
+    source_limited: bool = False
+    no_sources: bool = False
+    recommended_sections: int = 1
+    reason: str = ""
+
+
 class TaskResponse(BaseModel):
     task_id: str
     status: str
@@ -390,6 +403,8 @@ class TaskResponse(BaseModel):
     mode: str | None = None
     profile: TaskProfileOut | None = None
     plan: PlanOut | None = None
+    # 资料量自适应预算；旧任务 / 轻量回答为 None
+    writing_budget: WritingBudgetOut | None = None
     outline: list[str] = Field(default_factory=list)
     step_results: list[StepResultOut] = Field(default_factory=list)
     sources: list[SourceOut] = Field(default_factory=list)

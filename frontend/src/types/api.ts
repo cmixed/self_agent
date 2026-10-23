@@ -253,6 +253,18 @@ export interface TaskProfile {
   reason: string
 }
 
+/** 资料量自适应写作预算。 */
+export interface WritingBudget {
+  requested_chars: number
+  source_chars: number
+  source_count: number
+  effective_chars: number
+  source_limited: boolean
+  no_sources: boolean
+  recommended_sections: number
+  reason: string
+}
+
 export interface TaskResult {
   task_id: string
   status: string
@@ -260,6 +272,8 @@ export interface TaskResult {
   mode?: string | null
   profile?: TaskProfile | null
   plan: Plan | null
+  /** 旧任务 / 轻量回答可能没有 */
+  writing_budget?: WritingBudget | null
   outline: string[]
   step_results: StepResult[]
   sources: Source[]
@@ -362,6 +376,7 @@ export interface TaskEvent {
   mode?: string | null
   profile?: TaskProfile | null
   plan?: Plan | null
+  writing_budget?: WritingBudget | null
   outline?: string[]
   retrieved_count?: number
   sources?: Source[]

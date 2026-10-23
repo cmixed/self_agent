@@ -17,7 +17,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
-from app.core.limits import DEFAULT_MAX_SECTIONS, DEFAULT_TOTAL_CHARS
+from app.core.limits import (
+    DEFAULT_MAX_SECTIONS,
+    DEFAULT_TOTAL_CHARS,
+    MAX_TOTAL_CHARS,
+)
 
 Mode = Literal["direct", "brief", "longform"]
 ValidationPolicy = Literal["none", "citation_only", "document"]
@@ -103,12 +107,14 @@ def resolve_profile(
         )
 
     explicit = _explicit_length(text)
-    if explicit is not None and explicit >= 1500:
+    if explicit is not None and (
+        explicit >= 1500 or (_is_longform(text) and not _is_capped_length(text))
+    ):
         return _profile(
             "longform",
             text,
             use_skills,
-            target_total_chars,
+            _clamp_explicit_target(explicit),
             max_sections,
             reason=f"用户要求约 {explicit} 字",
         )
@@ -120,6 +126,7 @@ def resolve_profile(
             target_total_chars,
             max_sections,
             reason=f"用户要求不超过约 {explicit} 字",
+            target_override=min(BRIEF_TARGET_CHARS, max(120, explicit)),
         )
 
     if _is_brief(text):
@@ -168,6 +175,15 @@ def resolve_profile(
     )
 
 
+def _clamp_explicit_target(chars: int) -> int:
+    """把用户显式字数夹到系统允许的上限内。
+
+    用户显式要求优先于配置目标；这里不再强推 ``MIN_TOTAL_CHARS``，
+    否则「写 1000 字综述」会被悄悄改成 1500 字。
+    """
+    return max(120, min(int(chars), MAX_TOTAL_CHARS))
+
+
 def _profile(
     mode: Mode,
     query: str,
@@ -176,6 +192,7 @@ def _profile(
     max_sections: int,
     *,
     reason: str,
+    target_override: int | None = None,
 ) -> TaskProfile:
     knowledge = _has_knowledge_hint(query)
     if mode == "direct":
@@ -184,7 +201,7 @@ def _profile(
         prefs: PreferencePolicy = "none"
         estimated: int | None = 1
     elif mode == "brief":
-        target = BRIEF_TARGET_CHARS
+        target = target_override if target_override is not None else BRIEF_TARGET_CHARS
         validation = "citation_only"
         prefs = "language_only"
         estimated = 1

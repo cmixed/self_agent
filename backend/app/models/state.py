@@ -11,7 +11,7 @@ LangGraph 约定：
 from __future__ import annotations
 
 from operator import add
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, Literal, NotRequired, TypedDict
 
 from app.llm.base import ChatMessage
 
@@ -85,11 +85,40 @@ class SkillOutput(TypedDict):
     content: str
 
 
+class WritingBudget(TypedDict):
+    """本次长文的写作预算（由检索结果确定性计算，不调用 LLM）。
+
+    四个篇幅概念必须区分：
+
+    - ``requested_chars``：用户/配置请求的目标；
+    - ``source_chars``：检索到的、实际可见的资料字数；
+    - ``effective_chars``：资料与请求共同支撑的参考篇幅；
+    - ``source_limited``：是否因资料不足而下调。
+
+    预算由 outline 计算并写入 state，writer / validator / summarizer / skills
+    共用同一份结果，避免各节点各算一套。
+    """
+
+    requested_chars: int
+    source_chars: int
+    source_count: int
+    effective_chars: int
+    source_limited: bool
+    no_sources: bool
+    recommended_sections: int
+    reason: str
+
+
 class Section(TypedDict):
-    """长文中的一个章节。"""
+    """长文中的一个章节。
+
+    ``points`` 是 outline 给出的本章必须覆盖的要点；旧 checkpoint / 本地小模型
+    可能没有该字段，因此保持可选，缺失时退化为仅按标题写作。
+    """
 
     title: str
     content: str
+    points: NotRequired[list[str]]
 
 
 class ValidationResult(TypedDict):
@@ -125,6 +154,8 @@ class AgentState(TypedDict, total=False):
     # --- 技能（Agent 可调用的指令模块，按计划中的 skill 步骤逐个执行）---
     skill_outputs: Annotated[list[SkillOutput], add]
     # --- 生成 ---
+    # 检索完成后计算的写作预算；旧 checkpoint 可能没有，节点会按需重算。
+    writing_budget: WritingBudget | None
     outline: list[Section]
     # 覆盖语义、与 outline 下标对齐：支持重写某一章、跳过失败章节与 replan 后重置
     sections: list[Section]
@@ -169,6 +200,7 @@ def initial_state(
         retrieval_scope=retrieval_scope,
         retrieved_documents=[],
         skill_outputs=[],
+        writing_budget=None,
         outline=[],
         sections=[],
         draft="",

@@ -796,7 +796,7 @@ Final Integration
 章节预算分成两件事，不要用一个常量同时承担：
 
 ```text
-TARGET_SECTIONS   提示词里的目标篇幅（默认 6）
+TARGET_SECTIONS   提示词里的参考章节上限（默认 6）
 MAX_SECTIONS      实际生成上限（默认 12，夹在 [3, 20]）
 HARD_SECTION_CEILING=20   仅安全兜底，不参与产品决策（§27）
 ```
@@ -807,9 +807,24 @@ HARD_SECTION_CEILING=20   仅安全兜底，不参与产品决策（§27）
 篇幅用**软目标**表达，不要给章节加 `max_tokens` 硬上限：
 
 ```text
-TARGET_TOTAL_CHARS=6000   目标总字数，按章节数分摊进写作/校验提示词
+TARGET_TOTAL_CHARS=6000   请求总字数，按章节数分摊进写作/校验提示词
 finish_reason=length      截断的唯一可靠信号 → 追加一次有限续写 + 如实标注
 ```
+
+实际写作还要再算一份**资料量自适应预算**（`app/agents/budget.py`），
+由 outline 计算并写入 `AgentState.writing_budget`，writer / validator /
+summarizer / skills 共用：
+
+```text
+source_chars       Writer 实际可见的检索资料字数（去重 + 每条上限）
+effective_chars    min(请求目标, max(300, source_chars * 2))   资料受限时
+source_limited     needs_retrieval and source_chars < 请求目标 * 0.5
+recommended_sections  ceil(effective_chars / 1800)
+```
+
+资料不足时**宁短勿凑**：不把少量资料拆成很多空章，不用重复/套话/通用知识
+填充；最终文档追加「资料限制说明」明确缺口。资料充足时仍按用户请求写长。
+Outline 每章可给 2-4 个 `points`，Writer 按要点写，Validator 检查覆盖。
 
 理由：tokens 是实现细节，硬截断只能得到半截章节（且推理模型的 reasoning 与
 content 共享预算，预算过小会直接产出空内容）。校验侧只把「篇幅明显偏离」作为

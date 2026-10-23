@@ -229,7 +229,7 @@ async def test_outline_prompt_follows_target_sections() -> None:
     system_prompt = provider.calls[0][0].content
     assert "只给 1 章" in system_prompt
     assert "最多 5 章" in system_prompt
-    assert "建议约 3 章" in system_prompt  # 6000 字 / 每章约 2000 字
+    assert "建议约 4 章" in system_prompt  # 6000 字 / 每章预算约 1800 字
 
 
 async def test_outline_truncates_extra_sections_with_visible_note() -> None:
@@ -303,7 +303,7 @@ async def test_writer_prompt_includes_char_target() -> None:
     await node(state)
 
     user_prompt = provider.calls[0][1].content
-    assert "本章目标篇幅：约 2400-3900 字" in user_prompt  # 6000/2 分摊后区间
+    assert "本章参考篇幅：约 1800-4500 字" in user_prompt  # 6000/2 分摊后的软区间
 
 
 async def test_writer_continues_once_when_truncated() -> None:
@@ -365,7 +365,7 @@ async def test_validator_input_includes_char_target() -> None:
     await node(state)
 
     user_prompt = provider.calls[0][1].content
-    assert "目标篇幅（本章）：约 2400-3900 字" in user_prompt
+    assert "参考篇幅（本章）：约 1800-4500 字" in user_prompt
     assert "当前实际" in user_prompt
 
 
@@ -397,8 +397,8 @@ async def test_validator_document_input_includes_total_target() -> None:
     await node(state)
 
     user_prompt = provider.calls[0][1].content
-    assert "目标篇幅（整篇）：约 6000 字" in user_prompt
-    assert "参考区间 4200-9000 字" in user_prompt
+    assert "参考篇幅（整篇）：约 6000 字" in user_prompt
+    assert "参考区间 3600-9000 字" in user_prompt
 
 
 def test_audit_length_reports_both_directions() -> None:

@@ -98,6 +98,7 @@ def task_result(
         "mode": profile.get("mode"),
         "profile": profile or None,
         "plan": state.get("plan"),
+        "writing_budget": state.get("writing_budget"),
         "outline": [section.get("title", "") for section in (state.get("outline") or [])],
         "step_results": state.get("step_results", []),
         "sources": _sources(state.get("retrieved_documents") or []),
@@ -478,6 +479,7 @@ class TaskService:
             ),
             resumed=True,
             plan=snapshot.get("plan"),
+            writing_budget=snapshot.get("writing_budget"),
             scope=snapshot.get("retrieval_scope"),
             outline=outline,
             chapters_written=written,
@@ -611,6 +613,8 @@ class TaskService:
                                 section.get("title", "")
                                 for section in (output.get("outline") or [])
                             ]
+                            if output.get("writing_budget"):
+                                payload["writing_budget"] = output["writing_budget"]
                             # 章节被上限截断时，把说明并入完成消息（前端进度日志可见）
                             for step_result in output.get("step_results") or []:
                                 step_summary = str(step_result.get("summary") or "")

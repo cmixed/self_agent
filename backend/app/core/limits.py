@@ -18,8 +18,12 @@
 
 篇幅（字数）同样分两件事：
 
-- ``DEFAULT_TOTAL_CHARS``：用户可理解的**目标总字数**（软目标，写进提示词）；
+- ``DEFAULT_TOTAL_CHARS``：用户可理解的**请求总字数**（软目标，写进提示词）；
 - ``MAX_TOTAL_CHARS`` / ``MIN_TOTAL_CHARS``：配置夹取范围。
+
+实际写作时还要再区分「请求目标」与「资料可支撑目标」：资料不足时按
+``SOURCE_LIMITED_RATIO`` / ``SOURCE_EXPANSION_FACTOR`` 下调参考篇幅，
+宁可短而扎实，不硬凑（见 ``app.agents.budget``）。
 
 **不设**「每章 max_tokens 硬上限」：tokens 是实现细节，且截断会让流程拿到
 半截章节；真正需要的是把截断暴露出来（见 ``LLMResponse.finish_reason``）。
@@ -55,11 +59,26 @@ MAX_SKILL_EXTRACTION_CHARS = 12000
 MAX_SKILL_INSTRUCTION_CHARS = 600
 
 # --- 长文篇幅与章节建议 ---
-# 单章目标上限的参考值：仅用于建议章节数，不是硬截断。
-LONGFORM_CHAPTER_TARGET_CHARS = 2000
+# 章节预算参考值：只用于估算建议章节数，不是单章硬指标。
+LONGFORM_SECTION_BUDGET_CHARS = 1800
+# 兼容旧名（此前语义是“每章约 2000 字”）；新代码请使用上面的名字。
+LONGFORM_CHAPTER_TARGET_CHARS = LONGFORM_SECTION_BUDGET_CHARS
+# 单章参考区间的浮动范围：软目标，允许资料不足时写短。
+CHAPTER_LENGTH_LOW_FACTOR = 0.6
+CHAPTER_LENGTH_HIGH_FACTOR = 1.5
 # 最终篇幅审计的容忍区间：超出不自动改写，只在步骤摘要/日志中如实提示。
 LONGFORM_LENGTH_LOW_FACTOR = 0.6
 LONGFORM_LENGTH_HIGH_FACTOR = 1.5
+
+# --- 资料量自适应写作预算 ---
+# 检索资料少于请求目标的一半时，认为资料受限，按资料量下调参考篇幅。
+SOURCE_LIMITED_RATIO = 0.5
+# 资料可以支撑约两倍篇幅的分析/串联/解释；不是硬截断。
+SOURCE_EXPANSION_FACTOR = 2.0
+# 资料极少时的最低参考篇幅：写一段简短、诚实的说明，而不是硬凑长文。
+MIN_GROUNDED_TOTAL_CHARS = 300
+# 资料受限时技能结论允许更短（技能结论是写作依据，不是最终文章）。
+SKILL_TARGET_MIN_CHARS_SOURCE_LIMITED = 300
 
 # --- 重新规划（replan）---
 # replan 会重置计划、大纲与全部章节，代价远高于章级重写；每单最多 1 次。

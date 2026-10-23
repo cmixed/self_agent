@@ -49,6 +49,22 @@ def dedupe_documents(documents: Sequence[RetrievedDocument]) -> list[RetrievedDo
     return unique
 
 
+def source_char_count(
+    documents: Sequence[RetrievedDocument],
+    *,
+    max_chars_per_document: int = _MAX_CONTEXT_CHARS_PER_DOCUMENT,
+) -> int:
+    """统计 Writer 实际可见的检索资料字数（去重 + 按上下文上限截断）。
+
+    不能用原始 ``content`` 长度：``format_context`` 每个来源只展示前
+    ``max_chars_per_document`` 字，原始 chunk 再长也不会进入提示词。
+    """
+    return sum(
+        min(len(document.get("content", "")), max_chars_per_document)
+        for document in dedupe_documents(documents)
+    )
+
+
 def format_context(
     documents: Sequence[RetrievedDocument],
     *,

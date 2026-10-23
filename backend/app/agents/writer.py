@@ -12,6 +12,11 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
+from app.agents.budget import (
+    budget_context,
+    chapter_char_target,
+    resolve_writing_budget,
+)
 from app.agents.chapters import (
     MAX_SECTIONS,
     chapter_index_from_target,
@@ -24,23 +29,13 @@ from app.agents.skills import render_skill_outputs
 from app.core.limits import DEFAULT_TOTAL_CHARS
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
-from app.models.state import AgentState, Section, StepResult
+from app.models.state import AgentState, Section, StepResult, WritingBudget
 from app.prompts import render_prompt
 from app.rag.tools import format_context
 
 logger = get_logger(__name__)
 
 _WRITER_SYSTEM_PROMPT = render_prompt("writer.md")
-
-
-def chapter_char_target(total_chars: int, total_sections: int) -> tuple[int, int]:
-    """按章节数把目标总字数分摊为单章区间 (下限, 上限)。
-
-    软目标：写进提示词让模型自我调节，**不做 max_tokens 硬截断**——
-    硬截断只会得到半截章节。单章下限兜底 200 字，避免章节过多时目标失去意义。
-    """
-    per_chapter = max(200, int(total_chars / max(1, total_sections)))
-    return int(per_chapter * 0.8), int(per_chapter * 1.3)
 
 
 def _render_section_input(
@@ -50,16 +45,25 @@ def _render_section_input(
     index: int,
     total: int,
     rewrite: bool,
+    budget: WritingBudget,
     char_target: tuple[int, int] | None = None,
+    points: list[str] | None = None,
 ) -> str:
     plan = state.get("plan")
     lines = [f"用户任务：{state.get('user_query', '')}"]
     if plan:
         lines.append(f"任务目标：{plan.get('goal', '')}")
     lines.append(f"当前章节（第 {index}/{total} 章）：{title}")
+    lines.append(budget_context(budget))
     if char_target is not None:
         low, high = char_target
-        lines.append(f"本章目标篇幅：约 {low}-{high} 字（可接受 ±30%，不要为凑字数而注水）")
+        lines.append(
+            f"本章参考篇幅：约 {low}-{high} 字。这是参考，不是硬指标；"
+            "资料不足时宁可写短，不要为凑字数而注水。"
+        )
+    if points:
+        rendered_points = "\n".join(f"- {point}" for point in points)
+        lines.append(f"本章必须覆盖的要点：\n{rendered_points}")
 
     if rewrite:
         validations = state.get("chapter_validations") or {}
@@ -72,10 +76,11 @@ def _render_section_input(
     documents = state.get("retrieved_documents") or []
     if documents:
         lines.append(f"检索到的资料（请用 [编号] 引用）：\n{format_context(documents)}")
-    elif plan and plan.get("needs_retrieval"):
+    elif budget["no_sources"]:
         lines.append(
             "注意：本任务需要检索用户资料，但知识库中没有检索到相关内容。"
-            "请只依据通用知识作答，并明确说明未引用用户资料。"
+            "不要写成完整长文，也不要编造引用；请用简短篇幅说明无法基于资料展开，"
+            "必要时只给少量通用背景，并明确标注这不是用户资料。"
         )
 
     skill_context = render_skill_outputs(state)
@@ -147,8 +152,13 @@ def make_writer_node(
         title = outline[index].get("title", "")
         chapter = index + 1
         total = len(outline)
+        budget = resolve_writing_budget(
+            state,
+            fallback_requested_chars=target_total_chars,
+            max_sections=max_sections,
+        )
 
-        char_target = chapter_char_target(target_total_chars, total)
+        char_target = chapter_char_target(budget["effective_chars"], total)
         messages = [
             ChatMessage(role="system", content=_WRITER_SYSTEM_PROMPT),
             ChatMessage(
@@ -159,7 +169,9 @@ def make_writer_node(
                     index=chapter,
                     total=total,
                     rewrite=rewrite,
+                    budget=budget,
                     char_target=char_target,
+                    points=list(outline[index].get("points") or []),
                 ),
             ),
         ]
@@ -200,8 +212,12 @@ def make_writer_node(
             )
 
         while len(sections) <= index:
-            sections.append(Section(title="", content=""))
-        sections[index] = Section(title=title, content=content)
+            sections.append(Section(title="", content="", points=[]))
+        sections[index] = Section(
+            title=title,
+            content=content,
+            points=list(outline[index].get("points") or []),
+        )
 
         verb = "重写" if rewrite else "撰写"
         summary = f"已{verb}：{title}"

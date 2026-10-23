@@ -9,50 +9,53 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from app.agents.budget import budget_context, compute_writing_budget
 from app.agents.preferences import render_preferences
 from app.core.limits import (
     DEFAULT_MAX_SECTIONS,
     DEFAULT_TARGET_SECTIONS,
     DEFAULT_TOTAL_CHARS,
-    LONGFORM_CHAPTER_TARGET_CHARS,
     MIN_SECTIONS,
     SCHEMA_SECTION_GUARD,
 )
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
-from app.models.state import AgentState, Section, StepResult
+from app.models.state import AgentState, Section, StepResult, WritingBudget
 from app.prompts import render_prompt
 
 logger = get_logger(__name__)
 
 
-def recommended_sections(target_total_chars: int, target_sections: int) -> int:
-    """按目标篇幅给出**建议**章节数（不是硬性下限）。
-
-    单章目标约 2000 字，避免目标 6000 字却只规划 1 章、把一次生成推到输出上限。
-    仍受用户配置的参考上限约束；内容确实不适合拆分时，模型可以少分章。
-    """
-    by_budget = (max(1, target_total_chars) + LONGFORM_CHAPTER_TARGET_CHARS - 1) // (
-        LONGFORM_CHAPTER_TARGET_CHARS
-    )
-    return max(MIN_SECTIONS, min(target_sections, max(MIN_SECTIONS, by_budget)))
-
-
-def _outline_system_prompt(target_sections: int, target_total_chars: int) -> str:
+def _outline_system_prompt(target_sections: int, budget: WritingBudget) -> str:
     """提示词中的章节上限与篇幅预算同源（避免提示词与配置各写各的）。"""
     return render_prompt(
         "outline.md",
         min_sections=MIN_SECTIONS,
-        recommended_sections=recommended_sections(target_total_chars, target_sections),
+        recommended_sections=budget["recommended_sections"],
         target_sections=target_sections,
-        target_total_chars=target_total_chars,
+        target_total_chars=budget["effective_chars"],
     )
 
 
 class OutlineSectionModel(BaseModel):
     title: str = Field(min_length=1)
+    # 本章必须覆盖的要点；缺失时保持向后兼容（旧 checkpoint / 本地小模型）
+    points: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("points", mode="before")
+    @classmethod
+    def _coerce_points(cls, value: object) -> list[str]:
+        """本地小模型常把 points 写成一段文本；宽容地拆成要点。"""
+        if value is None:
+            return []
+        if isinstance(value, str):
+            lines = [line.strip(" -•\t") for line in value.splitlines()]
+            return [line for line in lines if line][:5] or [value.strip()][:1]
+        if isinstance(value, list):
+            return [item.strip() for item in value if isinstance(item, str) and item.strip()][:5]
+        return []
 
 
 class OutlineModel(BaseModel):
@@ -60,11 +63,12 @@ class OutlineModel(BaseModel):
     sections: list[OutlineSectionModel] = Field(min_length=1, max_length=SCHEMA_SECTION_GUARD)
 
 
-def _render_outline_input(state: AgentState, documents_context: str) -> str:
+def _render_outline_input(state: AgentState, documents_context: str, budget: WritingBudget) -> str:
     plan = state.get("plan")
     lines = [f"用户任务：{state.get('user_query', '')}"]
     if plan:
         lines.append(f"任务目标：{plan.get('goal', '')}")
+    lines.append(budget_context(budget))
     if documents_context:
         lines.append(f"参考资料：\n{documents_context}")
     rendered = render_preferences(state)
@@ -93,6 +97,20 @@ def make_outline_node(
         from app.agents.skills import render_skill_outputs
         from app.rag.tools import format_context
 
+        budget = compute_writing_budget(
+            state,
+            fallback_requested_chars=target_total_chars,
+            target_sections=target,
+            max_sections=max_sections,
+        )
+        # 资料受限时避免把少量资料拆成很多空章；recommended + 1 留一点结构余量。
+        effective_max = max_sections
+        if budget["source_limited"]:
+            effective_max = max(
+                MIN_SECTIONS,
+                min(max_sections, budget["recommended_sections"] + 1),
+            )
+
         context_parts: list[str] = []
         documents_context = format_context(state.get("retrieved_documents") or [])
         if documents_context:
@@ -104,17 +122,24 @@ def make_outline_node(
         messages = [
             ChatMessage(
                 role="system",
-                content=_outline_system_prompt(target, target_total_chars),
+                content=_outline_system_prompt(target, budget),
             ),
-            ChatMessage(role="user", content=_render_outline_input(state, context)),
+            ChatMessage(role="user", content=_render_outline_input(state, context, budget)),
         ]
         outline_model = await llm.chat_structured(
             messages, OutlineModel, temperature=0.2, max_retries=max_retries
         )
 
-        proposed = [Section(title=section.title, content="") for section in outline_model.sections]
-        outline = proposed[:max_sections]
-        truncated_from = len(proposed) if len(proposed) > max_sections else None
+        proposed = [
+            Section(
+                title=section.title,
+                content="",
+                points=[point.strip() for point in section.points if point.strip()],
+            )
+            for section in outline_model.sections
+        ]
+        outline = proposed[:effective_max]
+        truncated_from = len(proposed) if len(proposed) > effective_max else None
         if truncated_from is not None:
             logger.warning(
                 "大纲章节数超出上限，已截断",
@@ -124,12 +149,20 @@ def make_outline_node(
                     "event": "outline_truncated",
                     "status": "warning",
                     "proposed_sections": truncated_from,
-                    "max_sections": max_sections,
+                    "max_sections": effective_max,
+                    "source_limited": budget["source_limited"],
                 },
             )
         titles = [section["title"] for section in outline]
         # sections 与 outline 按下标对齐，供逐章填充 / 重写 / 跳过失败章节
-        sections = [Section(title=title, content="") for title in titles]
+        sections = [
+            Section(
+                title=section["title"],
+                content="",
+                points=list(section.get("points") or []),
+            )
+            for section in outline
+        ]
 
         logger.info(
             "outline 完成",
@@ -138,13 +171,18 @@ def make_outline_node(
                 "node": "outline",
                 "event": "outline_completed",
                 "status": "ok",
+                "requested_chars": budget["requested_chars"],
+                "effective_chars": budget["effective_chars"],
+                "source_chars": budget["source_chars"],
+                "source_limited": budget["source_limited"],
             },
         )
-        summary = f"生成 {len(outline)} 个章节"
+        summary = f"生成 {len(outline)} 个章节；{budget['reason']}"
         if truncated_from is not None:
-            summary += f"（模型给出 {truncated_from} 章，已按上限 {max_sections} 截断）"
+            summary += f"（模型给出 {truncated_from} 章，已按上限 {effective_max} 截断）"
 
         return {
+            "writing_budget": budget,
             "outline": outline,
             # replan 时重置生成与校验状态，确保从干净状态重新写作
             "sections": sections,

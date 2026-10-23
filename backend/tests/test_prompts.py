@@ -35,7 +35,7 @@ def test_render_preserves_json_braces() -> None:
 
     assert "最多 5 章" in outline
     assert "至少要有 1 章" in outline
-    assert '{"sections": [{"title": "章节标题"}]}' in outline
+    assert '{"sections": [{"title": "章节标题", "points": ["本章要点1", "本章要点2"]}]}' in outline
     assert '{"goal": "任务目标"' in planner
 
 

@@ -17,6 +17,7 @@ import type {
   TaskScope,
   TokenUsage,
   Validation,
+  WritingBudget,
 } from '../types/api'
 import { downloadMarkdown } from '../utils/download'
 
@@ -110,6 +111,8 @@ export interface TaskRunValue {
   writtenChapters: number
   retrievalSkipped: boolean
   plan: Plan | null
+  /** 本次长文的资料量自适应预算 */
+  writingBudget: WritingBudget | null
   outline: string[]
   sources: Source[]
   validation: Validation | null
@@ -166,6 +169,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   const [retrievalSkipped, setRetrievalSkipped] = useState(false)
   const [retrievedCount, setRetrievedCount] = useState<number | null>(null)
   const [plan, setPlan] = useState<Plan | null>(null)
+  const [writingBudget, setWritingBudget] = useState<WritingBudget | null>(null)
   const [outline, setOutline] = useState<string[]>([])
   const [chapters, setChapters] = useState<Record<number, ChapterState>>({})
   const [validation, setValidation] = useState<Validation | null>(null)
@@ -254,6 +258,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
           setPlan(event.plan)
           setNodes((prev) => ({ ...prev, planner: 'finish' }))
         }
+        if (event.writing_budget) setWritingBudget(event.writing_budget)
         const titles = event.outline ?? []
         if (titles.length > 0) {
           const written = event.chapters_written ?? 0
@@ -302,6 +307,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         })
         if (event.result?.mode) setMode(event.result.mode)
         if (event.result?.profile) setProfile(event.result.profile)
+        setWritingBudget(event.result?.writing_budget ?? null)
         setFinalAnswer(event.result?.final_answer ?? '')
         setUsage(event.result?.usage ?? null)
         setSources(event.result?.sources ?? [])
@@ -388,6 +394,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         if (event.sources) setSources(event.sources)
       }
       if (event.event === 'outline_completed') {
+        if (event.writing_budget) setWritingBudget(event.writing_budget)
         const titles = event.outline ?? []
         setOutline(titles)
         setChapters(
@@ -458,6 +465,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     setRetrievalSkipped(false)
     setRetrievedCount(null)
     setPlan(null)
+    setWritingBudget(null)
     setOutline([])
     setChapters({})
     setValidation(null)
@@ -607,6 +615,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     writtenChapters,
     retrievalSkipped,
     plan,
+    writingBudget,
     outline,
     sources,
     validation,

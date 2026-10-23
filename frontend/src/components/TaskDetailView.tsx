@@ -271,6 +271,20 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
               <Descriptions.Item label="未通过校验章节">
                 {detail.failed_chapters.length > 0 ? detail.failed_chapters.join(', ') : '无'}
               </Descriptions.Item>
+              {detail.writing_budget ? (
+                <Descriptions.Item label="写作预算" span={2}>
+                  <Space size={6} wrap>
+                    <Tag>请求 {detail.writing_budget.requested_chars} 字</Tag>
+                    <Tag color={detail.writing_budget.source_limited ? 'orange' : 'blue'}>
+                      资料 {detail.writing_budget.source_chars} 字
+                    </Tag>
+                    <Tag color="green">参考 {detail.writing_budget.effective_chars} 字</Tag>
+                    {detail.writing_budget.source_limited ? (
+                      <Tag color="orange">资料受限</Tag>
+                    ) : null}
+                  </Space>
+                </Descriptions.Item>
+              ) : null}
             </Descriptions>
 
             {usage && usage.calls > 0 ? (

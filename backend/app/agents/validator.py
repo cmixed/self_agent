@@ -21,6 +21,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.agents.budget import (
+    budget_context,
+    chapter_char_target,
+    resolve_writing_budget,
+)
 from app.agents.chapters import (
     MAX_SECTIONS,
     chapter_target,
@@ -34,12 +39,17 @@ from app.agents.citations import (
     dangling_citation_indices,
     find_chapters_with_dangling,
 )
+from app.agents.skills import render_skill_outputs
 from app.agents.summarizer import assemble_document
-from app.agents.writer import chapter_char_target
-from app.core.limits import DEFAULT_TOTAL_CHARS, MAX_REPLANS
+from app.core.limits import (
+    DEFAULT_TOTAL_CHARS,
+    LONGFORM_LENGTH_HIGH_FACTOR,
+    LONGFORM_LENGTH_LOW_FACTOR,
+    MAX_REPLANS,
+)
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
-from app.models.state import AgentState, Section, StepResult, ValidationResult
+from app.models.state import AgentState, Section, StepResult, ValidationResult, WritingBudget
 from app.prompts import render_prompt
 from app.rag.tools import dedupe_documents, format_context
 
@@ -96,6 +106,7 @@ def _render_input(
     scope: str,
     target: str,
     content: str,
+    budget: WritingBudget,
     char_target: tuple[int, int] | None = None,
     document_target: int | None = None,
 ) -> str:
@@ -112,22 +123,35 @@ def _render_input(
 
     outline = state.get("outline") or []
     if outline:
-        titles = "、".join(section.get("title", "") for section in outline)
-        lines.append(f"预定结构：{titles}")
+        structure: list[str] = []
+        for index, section in enumerate(outline, start=1):
+            points = section.get("points") or []
+            suffix = f"（要点：{'；'.join(points)}）" if points else ""
+            structure.append(f"{index}. {section.get('title', '')}{suffix}")
+        lines.append("预定结构：\n" + "\n".join(structure))
 
     documents = state.get("retrieved_documents") or []
     if documents:
         lines.append(f"检索到的资料：\n{format_context(documents)}")
 
+    skill_context = render_skill_outputs(state)
+    if skill_context:
+        lines.append(
+            "技能分析结论（内部加工结果，不是原始资料；不能作为事实来源，"
+            "正文中的事实仍须由检索资料支撑）：\n"
+            f"{skill_context}"
+        )
+
+    lines.append(budget_context(budget))
     label = "整篇文档" if scope == "document" else f"章节（{target}）"
     if char_target is not None:
         low, high = char_target
-        lines.append(f"目标篇幅（本章）：约 {low}-{high} 字；当前实际 {len(content)} 字")
+        lines.append(f"参考篇幅（本章）：约 {low}-{high} 字；当前实际 {len(content)} 字")
     if document_target is not None:
-        low = int(document_target * 0.7)
-        high = int(document_target * 1.5)
+        low = int(document_target * LONGFORM_LENGTH_LOW_FACTOR)
+        high = int(document_target * LONGFORM_LENGTH_HIGH_FACTOR)
         lines.append(
-            f"目标篇幅（整篇）：约 {document_target} 字，参考区间 {low}-{high} 字"
+            f"参考篇幅（整篇）：约 {document_target} 字，参考区间 {low}-{high} 字"
             f"（含参考来源）；当前实际 {len(content)} 字"
         )
     lines.append(f"待校验内容（{label}）：\n{content}")
@@ -379,9 +403,16 @@ def make_validator_node(
             target = "document"
             content = assemble_document(state, max_retries=max_retries)
 
+        budget = resolve_writing_budget(
+            state,
+            fallback_requested_chars=target_total_chars,
+            max_sections=max_sections,
+        )
         char_target = None
         if scope == "chapter":
-            char_target = chapter_char_target(target_total_chars, len(state.get("outline") or []))
+            char_target = chapter_char_target(
+                budget["effective_chars"], len(state.get("outline") or [])
+            )
         messages = [
             ChatMessage(role="system", content=_VALIDATOR_SYSTEM_PROMPT),
             ChatMessage(
@@ -391,8 +422,9 @@ def make_validator_node(
                     scope=scope,
                     target=target,
                     content=content,
+                    budget=budget,
                     char_target=char_target,
-                    document_target=target_total_chars if scope == "document" else None,
+                    document_target=budget["effective_chars"] if scope == "document" else None,
                 ),
             ),
         ]

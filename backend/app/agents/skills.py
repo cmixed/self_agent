@@ -14,12 +14,14 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import NotRequired, TypedDict
 
+from app.agents.budget import budget_context, compute_writing_budget
 from app.core.limits import (
     DEFAULT_TOTAL_CHARS,
     MAX_SKILL_CONTEXT_CHARS,
     SKILL_HARD_MAX_CHARS,
     SKILL_TARGET_MAX_CHARS,
     SKILL_TARGET_MIN_CHARS,
+    SKILL_TARGET_MIN_CHARS_SOURCE_LIMITED,
 )
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
@@ -135,16 +137,24 @@ def _strip_resource_requests(content: str) -> str:
 
 
 def skill_output_target_chars(state: AgentState) -> int:
-    """技能结论的软目标：约为最终长文目标的 1/3，并有上下限。
+    """技能结论的软目标：约为本次有效写作预算的 1/3，并有上下限。
 
     技能产出是写作依据而不是最终文章；目标随任务篇幅增长，但不会无限放大。
+    资料受限时允许更短，避免技能分析本身也在硬凑篇幅。
     """
-    profile = state.get("task_profile") or {}
-    try:
-        total = int(profile.get("target_chars") or DEFAULT_TOTAL_CHARS)
-    except (TypeError, ValueError):
-        total = DEFAULT_TOTAL_CHARS
-    return max(SKILL_TARGET_MIN_CHARS, min(SKILL_TARGET_MAX_CHARS, total // 3))
+    budget = compute_writing_budget(
+        state,
+        fallback_requested_chars=DEFAULT_TOTAL_CHARS,
+    )
+    minimum = (
+        SKILL_TARGET_MIN_CHARS_SOURCE_LIMITED
+        if budget["source_limited"]
+        else SKILL_TARGET_MIN_CHARS
+    )
+    return max(
+        minimum,
+        min(SKILL_TARGET_MAX_CHARS, budget["effective_chars"] // 3),
+    )
 
 
 def clip_skill_content(content: str) -> tuple[str, bool]:
@@ -231,6 +241,11 @@ def make_skills_node(
         documents = state.get("retrieved_documents") or []
         if documents:
             context_parts.append("参考资料：\n" + format_context(documents))
+        budget = compute_writing_budget(
+            state,
+            fallback_requested_chars=DEFAULT_TOTAL_CHARS,
+        )
+        context_parts.append(budget_context(budget))
         resources = definition.get("resources") or []
         directory = _resource_directory(resources)
         if directory:
