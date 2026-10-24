@@ -38,9 +38,15 @@ build-backend = "hatchling.build"
 # 传输中途超时会被报成
 #   Failed to download X / Failed to extract archive / network timeout
 # 看起来像包损坏，其实是网络读超时（torch ~187MB、transformers、aiohttp 等最易触发）。
-# 项目级放宽超时并适度降并发，`uv sync` 无需再记环境变量即可完成。
+#
+# ⚠️ HTTP 超时**不能**写在这里：uv 0.12 的 pyproject 配置 schema 没有该字段
+# （写成 `http-timeout = 600` 会让整张 [tool.uv] 表解析失败，uv 每次运行都打印
+#   warning: Failed to parse `pyproject.toml` during settings discovery
+# 且本表内的设置被丢弃；已实测 [tool.uv.sources] / [[tool.uv.index]] 不受影响）。
+# 唯一入口是环境变量 UV_HTTP_TIMEOUT —— run.sh 已导出 600s，
+# 手动安装时同理：`UV_HTTP_TIMEOUT=600 uv sync`。
 [tool.uv]
-http-timeout = 600
+# 适度降并发，慢链路下更稳（本表其余项均为合法字段）
 concurrent-downloads = 4
 
 # 本项目不使用 GPU，PyTorch 走 CPU-only 源，避免下载 CUDA/triton 的巨大依赖。

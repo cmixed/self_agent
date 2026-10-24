@@ -12,6 +12,7 @@
 #    BACKEND_PORT   后端端口（默认 8000；需与 frontend/vite.config.ts 的代理一致）
 #    FRONTEND_PORT  前端端口（默认 5173）
 #    QUIET_BACKEND  设为 1 则不在终端混入后端日志
+#    UV_HTTP_TIMEOUT uv 下载超时秒数（默认 600，慢链路才需要关心）
 #
 #  退出：Ctrl+C —— 脚本会同时关闭前后端并释放端口
 # =============================================================================
@@ -39,6 +40,13 @@ FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 BACKEND_ACTUAL_PORT=""
 FRONTEND_ACTUAL_PORT=""
 QUIET_BACKEND="${QUIET_BACKEND:-0}"
+
+# uv 的 HTTP 超时只有环境变量这一个入口：uv 0.12 的 pyproject 配置 schema 里没有
+# `http-timeout`，写进 [tool.uv] 会让 uv 每次运行都打印
+#   warning: Failed to parse `pyproject.toml` during settings discovery
+# 并丢弃该表设置。默认 30s 在慢链路下会让 torch（~187MB）等大轮子下载中途超时，
+# 被 uv 报成 "Failed to extract archive ... network timeout"（看着像包损坏）。
+export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-600}"
 
 INSTALL=0
 FORCE=0

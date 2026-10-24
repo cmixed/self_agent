@@ -60,19 +60,32 @@
 > **慢网络安装提示**：`uv` 默认 HTTP 超时只有 30s，而本仓库要下载 torch（约 187MB）
 > 等较大的轮子。uv 是「边下载边解包」，传输中途超时会被报成
 > `Failed to extract archive ... network timeout`（看起来像包损坏，实际是网络读超时）。
-> `backend/pyproject.toml` 的 `[tool.uv]` 已把 `http-timeout` 放宽到 600s、并发降到 4，
-> 直接 `uv sync` 即可；若仍失败，清掉缓存里的半成品再重试：
+> 用 `./run.sh` 启动时脚本已导出 `UV_HTTP_TIMEOUT=600`（并发降到 4）；
+> 自己手动安装就带上环境变量：
 >
 > ```bash
-> rm -rf ~/.cache/uv/.tmp* && uv sync
+> cd backend && UV_HTTP_TIMEOUT=600 uv sync
+> ```
+>
+> 注意超时**只能**用这个环境变量设置：uv 0.12 的 pyproject 配置 schema 没有
+> `http-timeout` 字段，写进 `[tool.uv]` 会让 uv 每次运行都打印
+> `warning: Failed to parse pyproject.toml during settings discovery` 并丢弃该表设置。
+> 若安装仍失败，清掉缓存里的半成品再重试：
+>
+> ```bash
+> rm -rf ~/.cache/uv/.tmp* && UV_HTTP_TIMEOUT=600 uv sync
 > ```
 >
 > 到官方源很慢时可用镜像（无需改仓库，用环境变量即可；实测镜像 ~3.5MB/s、
 > 官方源不到 1.8MB 的小包都会超时）：
 >
 > ```bash
-> UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple uv sync
+> UV_HTTP_TIMEOUT=600 UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple uv sync
 > ```
+>
+> 用镜像装完记得把 `uv.lock` 的来源改回来：uv 会把镜像地址写进 lockfile 的
+> `source = { registry = ... }`，随后 `uv lock --check` 就会报「需要更新」。
+> 不带镜像变量再跑一次 `uv lock` 即可恢复成官方 PyPI URL（版本与 hash 不变）。
 >
 > 注意 **torch 不受该变量影响**：它由 `[tool.uv.sources]` 固定走
 > `download.pytorch.org/whl/cpu`（CPU-only，避免拉 CUDA/triton）。torch 只是补丁版
