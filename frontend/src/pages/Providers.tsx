@@ -570,13 +570,13 @@ export default function ProvidersPage() {
             label="思考模式"
             tooltip={
               flavor === 'ollama'
-                ? '本地小模型关闭思考可快数倍：走原生 /api/chat 并传 think=false'
-                : '仅当「接口协议」选 Ollama 原生时可用（/v1 兼容层不接受 think 字段）'
+                ? '本地 Ollama 关闭思考可快数倍：走原生 /api/chat 并传 think=false'
+                : '仅本地 Ollama（原生协议）生效；/v1 兼容层不接受 think 字段'
             }
             extra={
               flavor === 'ollama'
                 ? '推荐本地小模型（如 qwen3）勾选：思考会占用大量时间与上下文'
-                : '需要先选择「Ollama 原生（/api/chat）」协议'
+                : '需要先选择「Ollama 原生（/api/chat）」协议（仅本地 Ollama 支持关闭思考）'
             }
           >
             <Checkbox disabled={flavor !== 'ollama'}>关闭思考（更快）</Checkbox>

@@ -163,6 +163,9 @@ class ProviderService:
     ) -> ProviderView:
         label, base_url, model = self._validate(label, base_url, model)
         flavor = self._validate_flavor(flavor)
+        # disable_thinking 原样保存，但**只在 flavor="ollama"（本地 Ollama 原生协议）
+        # 时生效**；openai 协议下 factory 会有意忽略它（不报错、不改请求体）。
+        # 界面已按协议禁用该勾选，这里不额外拒绝，避免用户在切换协议时被卡住。
         if requires_api_key and not api_key.strip() and not api_key_env.strip():
             raise ProviderValidationError(
                 "需要密钥的 Provider 必须填写 API Key，或指定环境变量名（如 MOONSHOT_API_KEY）"

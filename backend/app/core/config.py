@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     custom_max_retries: int = 2
     # 线路协议：openai = /v1 兼容；ollama = 原生 /api/chat（可关闭思考）
     custom_flavor: str = "openai"
+    # 关闭思考：**只对本地 Ollama 有意义**。只有当 CUSTOM_FLAVOR=ollama
+    # （即该自定义端点其实是本地 Ollama 原生协议）时才会生效；
+    # CUSTOM_FLAVOR=openai 时本项被忽略（factory 有意不透传）。
     custom_disable_thinking: bool = False
 
     # --- Ollama（本地模型，OpenAI 兼容端点）---

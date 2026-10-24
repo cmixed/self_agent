@@ -14,6 +14,12 @@ think=false       思考 0 字、正文 1293 字 | 10.4s | 67.6 tok/s
 
 重试、超时、错误分类（含本地服务不可达 / 本地推理失败）全部复用
 :class:`OpenAICompatProvider`，这里只覆写「请求体 / 解析 / 线路」。
+
+**作用范围（重要）**：本类是唯一支持「关闭思考」的线路，即该开关只对
+**本地 Ollama** 生效。OpenAI 兼容端点（云端 / 自建）不会消费
+``disable_thinking``，这是有意为之（各家关闭方式不同，且未做能力探测）；
+任务级 ``thinking_scope(False)`` 对它们也只能通过各自 Provider 的
+``_thinking_disabled_payload`` 生效（例如 GLM）。
 """
 
 from __future__ import annotations

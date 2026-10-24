@@ -512,6 +512,11 @@ OLLAMA_MODEL=qwen3:4b
   无法关闭思考模式——而思考模式会让本地小模型慢数倍、甚至吃光输出预算导致正文为空。
   原生 Provider 复用 `OpenAICompatProvider` 的重试/超时/错误分类，只覆写
   「请求体 / 解析 / 线路」；思考内容（`message.thinking`）**不并入正文**（§17）。
+- **「关闭思考」只对本地 Ollama 生效**（`flavor="ollama"`），这是一条刻意的边界：
+  `flavor="openai"` 的端点（云端 / 自建）**有意忽略** `disable_thinking`，工厂不得
+  透传该字段；需要某家支持关闭思考时，在其 Provider 子类覆写
+  `_thinking_disabled_payload`（参照 GLM），不要改工厂分支。UI 在非 ollama 协议下
+  禁用该勾选；保存时不拒绝（允许用户随后切换协议）。
 
 GLM（智谱）配置：
 

@@ -27,7 +27,13 @@ class ProviderConfig:
     # "openai" = OpenAI 兼容 /v1；"ollama" = Ollama 原生 /api/chat
     # （原生协议才能关闭思考模式，见 llm/ollama_native.py）
     flavor: str = "openai"
-    # 关闭思考模式：仅对 flavor="ollama" 生效（本地小模型可快数倍）
+    # 关闭思考模式：**只对本地 Ollama 生效**。
+    #
+    # 判定条件是 ``flavor == "ollama"``（本地原生协议），见 factory._build_provider：
+    # 只有该分支会把本字段传成 ``think=False``。OpenAI 兼容端点（云端 / 自建）
+    # **有意忽略**本字段——它们的关闭方式各家不一（也没有做模型能力探测），
+    # 不能让一个"UI 上勾了"的开关去乱改云端请求体。界面上该勾选对非 ollama
+    # 协议是禁用的（frontend/src/pages/Providers.tsx），这里再兜一层保证语义。
     disable_thinking: bool = False
     # --- 展示用元数据（不含密钥本身）---
     managed: bool = False  # True = 用户自定义（可在 UI 编辑/删除）

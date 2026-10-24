@@ -90,6 +90,8 @@ class ProviderResponse(BaseModel):
     max_retries: int = 2
     # 线路协议：openai（/v1 兼容）或 ollama（原生 /api/chat，可关闭思考）
     flavor: str = "openai"
+    # 关闭思考：只对本地 Ollama（flavor=ollama）生效；openai 协议下会被忽略，
+    # 因此前端在非 ollama 协议时禁用该勾选（见 Providers.tsx）。
     disable_thinking: bool = False
     created_at: str = ""
     updated_at: str = ""

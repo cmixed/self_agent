@@ -155,7 +155,9 @@ def _build_provider(config: ProviderConfig) -> LLMProvider:
             max_retries=config.max_retries,
         )
     if config.flavor == "ollama":
-        # 原生协议：可关闭思考（本地小模型快数倍），并自带推理速度日志
+        # 唯一会消费 ``disable_thinking`` 的分支：本地 Ollama 原生协议。
+        # ``think=False`` 才能真正关闭思考（/v1 兼容层不接受该字段，已实测），
+        # 本地小模型因此可快数倍；同时原生协议自带推理速度日志。
         return OllamaNativeProvider(
             base_url=config.base_url,
             model=config.model,
@@ -163,6 +165,11 @@ def _build_provider(config: ProviderConfig) -> LLMProvider:
             timeout_seconds=config.timeout_seconds,
             max_retries=config.max_retries,
         )
+    # OpenAI 兼容端点（云端 / 自建）：**有意不消费 disable_thinking**。
+    # 关闭思考的请求形态各家不同，且未做模型能力探测；"关闭思考"只承诺
+    # 对本地 Ollama 生效（见 ProviderConfig.disable_thinking 的注释与 UI 禁用态）。
+    # 如需给某家加关闭方式，应在其 Provider 子类里覆写
+    # ``_thinking_disabled_payload``，而不是在这里透传。
     return CustomProvider(
         provider_id=config.id,
         label=config.label,
