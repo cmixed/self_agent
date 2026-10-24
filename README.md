@@ -57,6 +57,27 @@
 - [uv](https://docs.astral.sh/uv/)
 - Node.js 22+ 与 npm
 
+> **慢网络安装提示**：`uv` 默认 HTTP 超时只有 30s，而本仓库要下载 torch（约 187MB）
+> 等较大的轮子。uv 是「边下载边解包」，传输中途超时会被报成
+> `Failed to extract archive ... network timeout`（看起来像包损坏，实际是网络读超时）。
+> `backend/pyproject.toml` 的 `[tool.uv]` 已把 `http-timeout` 放宽到 600s、并发降到 4，
+> 直接 `uv sync` 即可；若仍失败，清掉缓存里的半成品再重试：
+>
+> ```bash
+> rm -rf ~/.cache/uv/.tmp* && uv sync
+> ```
+>
+> 到官方源很慢时可用镜像（无需改仓库，用环境变量即可；实测镜像 ~3.5MB/s、
+> 官方源不到 1.8MB 的小包都会超时）：
+>
+> ```bash
+> UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple uv sync
+> ```
+>
+> 注意 **torch 不受该变量影响**：它由 `[tool.uv.sources]` 固定走
+> `download.pytorch.org/whl/cpu`（CPU-only，避免拉 CUDA/triton）。torch 只是补丁版
+> 升级时建议直接跳过（保留已安装版本即可，不会触发下载）。
+
 ```bash
 cp backend/.env.example backend/.env
 # 编辑 backend/.env，填入真实的 DEEPSEEK_API_KEY

@@ -32,6 +32,17 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# --- uv 安装行为 ---
+# 本机（以及校园网/家宽等慢链路）到 PyPI 与 PyTorch CPU 源的吞吐较低，
+# 而 uv 默认 HTTP 超时只有 30s；uv 是「边下载边解包」的流式安装，
+# 传输中途超时会被报成
+#   Failed to download X / Failed to extract archive / network timeout
+# 看起来像包损坏，其实是网络读超时（torch ~187MB、transformers、aiohttp 等最易触发）。
+# 项目级放宽超时并适度降并发，`uv sync` 无需再记环境变量即可完成。
+[tool.uv]
+http-timeout = 600
+concurrent-downloads = 4
+
 # 本项目不使用 GPU，PyTorch 走 CPU-only 源，避免下载 CUDA/triton 的巨大依赖。
 [[tool.uv.index]]
 name = "pytorch-cpu"
@@ -46,7 +57,9 @@ packages = ["app"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py313"
+# 与 requires-python 对齐：项目运行在 3.14（ruff 的 UP 规则据此判断
+# 哪些旧写法可以升级，target-version 落后会漏报/误报）
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
