@@ -152,7 +152,11 @@ require_cmd node
 require_cmd npm
 require_cmd curl
 
-# 前端工具链统一走 Vite+：全局 vp 优先，否则用项目内依赖（npm exec -- vp）
+# 前端工具链统一走 Vite+：全局 vp 优先，否则用项目内依赖（npm exec -- vp）。
+# 启动用 `vp run dev`（= 跑 package.json 的 dev 脚本）而不是内置的 `vp dev`：
+# 两者最终都起同一个 Vite dev server，但内置命令在「项目里存在同名 dev 脚本」时
+# 会打印一行 note（You are running `vp dev` as a Vite+ built-in command…），
+# 且 `run dev` 让启动方式只有 package.json 一处定义（参数会原样透传给脚本）。
 if command -v vp >/dev/null 2>&1; then
   VP_CMD=(vp)
 else
@@ -320,7 +324,7 @@ start_backend() {
 
 start_frontend() {
   info "启动前端（:$FRONTEND_PORT）…"
-  ( cd "$FRONTEND_DIR" && exec "${VP_CMD[@]}" dev --port "$FRONTEND_PORT" --strictPort ) \
+  ( cd "$FRONTEND_DIR" && exec "${VP_CMD[@]}" run dev --port "$FRONTEND_PORT" --strictPort ) \
     >"$FRONTEND_LOG" 2>&1 &
   FRONTEND_PID=$!
 

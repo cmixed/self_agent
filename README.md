@@ -251,7 +251,7 @@ uv run uvicorn app.main:app --reload
 ```bash
 cd frontend
 npm install
-npm run dev          # 等价于 vp dev（Vite+ 统一 CLI）
+npm run dev          # 或 vp run dev：跑 package.json 的 dev 脚本（参数会透传）
 ```
 
 访问 `http://localhost:5173`。开发服务器会把 `/api` 代理到 `http://127.0.0.1:8000`，
@@ -261,6 +261,12 @@ npm run dev          # 等价于 vp dev（Vite+ 统一 CLI）
 > 全局 CLI 可选：```curl -fsSL https://vite.plus | bash```；未安装时 `npm exec -- vp …`
 > 会使用项目内依赖，`./run.sh` 会自动处理这两种情况。
 > 该迁移只统一**前端**工具链，不改变与 Python 后端之间的 HTTP/SSE 边界。
+>
+> `vp dev` 是 Vite+ 的**内置命令**，而 `package.json` 里也有同名 `dev` 脚本，
+> 所以它会先打印一行
+> `note: You are running 'vp dev' as a Vite+ built-in command…`——不是错误，
+> 两者起的是同一个 dev server。想要干净输出就用 `vp run dev`（或 `vpr dev`），
+> `./run.sh` 用的就是这个形式。
 
 #### 在仓库根目录使用 vp
 
@@ -276,6 +282,11 @@ vp -C frontend check   # check / lint / fmt 是 workspace 级命令，需指定�
 `vp check` 在根目录会报 `Package not found in workspace` —— 根目录没有 `package.json`，
 这是 Vite+ 对 workspace 级命令的正常要求，用 `-C frontend` 即可（`./run.sh` 已在
 `frontend/` 内启动，不受影响）。
+
+> 根目录的 `vp dev` / `vp build` **不要追加参数**（哪怕只是 `--port`）：
+> 带参数后会走 workspace 解析，报 `Package not found in workspace: <仓库根>`。
+> 需要传参数（如 `--port`、`--strictPort`）就 `cd frontend` 后再运行 —— `./run.sh`
+> 正是这么做的。
 
 ## 测试与检查
 
