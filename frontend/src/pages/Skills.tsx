@@ -66,10 +66,19 @@ const { Text, Paragraph } = Typography
 const PAGE_EYEBROW = '技能'
 const PAGE_TITLE = '让 Agent 在任务中调用你的技能'
 const PAGE_DESCRIPTION =
-  '技能是 Agent 可调用的结构化指令：规划阶段会看到技能目录，命中时按技能说明产出分析结论，供后续写作使用。'
+  '技能以标准 SKILL.md 目录保存：Planner 只看目录（L1），命中后读取正文（L2），需要时再按路径读取附件（L3）。'
 const PAGE_MAX_WIDTH = 1200
 
 type SkillFilter = 'all' | 'enabled' | 'disabled'
+
+type ResourceDir = 'references' | 'resources' | 'scripts' | 'root'
+
+const RESOURCE_DIR_OPTIONS: { value: ResourceDir; label: string }[] = [
+  { value: 'resources', label: 'resources/（模板、资源）' },
+  { value: 'references', label: 'references/（参考文档）' },
+  { value: 'scripts', label: 'scripts/（脚本，不执行）' },
+  { value: 'root', label: '根目录（仅 reference.md）' },
+]
 
 interface SkillFormValues {
   name: string
@@ -95,7 +104,8 @@ export default function SkillsPage() {
   // --- 技能附件（L3）---
   const [resources, setResources] = useState<SkillResourceInfo[]>([])
   const [resourcesLoading, setResourcesLoading] = useState(false)
-  const [resourceName, setResourceName] = useState('')
+  const [resourceDir, setResourceDir] = useState<ResourceDir>('resources')
+  const [resourceFileName, setResourceFileName] = useState('')
   const [resourceContent, setResourceContent] = useState('')
   const [editingResourceId, setEditingResourceId] = useState<string | null>(null)
   const [resourceSaving, setResourceSaving] = useState(false)
@@ -142,7 +152,8 @@ export default function SkillsPage() {
 
   const resetResourceEditor = () => {
     setResources([])
-    setResourceName('')
+    setResourceDir('resources')
+    setResourceFileName('')
     setResourceContent('')
     setEditingResourceId(null)
     setResourcesLoading(false)
@@ -208,12 +219,17 @@ export default function SkillsPage() {
 
   const handleSaveResource = async () => {
     if (!editing) return
-    const name = resourceName.trim()
+    const fileName = resourceFileName.trim()
     const content = resourceContent.trim()
-    if (!name || !content) {
-      setError('附件名与附件正文都不能为空')
+    if (!fileName || !content) {
+      setError('附件路径与附件正文都不能为空')
       return
     }
+    if (resourceDir === 'root' && fileName !== 'reference.md') {
+      setError('根目录只支持 reference.md，其他附件请放进 references/ 或 resources/')
+      return
+    }
+    const name = resourceDir === 'root' ? fileName : `${resourceDir}/${fileName}`
     setResourceSaving(true)
     setError(null)
     try {
@@ -224,7 +240,8 @@ export default function SkillsPage() {
         await createSkillResource(editing.skill_id, { name, content })
         message.success(`已添加附件「${name}」`)
       }
-      setResourceName('')
+      setResourceDir('resources')
+      setResourceFileName('')
       setResourceContent('')
       setEditingResourceId(null)
       await loadResources(editing.skill_id)
@@ -237,7 +254,17 @@ export default function SkillsPage() {
 
   const handleEditResource = (resource: SkillResourceInfo) => {
     setEditingResourceId(resource.resource_id)
-    setResourceName(resource.name)
+    const [first, ...rest] = resource.name.split('/')
+    if (
+      (first === 'references' || first === 'resources' || first === 'scripts') &&
+      rest.length > 0
+    ) {
+      setResourceDir(first)
+      setResourceFileName(rest.join('/'))
+    } else {
+      setResourceDir('root')
+      setResourceFileName(resource.name)
+    }
     setResourceContent(resource.content)
   }
 
@@ -249,7 +276,8 @@ export default function SkillsPage() {
       message.success(`已删除附件「${resource.name}」`)
       if (editingResourceId === resource.resource_id) {
         setEditingResourceId(null)
-        setResourceName('')
+        setResourceDir('resources')
+        setResourceFileName('')
         setResourceContent('')
       }
       await loadResources(editing.skill_id)
@@ -469,6 +497,41 @@ export default function SkillsPage() {
         />
       ) : null}
 
+      <div className="skill-stages">
+        <Card size="small" className="skill-stage">
+          <Space size={8} wrap>
+            <Tag color="blue">L1</Tag>
+            <Text strong>目录（Planner 可见）</Text>
+          </Space>
+          <Text type="secondary">
+            {skills.length} 个技能 · 启用 {enabledCount}
+          </Text>
+          <Text type="secondary" className="skill-stage__hint">
+            只包含 skill_id、名称、适用场景；不吃正文与附件的 token
+          </Text>
+        </Card>
+        <Card size="small" className="skill-stage">
+          <Space size={8} wrap>
+            <Tag color="purple">L2</Tag>
+            <Text strong>指令正文（命中后注入）</Text>
+          </Space>
+          <Text type="secondary">来自 SKILL.md 正文</Text>
+          <Text type="secondary" className="skill-stage__hint">
+            只注入一次 system；上下文随技能正文长度增长，但不进入 Planner
+          </Text>
+        </Card>
+        <Card size="small" className="skill-stage">
+          <Space size={8} wrap>
+            <Tag color="gold">L3</Tag>
+            <Text strong>按需附件</Text>
+          </Space>
+          <Text type="secondary">references / resources / scripts</Text>
+          <Text type="secondary" className="skill-stage__hint">
+            目录只暴露路径，模型请求时才读取正文；脚本只保存、永不执行
+          </Text>
+        </Card>
+      </div>
+
       <Card
         title={`技能库（${skills.length}｜启用 ${enabledCount}）`}
         extra={
@@ -488,7 +551,10 @@ export default function SkillsPage() {
         {firstLoad ? (
           <Skeleton active paragraph={{ rows: 4 }} />
         ) : skills.length === 0 ? (
-          <EmptyState title="还没有技能" hint="新建一个技能，描述 Agent 在该场景下应当怎么做" />
+          <EmptyState
+            title="还没有技能"
+            hint="新建一个技能、从文档生成，或导入标准 SKILL.md 技能包"
+          />
         ) : filteredSkills.length === 0 ? (
           <EmptyState compact title="没有符合条件的技能" hint="切换筛选查看其它技能" />
         ) : (
@@ -657,7 +723,12 @@ export default function SkillsPage() {
                   <Card size="small" key={resource.resource_id}>
                     <Space align="start" style={{ width: '100%', justifyContent: 'space-between' }}>
                       <div style={{ minWidth: 0 }}>
-                        <Text strong>{resource.name}</Text>
+                        <Space size={8} wrap>
+                          <Text strong>{resource.name}</Text>
+                          {resource.name.startsWith('scripts/') ? (
+                            <Tag color="warning">脚本不执行</Tag>
+                          ) : null}
+                        </Space>
                         <Paragraph
                           type="secondary"
                           ellipsis={{ rows: 2, tooltip: resource.content }}
@@ -696,14 +767,23 @@ export default function SkillsPage() {
 
               <Card size="small" title={editingResourceId ? '编辑附件' : '添加附件'}>
                 <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                  <Input
-                    value={resourceName}
-                    maxLength={260}
-                    placeholder="references/checklist.md（也可只写 checklist）"
-                    onChange={(event) => setResourceName(event.target.value)}
-                  />
+                  <Space.Compact style={{ width: '100%' }}>
+                    <Select
+                      value={resourceDir}
+                      style={{ width: 210 }}
+                      options={RESOURCE_DIR_OPTIONS}
+                      onChange={(value) => setResourceDir(value)}
+                    />
+                    <Input
+                      value={resourceFileName}
+                      maxLength={200}
+                      placeholder="checklist.md"
+                      onChange={(event) => setResourceFileName(event.target.value)}
+                    />
+                  </Space.Compact>
                   <Text type="secondary">
-                    支持 references/、resources/、scripts/ 子目录；脚本只会保存，永远不会执行。
+                    附件按标准目录保存：references/ 放参考文档，resources/ 放模板资源，scripts/
+                    只保存不执行。根目录仅保留兼容入口 reference.md。
                   </Text>
                   <Input.TextArea
                     value={resourceContent}
@@ -723,7 +803,8 @@ export default function SkillsPage() {
                       <Button
                         onClick={() => {
                           setEditingResourceId(null)
-                          setResourceName('')
+                          setResourceDir('resources')
+                          setResourceFileName('')
                           setResourceContent('')
                         }}
                       >
@@ -960,7 +1041,7 @@ export default function SkillsPage() {
             <Text type="secondary">
               来源：{importPreview.source_filename ?? '（未命名）'}
               {importPreview.suggested_skill_id
-                ? `｜目录 ID：${importPreview.suggested_skill_id}`
+                ? `｜将创建 data/skills/${importPreview.suggested_skill_id}/`
                 : ''}
             </Text>
             <Text type="secondary">
@@ -992,7 +1073,12 @@ export default function SkillsPage() {
             ) : (
               importPreview.resources.map((resource) => (
                 <Card size="small" key={resource.name}>
-                  <Text strong>{resource.name}</Text>
+                  <Space size={8} wrap>
+                    <Text strong>{resource.name}</Text>
+                    {resource.name.startsWith('scripts/') ? (
+                      <Tag color="warning">脚本不执行</Tag>
+                    ) : null}
+                  </Space>
                   <Paragraph
                     type="secondary"
                     ellipsis={{ rows: 2, tooltip: resource.content }}

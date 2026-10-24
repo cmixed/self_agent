@@ -1080,6 +1080,29 @@ html[data-theme='dark'] body {
   margin-top: auto;
 }
 
+/* --- 技能三段式说明（技能页顶部）----------------------------------------- */
+.skill-stages {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ws-gap);
+}
+
+.skill-stage .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-1);
+}
+
+.skill-stage__hint {
+  font-size: var(--ws-font-caption);
+}
+
+@media (max-width: 992px) {
+  .skill-stages {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* --- 工作台预设任务 -------------------------------------------------------- */
 .ws-presets {
   display: grid;
@@ -1777,6 +1800,52 @@ html[data-theme='dark'] body {
 
 .skill-view__meta {
   font-size: var(--ws-font-caption);
+}
+
+/* L1 目录卡片：Planner 实际看到的字段 */
+.skill-stage-card {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--ws-space-1) var(--ws-space-3);
+  align-items: baseline;
+  padding: var(--ws-space-3);
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: var(--ws-radius);
+  background: var(--ant-color-fill-quaternary);
+}
+
+/* L3 附件分组 */
+.skill-resource-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-2);
+  padding: var(--ws-space-3);
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: var(--ws-radius);
+}
+
+.skill-resource-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-1);
+  padding-left: var(--ws-space-4);
+}
+
+.skill-resource-item__content {
+  margin: 0 !important;
+  font-size: var(--ws-font-secondary);
+}
+
+/* 磁盘结构示意 */
+.skill-file-tree {
+  margin: 0;
+  padding: var(--ws-space-3);
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: var(--ws-radius);
+  background: var(--ant-color-fill-quaternary);
+  font-size: var(--ws-font-caption);
+  line-height: 1.7;
+  overflow-x: auto;
 }
 
 /* --- 从文档生成技能（Modal 内）-------------------------------------------- */
