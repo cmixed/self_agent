@@ -239,12 +239,13 @@ class SkillResourceListResponse(BaseModel):
 
 
 class SkillResourceCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=80)
+    # 文件制附件用相对技能根目录的 POSIX 路径（如 references/checklist.md）
+    name: str = Field(min_length=1, max_length=260)
     content: str = Field(min_length=1, max_length=20000)
 
 
 class SkillResourceUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=80)
+    name: str | None = Field(default=None, min_length=1, max_length=260)
     content: str | None = Field(default=None, min_length=1, max_length=20000)
 
 
@@ -293,6 +294,32 @@ class SkillGenerateResponse(BaseModel):
     # 不影响保存、但值得提醒用户的问题（如描述缺少触发条件）
     warnings: list[str] = Field(default_factory=list)
     duplicate_of: SkillDuplicate | None = None
+
+
+class SkillPackageResource(BaseModel):
+    """技能包预览中的一个附件（相对路径 + 文本内容）。"""
+
+    name: str
+    content: str
+
+
+class SkillImportPreview(BaseModel):
+    """技能包解析结果（尚未落盘，需用户确认）。"""
+
+    token: str
+    name: str
+    description: str
+    content: str
+    resources: list[SkillPackageResource] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    suggested_skill_id: str | None = None
+    source_filename: str | None = None
+    # 预览在内存中的存活时间（秒）
+    expires_in: int
+
+
+class SkillImportConfirm(BaseModel):
+    token: str = Field(min_length=1, max_length=64)
 
 
 TaskDepth = Literal["auto", "brief", "longform"]

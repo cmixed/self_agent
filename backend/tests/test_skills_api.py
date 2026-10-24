@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
 from app.main import create_app
-from app.services.skill_service import BUILTIN_SKILLS
+from app.services.skill_service import BUILTIN_SKILL_IDS
 
 
 @pytest.fixture
@@ -38,9 +38,7 @@ def test_list_skills_seeds_builtin_on_startup(seeded_client: TestClient) -> None
     response = seeded_client.get("/api/skills")
     assert response.status_code == 200
     body = response.json()
-    assert {skill["skill_id"] for skill in body["skills"]} == {
-        seed["skill_id"] for seed in BUILTIN_SKILLS
-    }
+    assert {skill["skill_id"] for skill in body["skills"]} == set(BUILTIN_SKILL_IDS)
     assert all(skill["builtin"] for skill in body["skills"])
 
 
@@ -86,11 +84,12 @@ def test_skill_resource_crud(client: TestClient) -> None:
     )
     assert added.status_code == 200
     resource = added.json()
-    assert resource["name"] == "checklist"
+    # 扁平附件名会放进标准 resources/ 目录
+    assert resource["name"] == "resources/checklist"
 
     duplicate = client.post(
         f"/api/skills/{skill_id}/resources",
-        json={"name": "checklist", "content": "重复"},
+        json={"name": "resources/checklist", "content": "重复"},
     )
     assert duplicate.status_code == 409
     assert duplicate.json()["error_type"] == "skill_resource_name_conflict"
@@ -100,12 +99,14 @@ def test_skill_resource_crud(client: TestClient) -> None:
 
     updated = client.put(
         f"/api/skills/{skill_id}/resources/{resource['resource_id']}",
-        json={"name": "checklist-v2", "content": "检查项 B"},
+        json={"name": "resources/checklist-v2", "content": "检查项 B"},
     )
     assert updated.status_code == 200
     assert updated.json()["content"] == "检查项 B"
+    new_resource_id = updated.json()["resource_id"]
+    assert new_resource_id == "resources/checklist-v2"
 
-    deleted = client.delete(f"/api/skills/{skill_id}/resources/{resource['resource_id']}")
+    deleted = client.delete(f"/api/skills/{skill_id}/resources/{new_resource_id}")
     assert deleted.status_code == 200
     assert client.get(f"/api/skills/{skill_id}/resources").json()["resources"] == []
 
@@ -135,7 +136,7 @@ def test_skill_resource_is_removed_with_skill(client: TestClient) -> None:
 def test_builtin_skill_cannot_be_deleted_but_can_be_disabled(
     seeded_client: TestClient,
 ) -> None:
-    builtin_id = BUILTIN_SKILLS[0]["skill_id"]
+    builtin_id = BUILTIN_SKILL_IDS[0]
 
     blocked = seeded_client.delete(f"/api/skills/{builtin_id}")
     assert blocked.status_code == 409
@@ -149,3 +150,95 @@ def test_builtin_skill_cannot_be_deleted_but_can_be_disabled(
 def test_create_skill_validates_payload(client: TestClient) -> None:
     response = client.post("/api/skills", json={"name": "", "description": "d", "content": "c"})
     assert response.status_code == 422
+
+
+def _skill_zip(name: str = "demo") -> bytes:
+    import io
+    import zipfile
+
+    skill_md = (
+        "---\n"
+        "name: 导入技能\n"
+        "description: 当需要验证技能包导入时使用\n"
+        "---\n\n"
+        "你是导入技能。请按步骤执行。\n"
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(f"{name}/SKILL.md", skill_md)
+        archive.writestr(f"{name}/references/note.md", "附件正文")
+        archive.writestr(f"{name}/scripts/run.py", "print('hi')\n")
+    return buffer.getvalue()
+
+
+def test_import_preview_and_confirm(client: TestClient) -> None:
+    preview = client.post(
+        "/api/skills/import/preview",
+        files={"file": ("demo.zip", _skill_zip(), "application/zip")},
+    )
+    assert preview.status_code == 200
+    body = preview.json()
+    assert body["name"] == "导入技能"
+    assert body["suggested_skill_id"] == "demo"
+    assert [item["name"] for item in body["resources"]] == [
+        "references/note.md",
+        "scripts/run.py",
+    ]
+    assert any("不会执行" in warning for warning in body["warnings"])
+    token = body["token"]
+
+    confirmed = client.post("/api/skills/import", json={"token": token})
+    assert confirmed.status_code == 200
+    skill = confirmed.json()
+    assert skill["skill_id"] == "demo"
+    assert skill["builtin"] is False
+
+    resources = client.get("/api/skills/demo/resources").json()["resources"]
+    assert [item["resource_id"] for item in resources] == [
+        "references/note.md",
+        "scripts/run.py",
+    ]
+
+    # token 一次性使用
+    reused = client.post("/api/skills/import", json={"token": token})
+    assert reused.status_code == 409
+    assert reused.json()["error_type"] == "skill_import_expired"
+
+
+def test_import_rejects_invalid_package(client: TestClient) -> None:
+    response = client.post(
+        "/api/skills/import/preview",
+        files={"file": ("bad.zip", b"not a zip", "application/zip")},
+    )
+    assert response.status_code == 422
+    assert response.json()["error_type"] == "skill_package_invalid"
+
+
+def test_export_skill_package(client: TestClient) -> None:
+    preview = client.post(
+        "/api/skills/import/preview",
+        files={"file": ("demo.zip", _skill_zip(), "application/zip")},
+    )
+    token = preview.json()["token"]
+    client.post("/api/skills/import", json={"token": token})
+
+    exported = client.get("/api/skills/demo/export")
+    assert exported.status_code == 200
+    assert exported.headers["content-type"] == "application/zip"
+    assert "demo.zip" in exported.headers["content-disposition"]
+
+    import io
+    import zipfile
+
+    with zipfile.ZipFile(io.BytesIO(exported.content)) as archive:
+        assert set(archive.namelist()) == {
+            "demo/SKILL.md",
+            "demo/references/note.md",
+            "demo/scripts/run.py",
+        }
+
+
+def test_export_missing_skill(client: TestClient) -> None:
+    response = client.get("/api/skills/nope/export")
+    assert response.status_code == 404
+    assert response.json()["error_type"] == "skill_not_found"

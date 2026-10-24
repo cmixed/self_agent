@@ -1,17 +1,29 @@
-"""技能 API：Agent 可调用技能的 CRUD + 从文档生成技能草稿。
+"""技能 API：Agent 可调用技能的 CRUD + 从文档生成技能草稿 + 技能包导入导出。
 
 内置技能（``builtin=true``）不可删除（重启会被 seed 复活），只能编辑或停用。
 
 ``POST /api/skills/generate`` 只返回**草稿**、不落库：用户在前端审核/编辑后
 再走 ``POST /api/skills`` 保存（避免低质量生成污染技能库）。
+
+技能包（``SKILL.md`` + ``references/`` / ``resources/`` / ``scripts/``）：
+
+- ``POST /api/skills/import/preview`` 上传 zip → 解析并暂存预览（不落盘）；
+- ``POST /api/skills/import`` 用预览 token 确认落盘；
+- ``GET  /api/skills/{id}/export`` 导出标准 zip。
+
+脚本附件只保存，永不执行。
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.responses import JSONResponse, Response
 
-from app.api.deps import get_skill_generation_service, get_skill_service
+from app.api.deps import (
+    get_skill_generation_service,
+    get_skill_package_service,
+    get_skill_service,
+)
 from app.models.schemas import (
     ErrorResponse,
     SkillCreate,
@@ -19,8 +31,11 @@ from app.models.schemas import (
     SkillDuplicate,
     SkillGenerateRequest,
     SkillGenerateResponse,
+    SkillImportConfirm,
+    SkillImportPreview,
     SkillInfo,
     SkillListResponse,
+    SkillPackageResource,
     SkillResourceCreate,
     SkillResourceInfo,
     SkillResourceListResponse,
@@ -40,11 +55,19 @@ from app.services.skill_service import (
     SkillResourceNotFoundError,
     SkillService,
 )
+from app.skills.errors import (
+    SkillImportExpiredError,
+    SkillPackageError,
+    SkillPackageTooLargeError,
+    SkillParseError,
+)
+from app.skills.models import SkillRecord, SkillResourceRecord
+from app.skills.package import MAX_PACKAGE_BYTES, SkillPackageService
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
 
 
-def _info(record) -> SkillInfo:
+def _info(record: SkillRecord) -> SkillInfo:
     return SkillInfo(
         skill_id=record.skill_id,
         name=record.name,
@@ -58,7 +81,7 @@ def _info(record) -> SkillInfo:
     )
 
 
-def _resource_info(record) -> SkillResourceInfo:
+def _resource_info(record: SkillResourceRecord) -> SkillResourceInfo:
     return SkillResourceInfo(
         resource_id=record.resource_id,
         skill_id=record.skill_id,
@@ -128,6 +151,69 @@ async def generate_skill(
     )
 
 
+@router.post("/import/preview", response_model=SkillImportPreview)
+async def preview_skill_import(
+    file: UploadFile = File(...),
+    service: SkillPackageService = Depends(get_skill_package_service),
+) -> SkillImportPreview | JSONResponse:
+    """解析上传的 zip 技能包并暂存预览（不落盘）。"""
+    data = await file.read(MAX_PACKAGE_BYTES + 1)
+    try:
+        preview = await service.preview(data, filename=file.filename)
+    except SkillPackageTooLargeError as exc:
+        return _error(413, exc.error_type, str(exc))
+    except SkillPackageError as exc:
+        return _error(422, exc.error_type, str(exc))
+    except SkillParseError as exc:
+        return _error(422, exc.error_type, str(exc))
+
+    package = preview.package
+    return SkillImportPreview(
+        token=preview.token,
+        name=package.name,
+        description=package.description,
+        content=package.content,
+        resources=[
+            SkillPackageResource(name=item.name, content=item.content)
+            for item in package.resources
+        ],
+        warnings=package.warnings,
+        suggested_skill_id=package.suggested_skill_id,
+        source_filename=package.source_filename,
+        expires_in=int(service.ttl_seconds),
+    )
+
+
+@router.post("/import", response_model=SkillInfo)
+async def confirm_skill_import(
+    payload: SkillImportConfirm,
+    service: SkillPackageService = Depends(get_skill_package_service),
+) -> SkillInfo | JSONResponse:
+    """确认导入（预览 token 一次性使用）。"""
+    try:
+        record = await service.confirm(payload.token)
+    except SkillImportExpiredError as exc:
+        return _error(409, exc.error_type, str(exc))
+    return _info(record)
+
+
+@router.get("/{skill_id}/export", response_model=None)
+async def export_skill(
+    skill_id: str,
+    service: SkillPackageService = Depends(get_skill_package_service),
+) -> Response | JSONResponse:
+    """导出标准技能包（SKILL.md + 标准附件，不含应用内部状态）。"""
+    try:
+        data = await service.export(skill_id)
+    except SkillNotFoundError as exc:
+        return _not_found(exc)
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{skill_id}.zip"'},
+    )
+
+
 @router.get("/{skill_id}/resources", response_model=SkillResourceListResponse)
 async def list_skill_resources(
     skill_id: str, service: SkillService = Depends(get_skill_service)
@@ -154,7 +240,7 @@ async def create_skill_resource(
     return _resource_info(record)
 
 
-@router.put("/{skill_id}/resources/{resource_id}", response_model=SkillResourceInfo)
+@router.put("/{skill_id}/resources/{resource_id:path}", response_model=SkillResourceInfo)
 async def update_skill_resource(
     skill_id: str,
     resource_id: str,
@@ -177,7 +263,7 @@ async def update_skill_resource(
     return _resource_info(record)
 
 
-@router.delete("/{skill_id}/resources/{resource_id}", response_model=None)
+@router.delete("/{skill_id}/resources/{resource_id:path}", response_model=None)
 async def delete_skill_resource(
     skill_id: str,
     resource_id: str,

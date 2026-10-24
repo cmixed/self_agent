@@ -34,6 +34,7 @@ from app.api.deps import (
     build_preset_service,
     build_provider_service,
     build_skill_service,
+    build_skill_store,
     build_task_repository,
     get_checkpoint_store,
 )
@@ -41,6 +42,7 @@ from app.api.errors import register_exception_handlers
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.llm.factory import close_llm, current_llm_provider
+from app.skills.migration import migrate_skills_from_sqlite
 
 logger = get_logger(__name__)
 
@@ -68,6 +70,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     # 内置技能 seed（幂等：已存在的不覆盖，用户修改保留）。
     # 默认关闭：清空测试数据后重启不应「复活」内置技能；需要时显式开启。
+    # 先执行旧 SQLite 技能表到文件目录的一次性迁移（幂等，失败保留旧表）。
+    skill_store = build_skill_store()
+    await skill_store.ensure_root()
+    try:
+        migrated_skills = await migrate_skills_from_sqlite(settings.sqlite_path, skill_store)
+        if migrated_skills:
+            logger.info(
+                f"已迁移 {migrated_skills} 个技能到文件目录",
+                extra={"event": "skills_migrated", "status": "ok"},
+            )
+    except Exception as exc:
+        logger.warning(
+            f"技能迁移失败（旧表保留，下次启动重试）：{exc}",
+            extra={"event": "skills_migration_failed"},
+        )
     if settings.seed_builtin_skills:
         await build_skill_service().ensure_seeded()
     await build_preset_service().ensure_seeded()

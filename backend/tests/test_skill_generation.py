@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -15,7 +14,6 @@ from fastapi.testclient import TestClient
 
 from app.api.deps import get_skill_generation_service
 from app.main import create_app
-from app.memory.sqlite import SqliteDatabase
 from app.services.skill_generation_service import (
     SkillDocumentEmptyError,
     SkillDocumentNotFoundError,
@@ -23,6 +21,7 @@ from app.services.skill_generation_service import (
     SkillGenerationService,
 )
 from app.services.skill_service import SkillService
+from app.skills.store import SkillFileStore
 
 DRAFT_PAYLOAD = {
     "name": "资料精读",
@@ -71,12 +70,10 @@ def _service(
     document_path = tmp_path / "guide.md"
     document_path.write_text(text, encoding="utf-8")
     provider = ScriptedProvider(responses or [DRAFT_JSON])
-    database = SqliteDatabase(tmp_path / "app.db")
-    database.initialize()
     service = SkillGenerationService(
         llm=provider,
         document_service=_FakeDocumentService({"doc-1": (document_path, filename)}),  # type: ignore[arg-type]
-        skill_service=SkillService(database),
+        skill_service=SkillService(SkillFileStore(tmp_path / "skills")),
         max_chars=max_chars,
     )
     return service, provider
@@ -188,8 +185,7 @@ async def test_generate_retries_once_on_invalid_json(tmp_path: Path) -> None:
 
 async def test_generate_flags_duplicate_name(tmp_path: Path) -> None:
     service, _ = _service(tmp_path)
-    database = SqliteDatabase(tmp_path / "app.db")
-    await SkillService(database).create_skill(
+    await SkillService(SkillFileStore(tmp_path / "skills")).create_skill(
         name=DRAFT_PAYLOAD["name"], description="已有技能", content="已有指令"
     )
 
@@ -215,41 +211,13 @@ async def test_generate_rejects_too_many_documents(tmp_path: Path) -> None:
         await service.generate(document_ids=["a", "b", "c", "d"])
 
 
-def test_migration_adds_source_filename_to_existing_db(tmp_path: Path) -> None:
-    """旧库（无 source_filename 列）启动后应被幂等补列。"""
-    path = tmp_path / "old.db"
-    connection = sqlite3.connect(path)
-    connection.execute(
-        """
-        CREATE TABLE skills (
-            skill_id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL,
-            content TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
-            builtin INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-        """
-    )
-    connection.commit()
-    connection.close()
-
-    SqliteDatabase(path).initialize()
-    SqliteDatabase(path).initialize()  # 可重复执行
-
-    connection = sqlite3.connect(path)
-    columns = {row[1] for row in connection.execute("PRAGMA table_info(skills)")}
-    connection.close()
-    assert "source_filename" in columns
-
-
 def test_api_generate_returns_draft_without_persisting(tmp_path: Path) -> None:
     document_path = tmp_path / "guide.md"
     document_path.write_text("# 方法\n\n1. 先读目录\n", encoding="utf-8")
-    database = SqliteDatabase(tmp_path / "api.db")
-    database.initialize()
     service = SkillGenerationService(
         llm=ScriptedProvider([DRAFT_JSON]),
         document_service=_FakeDocumentService({"doc-1": (document_path, "guide.md")}),  # type: ignore[arg-type]
-        skill_service=SkillService(database),
+        skill_service=SkillService(SkillFileStore(tmp_path / "skills")),
     )
 
     app = create_app()
@@ -270,12 +238,10 @@ def test_api_generate_returns_draft_without_persisting(tmp_path: Path) -> None:
 
 
 def test_api_generate_maps_missing_document(tmp_path: Path) -> None:
-    database = SqliteDatabase(tmp_path / "api.db")
-    database.initialize()
     service = SkillGenerationService(
         llm=ScriptedProvider([DRAFT_JSON]),
         document_service=_FakeDocumentService({}),  # type: ignore[arg-type]
-        skill_service=SkillService(database),
+        skill_service=SkillService(SkillFileStore(tmp_path / "skills")),
     )
 
     app = create_app()

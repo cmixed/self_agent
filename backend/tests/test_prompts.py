@@ -6,7 +6,9 @@ import pytest
 
 from app.prompts import PromptFormatError, PromptNotFoundError, load_prompt, render_prompt
 from app.prompts.loader import prompt_variables
-from app.prompts.manifest import BUILTIN_SKILL_PROMPTS, PROMPTS
+from app.prompts.manifest import PROMPTS
+from app.services.skill_service import BUILTIN_PACKAGES_DIR, BUILTIN_SKILL_IDS
+from app.skills.frontmatter import parse_skill_markdown
 
 
 def test_all_manifest_prompts_exist_and_are_not_empty() -> None:
@@ -16,11 +18,15 @@ def test_all_manifest_prompts_exist_and_are_not_empty() -> None:
         assert prompt_variables(spec.name) == set(spec.variables), spec.name
 
 
-def test_builtin_skill_prompts_exist_and_have_no_placeholders() -> None:
-    for skill_id, name in BUILTIN_SKILL_PROMPTS.items():
-        text = load_prompt(name)
-        assert text.strip(), skill_id
-        assert "{{" not in text, name
+def test_builtin_skill_packages_are_valid() -> None:
+    packages = [path for path in BUILTIN_PACKAGES_DIR.iterdir() if path.is_dir()]
+    assert {path.name for path in packages} == set(BUILTIN_SKILL_IDS)
+    for package in packages:
+        parsed = parse_skill_markdown((package / "SKILL.md").read_text(encoding="utf-8"))
+        assert parsed.name.strip(), package.name
+        assert parsed.description.strip(), package.name
+        assert parsed.content.strip(), package.name
+        assert "{{" not in parsed.content, package.name
 
 
 def test_render_preserves_json_braces() -> None:

@@ -26,6 +26,7 @@ node_modules/
 data/documents/
 data/chroma/
 data/sqlite/
+data/skills/
 data/settings.json
 logs/
 

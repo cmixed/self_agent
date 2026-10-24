@@ -290,6 +290,14 @@ project-root/
 │       │   ├── sqlite.py
 │       │   └── repository.py
 │       │
+│       ├── skills/
+│       │   ├── store.py              # SkillFileStore（文件即数据源）
+│       │   ├── package.py            # zip 技能包导入/导出
+│       │   ├── frontmatter.py        # SKILL.md YAML 解析/渲染
+│       │   └── migration.py          # 旧 SQLite 表 → 文件目录
+│       │
+│       ├── skill_packages/           # 内置技能包（<id>/SKILL.md）
+│       │
 │       ├── services/
 │       │   ├── document_service.py
 │       │   └── task_service.py
@@ -314,7 +322,8 @@ project-root/
 ├── data/
 │   ├── documents/
 │   ├── chroma/
-│   └── sqlite/
+│   ├── sqlite/
+│   └── skills/                       # <skill_id>/SKILL.md + 附件
 │
 └── docs/
     ├── architecture.md
@@ -711,6 +720,14 @@ tasks.status          当前状态（取最新一次尝试）
 
 表结构变更一律走 `app/memory/sqlite.py` 的幂等迁移（`MIGRATIONS` +
 `PRAGMA table_info` 判列）：只增列/增表，不改写既有数据，可重复执行。
+
+**技能不在 SQLite**：Agent 技能（结构化指令模块）以文件目录为唯一内容源
+（`data/skills/<skill_id>/SKILL.md` + `references/` / `resources/` / `scripts/`，
+应用状态在同目录 `.skill-state.json`）。读写统一走 `app/skills/store.py` 的
+`SkillFileStore`（`to_thread` + 原子写 + 路径校验）；导入导出走
+`app/skills/package.py`（zip，脚本只保存不执行）。旧 `skills` /
+`skill_resources` 表由 `app/skills/migration.py` 在启动时一次性迁移后删除。
+禁止在业务层直接拼路径读写技能文件。
 
 如果 LangGraph 使用 SQLite Checkpointer，应明确区分：
 
@@ -1364,6 +1381,7 @@ dist/
 data/sqlite/
 data/chroma/
 data/documents/
+data/skills/
 logs/
 
 *.db

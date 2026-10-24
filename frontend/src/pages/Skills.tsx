@@ -1,7 +1,9 @@
 import {
   DeleteOutlined,
+  DownloadOutlined,
   EditOutlined,
   FileTextOutlined,
+  ImportOutlined,
   PaperClipOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -35,14 +37,17 @@ import PageContainer from '../components/PageContainer'
 import { useViewStack } from '../components/ViewStack'
 import {
   ApiError,
+  confirmSkillImport,
   createSkill,
   createSkillResource,
   deleteSkill,
   deleteSkillResource,
+  exportSkillPackage,
   generateSkill,
   listDocuments,
   listSkillResources,
   listSkills,
+  previewSkillImport,
   updateSkill,
   updateSkillResource,
   uploadDocument,
@@ -50,6 +55,7 @@ import {
 import type {
   DocumentInfo,
   SkillGenerateResponse,
+  SkillImportPreview,
   SkillInfo,
   SkillResourceInfo,
 } from '../types/api'
@@ -110,6 +116,12 @@ export default function SkillsPage() {
     description: '',
     content: '',
   })
+
+  // --- 技能包导入 / 导出 ---
+  const [importOpen, setImportOpen] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importPreview, setImportPreview] = useState<SkillImportPreview | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -354,6 +366,56 @@ export default function SkillsPage() {
     }
   }
 
+  const handleImportFile = async (file: File) => {
+    setImporting(true)
+    setImportError(null)
+    setImportPreview(null)
+    try {
+      const preview = await previewSkillImport(file)
+      setImportPreview(preview)
+      setImportOpen(true)
+    } catch (err) {
+      setImportError(err instanceof ApiError ? err.message : '解析技能包失败')
+      setImportPreview(null)
+      setImportOpen(true)
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleConfirmImport = async () => {
+    if (!importPreview) return
+    setImporting(true)
+    setImportError(null)
+    try {
+      const skill = await confirmSkillImport(importPreview.token)
+      message.success(`已导入技能「${skill.name}」`)
+      setImportOpen(false)
+      setImportPreview(null)
+      await refresh()
+    } catch (err) {
+      setImportError(err instanceof ApiError ? err.message : '导入技能失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleExport = async (skill: SkillInfo) => {
+    setError(null)
+    try {
+      const blob = await exportSkillPackage(skill.skill_id)
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `${skill.skill_id}.zip`
+      anchor.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      message.success(`已导出「${skill.name}」`)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '导出技能包失败')
+    }
+  }
+
   const firstLoad = loading && skills.length === 0
   const enabledCount = skills.filter((skill) => skill.enabled).length
   const disabledCount = skills.length - enabledCount
@@ -378,6 +440,18 @@ export default function SkillsPage() {
           <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
             刷新
           </Button>
+          <Upload
+            accept=".zip"
+            showUploadList={false}
+            beforeUpload={(file) => {
+              void handleImportFile(file)
+              return false
+            }}
+          >
+            <Button icon={<ImportOutlined />} loading={importing}>
+              导入技能包
+            </Button>
+          </Upload>
           <Button icon={<FileTextOutlined />} onClick={openGenerate}>
             从文档生成
           </Button>
@@ -484,6 +558,15 @@ export default function SkillsPage() {
                         aria-label="编辑"
                         onClick={() => openEdit(skill)}
                       />
+                      <Tooltip title="导出标准技能包（SKILL.md + 附件）">
+                        <Button
+                          size="small"
+                          type="text"
+                          icon={<DownloadOutlined />}
+                          aria-label="导出技能包"
+                          onClick={() => void handleExport(skill)}
+                        />
+                      </Tooltip>
                       {skill.builtin ? (
                         <Tooltip title="内置技能不可删除，可编辑或停用">
                           <Button size="small" type="text" icon={<DeleteOutlined />} disabled />
@@ -615,10 +698,13 @@ export default function SkillsPage() {
                 <Space direction="vertical" size={8} style={{ width: '100%' }}>
                   <Input
                     value={resourceName}
-                    maxLength={80}
-                    placeholder="附件名，例如 checklist"
+                    maxLength={260}
+                    placeholder="references/checklist.md（也可只写 checklist）"
                     onChange={(event) => setResourceName(event.target.value)}
                   />
+                  <Text type="secondary">
+                    支持 references/、resources/、scripts/ 子目录；脚本只会保存，永远不会执行。
+                  </Text>
                   <Input.TextArea
                     value={resourceContent}
                     autoSize={{ minRows: 3, maxRows: 10 }}
@@ -814,6 +900,111 @@ export default function SkillsPage() {
             />
           </div>
         )}
+      </Modal>
+      <Modal
+        title="导入技能包"
+        open={importOpen}
+        onCancel={() => {
+          if (importing) return
+          setImportOpen(false)
+          setImportPreview(null)
+          setImportError(null)
+        }}
+        width={720}
+        maskClosable={false}
+        footer={
+          <Space>
+            <Button
+              onClick={() => {
+                setImportOpen(false)
+                setImportPreview(null)
+                setImportError(null)
+              }}
+              disabled={importing}
+            >
+              取消
+            </Button>
+            <Button
+              type="primary"
+              loading={importing}
+              disabled={!importPreview}
+              onClick={() => void handleConfirmImport()}
+            >
+              确认导入
+            </Button>
+          </Space>
+        }
+        destroyOnHidden
+      >
+        {importError ? (
+          <Alert type="error" showIcon message={importError} style={{ marginBottom: 12 }} />
+        ) : null}
+
+        {importPreview ? (
+          <div className="skill-generate">
+            {importPreview.warnings.length > 0 ? (
+              <Alert
+                type="warning"
+                showIcon
+                message="导入前需要留意"
+                description={
+                  <ul className="skill-generate__list">
+                    {importPreview.warnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                }
+              />
+            ) : null}
+
+            <Text type="secondary">
+              来源：{importPreview.source_filename ?? '（未命名）'}
+              {importPreview.suggested_skill_id
+                ? `｜目录 ID：${importPreview.suggested_skill_id}`
+                : ''}
+            </Text>
+            <Text type="secondary">
+              {importPreview.expires_in} 秒内确认有效；导入后会保存为独立技能目录。
+            </Text>
+
+            <label className="skill-generate__field">
+              <Text type="secondary">名称</Text>
+              <Input value={importPreview.name} readOnly />
+            </label>
+
+            <label className="skill-generate__field">
+              <Text type="secondary">适用场景</Text>
+              <Input value={importPreview.description} readOnly />
+            </label>
+
+            <label className="skill-generate__field">
+              <Text type="secondary">技能指令（SKILL.md 正文）</Text>
+              <Input.TextArea
+                value={importPreview.content}
+                autoSize={{ minRows: 6, maxRows: 14 }}
+                readOnly
+              />
+            </label>
+
+            <Text type="secondary">附件（{importPreview.resources.length}）</Text>
+            {importPreview.resources.length === 0 ? (
+              <Text type="secondary">没有附件</Text>
+            ) : (
+              importPreview.resources.map((resource) => (
+                <Card size="small" key={resource.name}>
+                  <Text strong>{resource.name}</Text>
+                  <Paragraph
+                    type="secondary"
+                    ellipsis={{ rows: 2, tooltip: resource.content }}
+                    style={{ marginBottom: 0 }}
+                  >
+                    {resource.content}
+                  </Paragraph>
+                </Card>
+              ))
+            )}
+          </div>
+        ) : null}
       </Modal>
     </PageContainer>
   )

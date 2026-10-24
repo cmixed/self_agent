@@ -16,6 +16,7 @@ import type {
   ProviderProbeResponse,
   SettingsResponse,
   SkillGenerateResponse,
+  SkillImportPreview,
   SkillInfo,
   SkillListResponse,
   SkillResourceInfo,
@@ -323,6 +324,37 @@ export async function deleteSkillResource(skillId: string, resourceId: string): 
   if (!response.ok) {
     throw await toApiError(response)
   }
+}
+
+// --- 技能包导入 / 导出（标准 SKILL.md 目录）---
+
+/** 上传 zip 技能包并解析预览（不落盘）。 */
+export async function previewSkillImport(file: File): Promise<SkillImportPreview> {
+  const body = new FormData()
+  body.append('file', file)
+  // 注意：不要设置 Content-Type，浏览器需要自己带 multipart boundary
+  const response = await fetch(`${API_BASE}/skills/import/preview`, { method: 'POST', body })
+  if (!response.ok) {
+    throw await toApiError(response)
+  }
+  return (await response.json()) as SkillImportPreview
+}
+
+/** 确认导入（预览 token 一次性使用）。 */
+export function confirmSkillImport(token: string): Promise<SkillInfo> {
+  return request<SkillInfo>('/skills/import', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  })
+}
+
+/** 导出标准技能包（zip）。 */
+export async function exportSkillPackage(skillId: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE}/skills/${encodeURIComponent(skillId)}/export`)
+  if (!response.ok) {
+    throw await toApiError(response)
+  }
+  return await response.blob()
 }
 
 // --- 预设任务 ---

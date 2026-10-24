@@ -40,6 +40,8 @@ def _isolate_settings(
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "app.db"))
     monkeypatch.setenv("CHECKPOINT_PATH", str(tmp_path / "checkpoints.db"))
     monkeypatch.setenv("SETTINGS_PATH", str(tmp_path / "settings.json"))
+    # 技能目录（文件制）：必须隔离，避免读写仓库内真实 data/skills/
+    monkeypatch.setenv("SKILLS_DIR", str(tmp_path / "skills"))
 
     get_settings.cache_clear()
     reset_caches()

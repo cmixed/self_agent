@@ -130,6 +130,26 @@ export interface SkillListResponse {
   skills: SkillInfo[]
 }
 
+/** 技能包（zip）预览里的一个附件：相对技能根目录的路径 + 文本内容。 */
+export interface SkillPackageResource {
+  name: string
+  content: string
+}
+
+/** 技能包解析结果（尚未落盘，需确认）。 */
+export interface SkillImportPreview {
+  token: string
+  name: string
+  description: string
+  content: string
+  resources: SkillPackageResource[]
+  warnings: string[]
+  suggested_skill_id: string | null
+  source_filename: string | null
+  /** 预览在内存中的存活时间（秒） */
+  expires_in: number
+}
+
 /** 技能按需附件（L3）：目录只暴露 name，正文在模型请求时加载。 */
 export interface SkillResourceInfo {
   resource_id: string

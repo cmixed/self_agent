@@ -149,6 +149,7 @@ Ollama 的 OpenAI 兼容层（/v1）不接受 think 字段，Qwen3 的 /no_think
 | `data/chroma/` | ChromaDB 向量库（集合 `personal_kb`） |
 | `data/sqlite/app.db` | 任务记录、用户偏好、长期记忆 |
 | `data/sqlite/checkpoints.db` | LangGraph Checkpoint（短期记忆） |
+| `data/skills/` | 技能目录（`<skill_id>/SKILL.md` + 附件，文件是唯一内容源） |
 | `data/settings.json` | 运行时 LLM Provider 选择（前端切换结果） |
 
 > ⚠️ **删除 `data/` 等于清空知识库与全部任务记录。**
@@ -158,6 +159,7 @@ Ollama 的 OpenAI 兼容层（/v1）不接受 think 字段，Qwen3 的 /no_think
 其余说明：
 - `data/sqlite/app.db`：用户、偏好、任务记录与长期记忆
 - `data/documents/`、`data/chroma/`：上传的文档与向量库
+- `data/skills/`：技能目录（旧版 SQLite 技能表会在首次启动时迁移到这里并删除）
 - 无复杂用户系统（§31）：默认用户 `DEFAULT_USER_ID=local-user`，可用 `X-User-Id` 请求头覆盖
 
 ### 性能约定
@@ -470,6 +472,27 @@ L1 目录：Planner 只看 skill_id / name / description（不看正文）
 ```
 
 - 内置技能固定 id、不可删除，可编辑/停用；`MAX_SKILL_STEPS=2` 限制单次任务用几个。
+- **存储是标准技能目录**（文件是唯一内容源，SQLite 不再保存技能）：
+
+  ```text
+  data/skills/<skill_id>/
+  ├── SKILL.md            # YAML frontmatter: name / description + 指令正文
+  ├── .skill-state.json   # 应用内部状态：enabled / builtin / source_filename / 时间戳
+  ├── references/         # 按需附件（长资料、检查清单）
+  ├── resources/          # 模板、静态资源
+  └── scripts/            # 只保存文本，永不执行（§31 禁止 Code Runner）
+  ```
+
+  启用/停用等应用状态写在 sidecar，不改写用户的 `SKILL.md`；导出时不带 sidecar。
+  内置技能源码在 `backend/app/skill_packages/<id>/`，`SEED_BUILTIN_SKILLS=true`
+  时复制到技能目录（已存在的不覆盖）。
+- **旧数据迁移**：启动时若存在旧 `skills` / `skill_resources` 表，会读出并写成
+  技能目录，成功后删除旧表（失败保留旧表并下次重试）。
+- **导入/导出技能包**：技能页支持上传 zip（`SKILL.md` + `references/` /
+  `resources/` / `scripts/`，也兼容根目录 `reference.md`）→ 预览 → 确认导入；
+  卡片上的导出按钮生成标准 zip。限制：10 MB zip / 20 MB 解压 / 80 个文件 /
+  单附件 200k 字 / 总附件 1M 字，拒绝 zip slip、绝对路径、符号链接与二进制附件。
+  脚本同样只保存不执行；不支持的目录会给出「已忽略」提示而不是静默丢弃。
 - 技能正文按 `skill_id` 懒加载，且只在 system 注入一次（不再在 user 重复）；
   Planner 提示词不含任何技能正文，技能目录 token 只随「技能数量」增长，不随正文长度增长。
 - 技能附件用于「按需查阅」的长资料（检查清单、模板、规范）。目录只暴露名称，
@@ -520,10 +543,13 @@ L1 目录：Planner 只看 skill_id / name / description（不看正文）
 | `PUT` | `/api/skills/{id}` | 编辑内容 / 启用停用 |
 | `DELETE` | `/api/skills/{id}` | 删除自定义技能（内置返回 409） |
 | `POST` | `/api/skills/generate` | 从文档生成技能**草稿**（不落库） |
-| `GET` | `/api/skills/{id}/resources` | 技能附件列表 |
-| `POST` | `/api/skills/{id}/resources` | 添加附件（同一技能内名称唯一） |
-| `PUT` | `/api/skills/{id}/resources/{resource_id}` | 编辑附件名称 / 正文 |
-| `DELETE` | `/api/skills/{id}/resources/{resource_id}` | 删除附件 |
+| `POST` | `/api/skills/import/preview` | 上传 zip 技能包并解析预览（不落盘，10 分钟内确认） |
+| `POST` | `/api/skills/import` | 确认导入（预览 token 一次性使用） |
+| `GET` | `/api/skills/{id}/export` | 导出标准技能包 zip（不含应用内部状态） |
+| `GET` | `/api/skills/{id}/resources` | 技能附件列表（`resource_id` 为相对路径） |
+| `POST` | `/api/skills/{id}/resources` | 添加附件（同一技能内路径唯一） |
+| `PUT` | `/api/skills/{id}/resources/{resource_id:path}` | 编辑附件路径 / 正文 |
+| `DELETE` | `/api/skills/{id}/resources/{resource_id:path}` | 删除附件 |
 | `POST` | `/api/tasks/{id}/resume` | **继续生成**：从断点续跑（SSE；无检查点返回 409） |
 | `POST` | `/api/tasks/{id}/rerun` | **重新生成**：同 query 新建一次运行（SSE，原任务记录保留） |
 

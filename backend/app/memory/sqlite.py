@@ -68,35 +68,6 @@ CREATE TABLE IF NOT EXISTS memories (
 
 CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id, created_at DESC);
 
-CREATE TABLE IF NOT EXISTS skills (
-    skill_id    TEXT PRIMARY KEY,
-    name        TEXT NOT NULL,
-    description TEXT NOT NULL,
-    content     TEXT NOT NULL,
-    enabled     INTEGER NOT NULL DEFAULT 1,
-    builtin     INTEGER NOT NULL DEFAULT 0,
-    -- 由文档生成的技能记录来源文件名（NULL = 手写/内置）
-    source_filename TEXT,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-);
-
--- 技能附件（L3）：技能目录只暴露 name；模型显式请求时才注入 content。
--- 一个技能内附件名唯一，删除技能时级联清理。
-CREATE TABLE IF NOT EXISTS skill_resources (
-    resource_id TEXT PRIMARY KEY,
-    skill_id    TEXT NOT NULL REFERENCES skills(skill_id) ON DELETE CASCADE,
-    name        TEXT NOT NULL,
-    content     TEXT NOT NULL,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_resources_name
-    ON skill_resources(skill_id, name);
-CREATE INDEX IF NOT EXISTS idx_skill_resources_skill
-    ON skill_resources(skill_id, created_at);
-
 CREATE TABLE IF NOT EXISTS presets (
     preset_id   TEXT PRIMARY KEY,
     title       TEXT NOT NULL,
@@ -187,11 +158,6 @@ MIGRATIONS: tuple[tuple[str, str, str], ...] = (
         "presets",
         "auto_run",
         "ALTER TABLE presets ADD COLUMN auto_run INTEGER NOT NULL DEFAULT 0",
-    ),
-    (
-        "skills",
-        "source_filename",
-        "ALTER TABLE skills ADD COLUMN source_filename TEXT",
     ),
 )
 

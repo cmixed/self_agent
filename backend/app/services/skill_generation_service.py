@@ -39,10 +39,10 @@ from app.core.limits import (
 )
 from app.core.logging import get_logger
 from app.llm.base import LLMProvider
-from app.memory.repository import SkillRecord
 from app.rag.loader import DocumentError, load_document
 from app.services.document_service import DocumentService
 from app.services.skill_service import SkillService
+from app.skills.models import SkillRecord
 
 logger = get_logger(__name__)
 

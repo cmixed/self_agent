@@ -129,6 +129,8 @@ class Settings(BaseSettings):
     # 从文档生成技能时单次送入模型的最大字符数；长文档按此切块提炼
     # （最多 MAX_SKILL_GENERATION_CHUNKS 段，超出部分如实提示）
     skill_generate_max_chars: int = 12000
+    # 技能目录：文件是唯一内容源（<skills_dir>/<skill_id>/SKILL.md + 附件）
+    skills_dir: Path = _REPO_ROOT / "data" / "skills"
 
     # --- Embedding（独立于 LLM Provider，§12）---
     embedding_provider: str = "local"

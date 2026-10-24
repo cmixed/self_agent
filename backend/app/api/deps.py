@@ -19,7 +19,7 @@ from app.core.task_registry import TaskRegistry
 from app.embedding.factory import get_embedding_provider
 from app.llm.base import LLMProvider
 from app.llm.factory import get_llm
-from app.memory.repository import MemoryRepository, SkillRepository, TaskRepository
+from app.memory.repository import MemoryRepository, TaskRepository
 from app.memory.sqlite import SqliteDatabase
 from app.rag.retriever import Retriever
 from app.rag.store import ChromaStore
@@ -32,11 +32,14 @@ from app.services.provider_service import ProviderService
 from app.services.skill_generation_service import SkillGenerationService
 from app.services.skill_service import SkillService
 from app.services.task_service import TaskService
+from app.skills.package import SkillPackageService
+from app.skills.store import SkillFileStore
 
 _store: ChromaStore | None = None
 _task_repository: TaskRepository | None = None
 _memory_repository: MemoryRepository | None = None
-_skill_repository: SkillRepository | None = None
+_skill_store: SkillFileStore | None = None
+_skill_package_service: SkillPackageService | None = None
 _database: SqliteDatabase | None = None
 _checkpoint_store: CheckpointStore | None = None
 
@@ -141,15 +144,23 @@ def build_memory_repository() -> MemoryRepository:
     return _memory_repository
 
 
-def build_skill_repository() -> SkillRepository:
-    global _skill_repository
-    if _skill_repository is None:
-        _skill_repository = SkillRepository(build_database())
-    return _skill_repository
+def build_skill_store() -> SkillFileStore:
+    """进程级缓存的技能目录（文件是唯一内容源）。"""
+    global _skill_store
+    if _skill_store is None:
+        _skill_store = SkillFileStore(get_settings().skills_dir)
+    return _skill_store
 
 
 def build_skill_service() -> SkillService:
-    return SkillService(build_database())
+    return SkillService(build_skill_store())
+
+
+def build_skill_package_service() -> SkillPackageService:
+    global _skill_package_service
+    if _skill_package_service is None:
+        _skill_package_service = SkillPackageService(build_skill_store())
+    return _skill_package_service
 
 
 def build_skill_generation_service() -> SkillGenerationService:
@@ -237,6 +248,10 @@ def get_skill_service() -> SkillService:
     return build_skill_service()
 
 
+def get_skill_package_service() -> SkillPackageService:
+    return build_skill_package_service()
+
+
 def get_preset_service() -> PresetService:
     return build_preset_service()
 
@@ -257,9 +272,11 @@ def get_memory_service(
 
 def reset_caches() -> None:
     """仅用于测试：清空进程级缓存的向量集合与持久化句柄。"""
-    global _store, _task_repository, _memory_repository, _skill_repository, _database
+    global _store, _task_repository, _memory_repository
+    global _skill_store, _skill_package_service, _database
     _store = None
     _task_repository = None
     _memory_repository = None
-    _skill_repository = None
+    _skill_store = None
+    _skill_package_service = None
     _database = None

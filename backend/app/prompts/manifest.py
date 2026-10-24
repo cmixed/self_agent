@@ -39,10 +39,3 @@ PROMPTS: tuple[PromptSpec, ...] = (
     PromptSpec("skill_resource_followup.md", ("name", "content")),
     PromptSpec("eval_baseline.md"),
 )
-
-# 内置技能 id -> 正文文件（正文只在这里维护，数据库仅存用户副本）
-BUILTIN_SKILL_PROMPTS: dict[str, str] = {
-    "builtin-compare": "skills/compare.md",
-    "builtin-takeaways": "skills/takeaways.md",
-    "builtin-glossary": "skills/glossary.md",
-}
