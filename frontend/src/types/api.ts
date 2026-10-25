@@ -124,6 +124,9 @@ export interface SkillInfo {
   updated_at: string
   /** 由文档生成时的来源文件名（手写/内置为 null） */
   source_filename?: string | null
+  /** L3 附件数量与其中的脚本数量 */
+  resource_count: number
+  script_count: number
 }
 
 export interface SkillListResponse {

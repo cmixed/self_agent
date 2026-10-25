@@ -306,6 +306,7 @@ class SkillFileStore:
             )
             return None
         state = self._read_state(skill_dir)
+        resource_count, script_count = self._count_resources(skill_dir)
         return SkillRecord(
             skill_id=skill_dir.name,
             name=parsed.name,
@@ -316,6 +317,8 @@ class SkillFileStore:
             created_at=str(state["created_at"]),
             updated_at=str(state["updated_at"]),
             source_filename=state["source_filename"],
+            resource_count=resource_count,
+            script_count=script_count,
         )
 
     def _list_skills(self, enabled_only: bool) -> list[SkillRecord]:
@@ -557,6 +560,12 @@ class SkillFileStore:
                 found.append((name, path))
         found.sort(key=lambda item: item[0])
         return found
+
+    def _count_resources(self, skill_dir: Path) -> tuple[int, int]:
+        """统计 L3 附件数量（只走目录，不读正文）。脚本单独计数，供 UI 提示不执行。"""
+        paths = self._iter_resource_paths(skill_dir)
+        scripts = sum(1 for relative, _ in paths if relative.startswith("scripts/"))
+        return len(paths), scripts
 
     def _resource_record(
         self, skill_id: str, relative: str, path: Path, content: str

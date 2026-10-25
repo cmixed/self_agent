@@ -20,6 +20,9 @@ class SkillRecord:
     updated_at: str
     # 由文档生成 / 技能包导入时的来源文件名（手写/内置为 None）
     source_filename: str | None = None
+    # 派生统计（不落盘）：L3 附件数量与其中的脚本数量，供列表页展示
+    resource_count: int = 0
+    script_count: int = 0
 
 
 @dataclass(frozen=True)

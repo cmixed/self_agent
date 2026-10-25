@@ -67,6 +67,32 @@ def test_create_update_delete_skill(client: TestClient) -> None:
     assert missing.json()["error_type"] == "skill_not_found"
 
 
+def test_list_reports_resource_and_script_counts(client: TestClient) -> None:
+    created = client.post(
+        "/api/skills",
+        json={"name": "带统计技能", "description": "说明", "content": "指令内容"},
+    ).json()
+    assert created["resource_count"] == 0
+    assert created["script_count"] == 0
+
+    skill_id = created["skill_id"]
+    for name, body in (
+        ("references/background.md", "背景"),
+        ("resources/template.md", "模板"),
+        ("scripts/collect.sh", "echo hi"),
+    ):
+        added = client.post(
+            f"/api/skills/{skill_id}/resources", json={"name": name, "content": body}
+        )
+        assert added.status_code == 200
+
+    listed = next(
+        item for item in client.get("/api/skills").json()["skills"] if item["skill_id"] == skill_id
+    )
+    assert listed["resource_count"] == 3
+    assert listed["script_count"] == 1
+
+
 def test_skill_resource_crud(client: TestClient) -> None:
     created = client.post(
         "/api/skills",

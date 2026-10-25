@@ -587,13 +587,27 @@ export default function SkillsPage() {
                   </span>
                 </div>
 
-                {skill.builtin || !skill.enabled || skill.source_filename ? (
+                {skill.builtin ||
+                !skill.enabled ||
+                skill.source_filename ||
+                skill.resource_count > 0 ||
+                skill.script_count > 0 ? (
                   <div className="entity-card__badges">
                     {skill.builtin ? <Tag>内置</Tag> : null}
                     {!skill.enabled ? <Tag color="default">已停用</Tag> : null}
                     {skill.source_filename ? (
                       <Tooltip title={`来源：${skill.source_filename}`}>
                         <Tag color="blue">文档生成</Tag>
+                      </Tooltip>
+                    ) : null}
+                    {skill.resource_count > 0 ? (
+                      <Tooltip title="L3 按需附件（references / resources / scripts），只在模型请求时进入提示词">
+                        <Tag color="cyan">附件 {skill.resource_count}</Tag>
+                      </Tooltip>
+                    ) : null}
+                    {skill.script_count > 0 ? (
+                      <Tooltip title="scripts/ 下的脚本只保存、永不执行">
+                        <Tag color="orange">含脚本 {skill.script_count}</Tag>
                       </Tooltip>
                     ) : null}
                   </div>

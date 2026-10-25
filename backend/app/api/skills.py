@@ -78,6 +78,8 @@ def _info(record: SkillRecord) -> SkillInfo:
         created_at=record.created_at,
         updated_at=record.updated_at,
         source_filename=record.source_filename,
+        resource_count=record.resource_count,
+        script_count=record.script_count,
     )
 
 

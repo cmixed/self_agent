@@ -219,6 +219,9 @@ class SkillInfo(BaseModel):
     updated_at: str
     # 由文档生成时的来源文件名（手写/内置为 None）
     source_filename: str | None = None
+    # L3 附件数量与其中的脚本数量（目录扫描派生，不落盘）
+    resource_count: int = 0
+    script_count: int = 0
 
 
 class SkillListResponse(BaseModel):
