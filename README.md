@@ -308,6 +308,7 @@ uv run pytest -m smoke
 # 前端：格式 + Lint + 类型检查（一条命令），以及构建
 cd frontend
 vp check             # 无全局 vp 时：npm exec -- vp check
+npm test             # Vitest：纯逻辑与状态模块（Mock API，不依赖后端）
 vp build             # 内含 tsc --noEmit
 ```
 

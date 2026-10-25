@@ -14,6 +14,12 @@ export default defineConfig({
     rules: { 'vite-plus/prefer-vite-plus-imports': 'error' },
     options: { typeAware: true, typeCheck: true },
   },
+  test: {
+    // 纯逻辑测试用 node；需要 DOM 的文件在文件头用 @vitest-environment 覆盖
+    environment: 'node',
+    include: ['src/**/*.test.{ts,tsx}'],
+    restoreMocks: true,
+  },
   plugins: lazyPlugins(() => [react()]),
   server: {
     port: 5173,
