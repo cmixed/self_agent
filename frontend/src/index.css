@@ -1718,11 +1718,37 @@ html[data-theme='dark'] body {
   color: var(--ant-color-text);
 }
 
+/* 键盘可达：自定义按钮需要显式焦点环（浏览器默认样式已被 border 重置影响） */
+.kb-category:focus-visible {
+  outline: 2px solid var(--ant-color-primary-border);
+  outline-offset: 2px;
+}
+
 .kb-category.is-active {
   border-color: var(--ant-color-primary-border);
   background: var(--ant-color-primary-bg);
-  color: var(--ant-color-primary);
+  /* 不用 --ant-color-primary 作正文色：深色主题下它与 primary-bg 对比不足 */
+  color: var(--ant-color-text);
   font-weight: 500;
+}
+
+/* 类别操作按钮平时收起，悬停 / 键盘聚焦时出现；触屏设备常显。
+   用 opacity 而不是 display，避免出现时挤动分类名。 */
+.kb-category__row .ant-btn {
+  flex: 0 0 auto;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.kb-category__row:hover .ant-btn,
+.kb-category__row:focus-within .ant-btn {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .kb-category__row .ant-btn {
+    opacity: 1;
+  }
 }
 
 .kb-category__name {
@@ -1854,6 +1880,11 @@ html[data-theme='dark'] body {
 
 .kb-assign .ant-checkbox-wrapper:hover {
   border-color: var(--ant-color-primary-border);
+}
+
+.kb-assign .ant-checkbox-wrapper:focus-within {
+  border-color: var(--ant-color-primary);
+  box-shadow: 0 0 0 3px var(--ant-color-primary-bg);
 }
 
 .kb-assign .ant-checkbox-wrapper-checked {
