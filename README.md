@@ -10,7 +10,8 @@
 
 核心演示场景：上传若干论文 / 资料，然后让 Agent “根据我的资料写一篇 RAG 技术综述”。
 
-> 架构、设计原则与开发规范见 [`AGENTS.md`](./AGENTS.md)。
+> 架构、设计原则与开发规范见 [`AGENTS.md`](./AGENTS.md)；
+> 已实现结构的说明与关键决策见 [`docs/architecture.md`](./docs/architecture.md)。
 
 ## 技术栈
 
@@ -34,21 +35,25 @@
 │   ├── app/
 │   │   ├── main.py        # FastAPI 入口
 │   │   ├── api/           # 路由、依赖注入与统一错误处理
-│   │   ├── agents/        # Agent 节点（planner / writer / summarizer）
+│   │   ├── agents/        # Agent 节点：planner / researcher / skills / outline /
+│   │   │                  #   writer / validator / summarizer + 预算与引用预检查
 │   │   ├── core/          # 配置、日志、错误映射、LangGraph 编排、Checkpoint
 │   │   ├── embedding/     # Embedding 抽象（base / local / factory），独立于 LLM
-│   │   ├── llm/           # LLM Provider 抽象（base / deepseek / factory）
-│   │   ├── memory/        # SQLite 访问层与仓储（任务记录 / 长期记忆）
+│   │   ├── llm/           # LLM Provider 抽象（DeepSeek / GLM / 自定义 / Ollama）
+│   │   ├── memory/        # SQLite 访问层与仓储（任务记录 / 长期记忆 / 类别）
 │   │   ├── models/        # AgentState 与 API Schema
-│   │   ├── rag/           # 文档加载 / 切分 / 向量存储 / 检索
-│   │   └── services/      # 任务服务、文档服务
+│   │   ├── rag/           # 文档加载 / 切分 / 向量存储 / 检索 / RAG Tool
+│   │   ├── skills/        # SKILL.md 文件存储、技能包导入导出、旧表迁移
+│   │   └── services/      # 任务服务、文档服务、技能服务
 │   └── tests/             # 单元 / 集成 / smoke 测试
 ├── frontend/
-│   ├── src/components/    # 通用组件（Markdown 渲染）
+│   ├── src/components/    # 通用组件（进度、Markdown 渲染、叠加视图等）
 │   ├── src/services/      # 后端 API 客户端
-│   ├── src/pages/         # 页面：任务 / 知识库 / 任务历史 / 长期记忆
+│   ├── src/pages/         # 页面：工作台 / 知识库 / 技能 / 预设任务 /
+│   │                      #   任务历史 / 长期记忆 / 模型服务
 │   └── src/types/         # 类型定义
-└── docs/
+├── docs/                  # 架构说明与评估报告
+└── data/                  # 运行时数据（Chroma / SQLite / 文档 / 技能目录）
 ```
 
 ## 环境准备
@@ -323,14 +328,19 @@ vp build             # 内含 tsc --noEmit
 
 ## 前端
 
-顶部菜单切换四个页面：
+顶部菜单切换七个页面：
 
 | 页面 | 内容 |
 | --- | --- |
-| 任务 | 提交任务、SSE 实时进度（宏观 5 阶段 + 逐章迭代 + 结构化执行日志）、**可随时终止**、结果 Tabs（概览/正文/章节/计划/校验/来源）、**Markdown 渲染**（可复制 / 下载 .md） |
-| 知识库 | 拖拽上传 PDF/TXT/MD、文档列表与删除 |
-| 任务历史 | 任务列表（状态 / 未通过章节 / 时间）、详情抽屉、读取 Agent Checkpoint 状态 |
+| 工作台 | 提交任务、SSE 实时进度（宏观 5 阶段 + 逐章迭代 + 结构化执行日志）、**可随时终止**、结果 Tabs（概览/正文/章节/计划/校验/来源）、**Markdown 渲染**（可复制 / 下载 .md） |
+| 知识库 | 拖拽上传 PDF/TXT/MD（带传输进度、同名提醒）、文件名/标题搜索、文档预览、类别管理与**批量分类 / 批量删除** |
+| 技能 | L1/L2/L3 三段式详情、启停、附件目录管理、zip 技能包导入预览与导出；列表直接显示附件数 / 脚本数 |
+| 预设任务 | 常用任务模板的新增、编辑、删除与一键填入工作台 |
+| 任务历史 | 任务列表（状态 / 未通过章节 / 时间）、详情抽屉、执行历史（`task_runs` 每次尝试）、读取 Agent Checkpoint 状态 |
 | 长期记忆 | 偏好与记忆的查看、新增、删除 |
+| 模型服务 | 自定义 OpenAI 兼容端点（密钥只存后端，不回显）、模型发现、连通性测试与运行时切换 |
+
+页面与叠加视图均为按需加载（路由级 `React.lazy`），首屏只加载应用壳与共享依赖。
 
 ## Memory
 
