@@ -9,6 +9,7 @@ import {
   InboxOutlined,
   PlusOutlined,
   ReloadOutlined,
+  SearchOutlined,
   TagsOutlined,
 } from '@ant-design/icons'
 import {
@@ -22,6 +23,7 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Progress,
   Space,
   Spin,
   Table,
@@ -29,8 +31,8 @@ import {
   Typography,
   Upload,
 } from 'antd'
-import type { UploadProps } from 'antd'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { TableProps, UploadProps } from 'antd'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useViewStack } from '../components/ViewStack'
 import EmptyState from '../components/EmptyState'
@@ -77,21 +79,28 @@ interface CategoryFormValues {
 }
 
 export default function KnowledgeBasePage() {
-  const { message } = App.useApp()
+  const { message, modal } = App.useApp()
   const { openDocument } = useViewStack()
   const [documents, setDocuments] = useState<DocumentInfo[]>([])
   const [categories, setCategories] = useState<CategoryInfo[]>([])
   const [loading, setLoading] = useState(false)
-  const [uploading, setUploading] = useState(false)
+  const [uploadingCount, setUploadingCount] = useState(0)
+  const [uploadProgress, setUploadProgress] = useState<{ name: string; percent: number } | null>(
+    null,
+  )
   const [error, setError] = useState<string | null>(null)
   const [activeCategory, setActiveCategory] = useState<string>(FILTER_ALL)
+  const [keyword, setKeyword] = useState('')
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
 
   const [categoryModalOpen, setCategoryModalOpen] = useState(false)
   const [editingCategory, setEditingCategory] = useState<CategoryInfo | null>(null)
-  const [assignTarget, setAssignTarget] = useState<DocumentInfo | null>(null)
+  const [assignDocs, setAssignDocs] = useState<DocumentInfo[]>([])
   const [assignSelection, setAssignSelection] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [categoryForm] = Form.useForm<CategoryFormValues>()
+  // 上传串行化：后一个文件等前一个「解析 + 建索引」完成，避免同时触发 Embedding
+  const uploadQueue = useRef<Promise<void>>(Promise.resolve())
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -117,29 +126,61 @@ export default function KnowledgeBasePage() {
   )
 
   const filteredDocuments = useMemo(() => {
-    if (activeCategory === FILTER_ALL) return documents
-    if (activeCategory === FILTER_NONE) {
-      return documents.filter((item) => (item.category_ids ?? []).length === 0)
-    }
-    return documents.filter((item) => (item.category_ids ?? []).includes(activeCategory))
-  }, [activeCategory, documents])
+    const inCategory =
+      activeCategory === FILTER_ALL
+        ? documents
+        : activeCategory === FILTER_NONE
+          ? documents.filter((item) => (item.category_ids ?? []).length === 0)
+          : documents.filter((item) => (item.category_ids ?? []).includes(activeCategory))
+    const term = keyword.trim().toLowerCase()
+    if (!term) return inCategory
+    return inCategory.filter(
+      (item) =>
+        item.filename.toLowerCase().includes(term) || item.title.toLowerCase().includes(term),
+    )
+  }, [activeCategory, documents, keyword])
 
   const unclassifiedCount = documents.filter(
     (item) => (item.category_ids ?? []).length === 0,
   ).length
 
-  const handleUpload = async (file: File) => {
-    setUploading(true)
+  const runUpload = async (file: File) => {
+    setUploadingCount((count) => count + 1)
+    setUploadProgress({ name: file.name, percent: 0 })
     setError(null)
     try {
-      const info = await uploadDocument(file)
+      const info = await uploadDocument(file, (percent) =>
+        setUploadProgress({ name: file.name, percent }),
+      )
       message.success(`已索引《${info.filename}》，切分为 ${info.chunks} 个文本块`)
       await refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '上传失败')
     } finally {
-      setUploading(false)
+      setUploadingCount((count) => Math.max(0, count - 1))
+      setUploadProgress(null)
     }
+  }
+
+  const handleUpload = async (file: File) => {
+    // 同名文档不会覆盖，会额外产生一份独立向量，先让用户确认
+    if (documents.some((item) => item.filename === file.name)) {
+      const confirmed = await new Promise<boolean>((resolve) => {
+        modal.confirm({
+          title: '已存在同名文档',
+          content: `知识库中已有《${file.name}》。继续上传会新建一份独立文档与向量，不会覆盖原文档。`,
+          okText: '仍然上传',
+          cancelText: '跳过',
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        })
+      })
+      if (!confirmed) return
+    }
+    // 串行入队：避免多个文件同时触发 Embedding 与向量写入
+    const task = uploadQueue.current.then(() => runUpload(file))
+    uploadQueue.current = task.catch(() => undefined)
+    await uploadQueue.current
   }
 
   const handleDelete = async (documentId: string, filename: string) => {
@@ -147,10 +188,32 @@ export default function KnowledgeBasePage() {
     try {
       await deleteDocument(documentId)
       message.success(`已删除《${filename}》及其向量`)
+      setSelectedIds((ids) => ids.filter((id) => id !== documentId))
       await refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '删除失败')
     }
+  }
+
+  const handleBatchDelete = async () => {
+    const targets = documents.filter((item) => selectedIds.includes(item.document_id))
+    if (targets.length === 0) return
+    setError(null)
+    let removed = 0
+    for (const target of targets) {
+      try {
+        await deleteDocument(target.document_id)
+        removed += 1
+      } catch (err) {
+        setError(
+          err instanceof ApiError ? err.message : `删除《${target.filename}》失败，已停止批量删除`,
+        )
+        break
+      }
+    }
+    if (removed > 0) message.success(`已删除 ${removed} 个文档及其向量`)
+    setSelectedIds([])
+    await refresh()
   }
 
   // --- 类别管理 ---
@@ -204,18 +267,37 @@ export default function KnowledgeBasePage() {
   // --- 文档分类 ---
 
   const openAssign = (document: DocumentInfo) => {
-    setAssignTarget(document)
+    setAssignDocs([document])
     setAssignSelection(document.category_ids ?? [])
   }
 
+  const openBatchAssign = () => {
+    const targets = documents.filter((item) => selectedIds.includes(item.document_id))
+    if (targets.length === 0) return
+    setAssignDocs(targets)
+    setAssignSelection([])
+  }
+
   const handleSaveAssign = async () => {
-    if (!assignTarget) return
+    if (assignDocs.length === 0) return
     setSaving(true)
     setError(null)
     try {
-      await setDocumentCategories(assignTarget.document_id, assignSelection)
-      message.success(`已更新《${assignTarget.filename}》的类别`)
-      setAssignTarget(null)
+      const results = await Promise.allSettled(
+        assignDocs.map((item) => setDocumentCategories(item.document_id, assignSelection)),
+      )
+      const failed = results.filter((item) => item.status === 'rejected').length
+      if (failed === 0) {
+        message.success(
+          assignDocs.length === 1
+            ? `已更新《${assignDocs[0].filename}》的类别`
+            : `已更新 ${assignDocs.length} 个文档的类别`,
+        )
+      } else {
+        setError(`${failed} / ${assignDocs.length} 个文档的类别更新失败，请重试`)
+      }
+      setAssignDocs([])
+      setSelectedIds([])
       await refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '更新类别失败')
@@ -228,10 +310,16 @@ export default function KnowledgeBasePage() {
     multiple: true,
     showUploadList: false,
     accept: '.pdf,.txt,.md,.markdown',
-    disabled: uploading,
     customRequest: ({ file, onSuccess }) => {
       void handleUpload(file as File).then(() => onSuccess?.({}))
     },
+  }
+
+  const rowSelection: TableProps<DocumentInfo>['rowSelection'] = {
+    selectedRowKeys: selectedIds,
+    onChange: (keys) => setSelectedIds(keys as string[]),
+    // 翻页后保留已选，批量操作针对的是「跨页选中的集合」
+    preserveSelectedRowKeys: true,
   }
 
   const totalChunks = documents.reduce((sum, item) => sum + item.chunks, 0)
@@ -337,12 +425,51 @@ export default function KnowledgeBasePage() {
           <Card
             title={
               activeCategory === FILTER_ALL
-                ? `知识库文档（${documents.length}）`
+                ? `知识库文档（${filteredDocuments.length}）`
                 : activeCategory === FILTER_NONE
                   ? `未分类文档（${filteredDocuments.length}）`
                   : `「${categoryNames[activeCategory] ?? ''}」下的文档（${filteredDocuments.length}）`
             }
           >
+            {documents.length > 0 ? (
+              <div className="kb-toolbar">
+                <Input
+                  allowClear
+                  prefix={<SearchOutlined />}
+                  placeholder="按文件名或标题搜索"
+                  aria-label="搜索文档"
+                  value={keyword}
+                  onChange={(event) => setKeyword(event.target.value)}
+                  className="kb-search"
+                />
+                {selectedIds.length > 0 ? (
+                  <Space size={8} wrap>
+                    <Text type="secondary">已选 {selectedIds.length} 项</Text>
+                    <Button
+                      size="small"
+                      onClick={openBatchAssign}
+                      disabled={categories.length === 0}
+                    >
+                      批量分类
+                    </Button>
+                    <Popconfirm
+                      title={`删除选中的 ${selectedIds.length} 个文档及其向量？`}
+                      description="删除后这些文档不会再被检索到。"
+                      onConfirm={() => void handleBatchDelete()}
+                    >
+                      <Button size="small" danger>
+                        批量删除
+                      </Button>
+                    </Popconfirm>
+                    <Button size="small" type="text" onClick={() => setSelectedIds([])}>
+                      取消选择
+                    </Button>
+                  </Space>
+                ) : (
+                  <Text type="secondary">勾选文档可批量分类或删除</Text>
+                )}
+              </div>
+            ) : null}
             {documents.length === 0 && !loading ? (
               <EmptyState
                 title="还没有任何文档"
@@ -358,14 +485,19 @@ export default function KnowledgeBasePage() {
             ) : filteredDocuments.length === 0 && !loading ? (
               <EmptyState
                 compact
-                title="该类别下还没有文档"
-                hint="在文档行的「分类」里把已有资料归入这个类别，或先在下方上传"
+                title={keyword.trim() ? '没有匹配的文档' : '该类别下还没有文档'}
+                hint={
+                  keyword.trim()
+                    ? `没有文件名或标题包含「${keyword.trim()}」的文档，换个关键词试试`
+                    : '在文档行的「分类」里把已有资料归入这个类别，或先在下方上传'
+                }
               />
             ) : (
               <Table<DocumentInfo>
                 rowKey="document_id"
                 dataSource={filteredDocuments}
                 loading={loading}
+                rowSelection={rowSelection}
                 scroll={{ x: 'max-content' }}
                 pagination={
                   filteredDocuments.length > 10 ? { pageSize: 10, showSizeChanger: false } : false
@@ -484,13 +616,24 @@ export default function KnowledgeBasePage() {
               </Text>
             </Dragger>
 
-            {uploading && (
-              <Space style={{ marginTop: 12 }} size="small">
-                <Spin size="small" />
-                <Text type="secondary">
-                  正在解析并建立索引…首次上传需加载本地 Embedding 模型（约 10 秒），请勿关闭页面
+            {uploadingCount > 0 && (
+              <div className="kb-upload-status">
+                <Space size="small" wrap>
+                  <Spin size="small" />
+                  <Text type="secondary">
+                    {uploadProgress
+                      ? `《${uploadProgress.name}》上传 ${uploadProgress.percent}%，随后解析并建立索引…`
+                      : '正在解析并建立索引…'}
+                    {uploadingCount > 1 ? `（队列中还有 ${uploadingCount - 1} 个）` : ''}
+                  </Text>
+                </Space>
+                {uploadProgress ? (
+                  <Progress percent={uploadProgress.percent} size="small" showInfo={false} />
+                ) : null}
+                <Text type="secondary" className="kb-upload-status__hint">
+                  首次上传需加载本地 Embedding 模型（约 10 秒），请勿关闭页面
                 </Text>
-              </Space>
+              </div>
             )}
           </Card>
         </div>
@@ -528,9 +671,13 @@ export default function KnowledgeBasePage() {
       </Modal>
 
       <Modal
-        title={assignTarget ? `设置《${assignTarget.filename}》的类别` : '设置类别'}
-        open={assignTarget !== null}
-        onCancel={() => setAssignTarget(null)}
+        title={
+          assignDocs.length === 1
+            ? `设置《${assignDocs[0].filename}》的类别`
+            : `为 ${assignDocs.length} 个文档设置类别`
+        }
+        open={assignDocs.length > 0}
+        onCancel={() => setAssignDocs([])}
         onOk={() => void handleSaveAssign()}
         confirmLoading={saving}
         okText="保存"
@@ -540,15 +687,22 @@ export default function KnowledgeBasePage() {
         {categories.length === 0 ? (
           <Text type="secondary">还没有类别，先在左侧「新建类别」。</Text>
         ) : (
-          <Checkbox.Group
-            value={assignSelection}
-            onChange={(values) => setAssignSelection(values as string[])}
-            className="kb-assign"
-            options={categories.map((category) => ({
-              label: category.name,
-              value: category.category_id,
-            }))}
-          />
+          <>
+            {assignDocs.length > 1 ? (
+              <Paragraph type="secondary" className="kb-assign__hint">
+                保存会把这 {assignDocs.length} 个文档的类别统一替换为下面的选择。
+              </Paragraph>
+            ) : null}
+            <Checkbox.Group
+              value={assignSelection}
+              onChange={(values) => setAssignSelection(values as string[])}
+              className="kb-assign"
+              options={categories.map((category) => ({
+                label: category.name,
+                value: category.category_id,
+              }))}
+            />
+          </>
         )}
       </Modal>
     </PageContainer>

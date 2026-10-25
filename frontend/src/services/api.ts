@@ -230,15 +230,55 @@ export function deleteDocument(documentId: string): Promise<{ status: string }> 
   return request<{ status: string }>(`/documents/${documentId}`, { method: 'DELETE' })
 }
 
-/** 上传并索引文档（multipart：不要手动设置 Content-Type，交给浏览器带 boundary）。 */
-export async function uploadDocument(file: File): Promise<DocumentInfo> {
-  const form = new FormData()
-  form.append('file', file)
-  const response = await fetch(`${API_BASE}/documents/upload`, { method: 'POST', body: form })
-  if (!response.ok) {
-    throw await toApiError(response)
-  }
-  return (await response.json()) as DocumentInfo
+/** 上传并索引文档（multipart：不要手动设置 Content-Type，交给浏览器带 boundary）。
+ *
+ * 用 XHR 而不是 fetch：只有 XHR 能拿到上传进度（大 PDF 时前端需要真实反馈）。
+ */
+export function uploadDocument(
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<DocumentInfo> {
+  return new Promise((resolve, reject) => {
+    const form = new FormData()
+    form.append('file', file)
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_BASE}/documents/upload`)
+    if (onProgress) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)))
+        }
+      }
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as DocumentInfo)
+        } catch {
+          reject(new ApiError(xhr.status, { error: 'invalid_response', error_type: 'unknown' }))
+        }
+        return
+      }
+      let body: ApiErrorBody = { error: 'request_failed', error_type: 'unknown' }
+      try {
+        body = JSON.parse(xhr.responseText) as ApiErrorBody
+      } catch {
+        // 后端可能返回非 JSON 错误页，忽略解析失败
+      }
+      reject(new ApiError(xhr.status, body))
+    }
+    xhr.onerror = () =>
+      reject(
+        new ApiError(0, {
+          error: 'network_error',
+          detail: '无法连接后端，请确认 FastAPI 已启动',
+          error_type: 'network_error',
+        }),
+      )
+    xhr.onabort = () =>
+      reject(new ApiError(0, { error: 'aborted', detail: '上传已取消', error_type: 'aborted' }))
+    xhr.send(form)
+  })
 }
 
 /** 知识库文档原文件的访问地址（download=true 时为附件下载，否则内联预览）。 */

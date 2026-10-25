@@ -1798,6 +1798,42 @@ html[data-theme='dark'] body {
   color: var(--ant-color-text-tertiary);
 }
 
+/* 文档工具栏：搜索 + 批量操作，窄屏换行 */
+.kb-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ws-space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--ws-space-3);
+}
+
+.kb-search {
+  width: 280px;
+  max-width: 100%;
+}
+
+/* 上传状态：传输进度 + 解析阶段提示（进度只反映网络传输，索引另算） */
+.kb-upload-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-1);
+  margin-top: var(--ws-space-3);
+}
+
+.kb-upload-status .ant-progress {
+  margin: 0;
+}
+
+.kb-upload-status__hint {
+  font-size: var(--ws-font-caption);
+}
+
+.kb-assign__hint {
+  margin-bottom: var(--ws-space-2) !important;
+  font-size: var(--ws-font-caption);
+}
+
 /* 「设置类别」弹窗：复选框同样收成胶囊标签 */
 .kb-assign {
   display: flex;
