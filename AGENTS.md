@@ -822,9 +822,13 @@ Final Integration
 
 ```text
 TARGET_SECTIONS   提示词里的参考章节上限（默认 6）
-MAX_SECTIONS      实际生成上限（默认 12，夹在 [3, 20]）
+MAX_SECTIONS      实际生成上限（默认 12，夹在 [MIN_SECTIONS, 20]）
+MIN_SECTIONS      结构下限（=1，只保证「至少一章正文」，不强制 3 章）
 HARD_SECTION_CEILING=20   仅安全兜底，不参与产品决策（§27）
 ```
+
+章节数还应结合资料量自适应（见下方 `recommended_sections`）：短任务只写 1 章
+是合法结果，不要为了凑章节数把少量资料拆成多个空章。
 
 模型给出超过上限的章节时，**截断并在进度中说明**（可见、不静默），
 不得因此让整单任务失败；`failed_chapters` 与撰写循环必须使用同一边界。
@@ -1154,6 +1158,17 @@ Final result
 测试 Agent Graph 时尽可能使用 Mock LLM，不要让单元测试依赖真实 DeepSeek API。
 
 真实 API 测试应单独作为 smoke test。
+
+### Frontend Unit Test
+
+前端使用 Vitest（`npm test`，底层为 `vp test`），只覆盖纯逻辑与状态归并，
+不启动浏览器、不访问真实后端：
+
+- `frontend/src/utils/*.test.ts`：格式化、检索范围描述等纯函数；
+- `frontend/src/state/*.test.tsx`：导航与任务运行状态（`services/api` 全部 Mock，
+  用事件序列驱动状态机）。
+
+新增交互组件时优先抽出纯函数/归并函数再测试，不要为了测试引入浏览器 E2E。
 
 ---
 
