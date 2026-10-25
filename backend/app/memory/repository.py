@@ -304,7 +304,8 @@ class MemoryRepository:
     async def delete_preference(self, user_id: str, key: str) -> bool:
         return await asyncio.to_thread(self._delete_preference, user_id, key)
 
-    async def list_memories(self, user_id: str, *, limit: int = 50) -> list[MemoryRecord]:
+    async def list_memories(self, user_id: str, *, limit: int | None = 50) -> list[MemoryRecord]:
+        """按时间倒序列出记忆；``limit=None`` 返回全部（写入前去重用）。"""
         return await asyncio.to_thread(self._list_memories, user_id, limit)
 
     async def add_memory(
@@ -358,16 +359,18 @@ class MemoryRepository:
             connection.commit()
         return cursor.rowcount > 0
 
-    def _list_memories(self, user_id: str, limit: int) -> list[MemoryRecord]:
+    def _list_memories(self, user_id: str, limit: int | None) -> list[MemoryRecord]:
+        query = """
+            SELECT memory_id, user_id, kind, content, source_task_id, created_at
+              FROM memories WHERE user_id = ?
+             ORDER BY memory_id DESC
+            """
+        params: tuple[object, ...] = (user_id,)
+        if limit is not None:
+            query += " LIMIT ?"
+            params += (max(1, limit),)
         with self._database.connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT memory_id, user_id, kind, content, source_task_id, created_at
-                  FROM memories WHERE user_id = ?
-                 ORDER BY memory_id DESC LIMIT ?
-                """,
-                (user_id, max(1, limit)),
-            ).fetchall()
+            rows = connection.execute(query, params).fetchall()
         return [
             MemoryRecord(
                 memory_id=row["memory_id"],

@@ -168,6 +168,153 @@ async def test_extract_tolerates_invalid_json(repository: MemoryRepository) -> N
     assert await repository.get_preferences("u1") == {}
 
 
+# --- 去重：偏好与记忆的边界 ---
+
+
+async def test_extract_normalizes_preference_keys(repository: MemoryRepository) -> None:
+    payload = json.dumps(
+        {
+            "preferences": [{"key": "写作风格", "value": "偏好学术严谨"}],
+            "memories": [],
+        },
+        ensure_ascii=False,
+    )
+    service = MemoryService(repository, ScriptedProvider([payload]))
+
+    await service.extract_from_task("u1", query="写综述", result={"final_answer": "正文"})
+
+    assert await repository.get_preferences("u1") == {"style": "偏好学术严谨"}
+
+
+async def test_extract_deduplicates_preference_values_under_other_keys(
+    repository: MemoryRepository,
+) -> None:
+    await repository.set_preference("u1", "language", "中文")
+    payload = json.dumps(
+        {
+            "preferences": [
+                {"key": "style", "value": "中文"},
+                {"key": "format", "value": "Markdown"},
+            ],
+            "memories": [],
+        },
+        ensure_ascii=False,
+    )
+    service = MemoryService(repository, ScriptedProvider([payload]))
+
+    await service.extract_from_task("u1", query="写综述", result={"final_answer": "正文"})
+
+    assert await repository.get_preferences("u1") == {"format": "Markdown", "language": "中文"}
+
+
+async def test_extract_skips_near_duplicate_memory_across_tasks(
+    repository: MemoryRepository,
+) -> None:
+    first = json.dumps(
+        {"preferences": [], "memories": [{"kind": "task_type", "content": "经常撰写技术综述"}]},
+        ensure_ascii=False,
+    )
+    second = json.dumps(
+        {"preferences": [], "memories": [{"kind": "task_type", "content": "常写技术综述"}]},
+        ensure_ascii=False,
+    )
+    service = MemoryService(repository, ScriptedProvider([first, second]))
+
+    await service.extract_from_task(
+        "u1", query="写综述", result={"final_answer": "正文"}, task_id="t1"
+    )
+    await service.extract_from_task(
+        "u1", query="再写一篇", result={"final_answer": "正文"}, task_id="t2"
+    )
+
+    memories = await repository.list_memories("u1")
+    assert [memory.content for memory in memories] == ["经常撰写技术综述"]
+    assert memories[0].source_task_id == "t1"
+
+
+async def test_extract_skips_memory_that_duplicates_a_preference(
+    repository: MemoryRepository,
+) -> None:
+    await repository.set_preference("u1", "style", "偏好学术严谨")
+    payload = json.dumps(
+        {
+            "preferences": [],
+            "memories": [{"kind": "fact", "content": "偏好学术严谨"}],
+        },
+        ensure_ascii=False,
+    )
+    service = MemoryService(repository, ScriptedProvider([payload]))
+
+    await service.extract_from_task("u1", query="写综述", result={"final_answer": "正文"})
+
+    assert await repository.list_memories("u1") == []
+
+
+async def test_extract_reclassifies_preference_memory_as_fact(
+    repository: MemoryRepository,
+) -> None:
+    payload = json.dumps(
+        {
+            "preferences": [],
+            "memories": [{"kind": "preference", "content": "研究方向是 RAG 与知识图谱"}],
+        },
+        ensure_ascii=False,
+    )
+    service = MemoryService(repository, ScriptedProvider([payload]))
+
+    await service.extract_from_task("u1", query="写综述", result={"final_answer": "正文"})
+
+    memories = await repository.list_memories("u1")
+    assert [(memory.kind, memory.content) for memory in memories] == [
+        ("fact", "研究方向是 RAG 与知识图谱")
+    ]
+
+
+async def test_extract_prompt_includes_existing_memory(
+    repository: MemoryRepository,
+) -> None:
+    await repository.set_preference("u1", "style", "偏好学术严谨")
+    await repository.add_memory("u1", kind="fact", content="研究方向是 RAG")
+    provider = ScriptedProvider(['{"preferences": [], "memories": []}'])
+    service = MemoryService(repository, provider)
+
+    await service.extract_from_task("u1", query="写综述", result={"final_answer": "正文"})
+
+    prompt = provider.calls[0][-1].content
+    assert "不要重复提取" in prompt
+    assert "style=偏好学术严谨" in prompt
+    assert "[fact] 研究方向是 RAG" in prompt
+
+
+async def test_manual_add_memory_skips_near_duplicate(repository: MemoryRepository) -> None:
+    service = MemoryService(repository)
+
+    assert await service.add_memory("u1", kind="task_type", content="经常撰写技术综述") is not None
+    assert await service.add_memory("u1", kind="task_type", content="常写技术综述") is None
+    assert len(await repository.list_memories("u1")) == 1
+
+
+async def test_manual_add_memory_skips_preference_duplicate(
+    repository: MemoryRepository,
+) -> None:
+    service = MemoryService(repository)
+    await service.set_preference("u1", "style", "偏好学术严谨")
+
+    assert await service.add_memory("u1", kind="fact", content="偏好学术严谨") is None
+    assert await repository.list_memories("u1") == []
+
+
+async def test_manual_preference_uses_canonical_key(repository: MemoryRepository) -> None:
+    service = MemoryService(repository)
+
+    await service.set_preference("u1", "写作风格", "偏好学术严谨")
+    assert await repository.get_preferences("u1") == {"style": "偏好学术严谨"}
+
+    # 删除时旧写法同样能命中规范键
+    assert await service.delete_preference("u1", "写作风格") is True
+    assert await repository.get_preferences("u1") == {}
+
+
 # --- 显式 API ---
 
 

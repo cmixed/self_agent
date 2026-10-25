@@ -73,7 +73,9 @@ async def add_memory(
         source_task_id=payload.source_task_id,
     )
     if record is None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="相同的记忆已存在")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="相同或高度相似的记忆已存在"
+        )
     return MemoryOut.model_validate(record.__dict__)
 
 

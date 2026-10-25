@@ -38,7 +38,8 @@ const PAGE_MAX_WIDTH = 1200
 
 /** 常用偏好键（与后端 MemoryService 的提示保持一致） */
 const COMMON_KEYS = ['style', 'format', 'language', 'task_types']
-const MEMORY_KINDS = ['preference', 'fact', 'task_type']
+// 偏好只走「偏好」通道；记忆存事实/任务类型，避免同一信息记两份
+const MEMORY_KINDS = ['fact', 'task_type']
 
 interface PreferenceRow {
   key: string
