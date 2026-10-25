@@ -145,7 +145,6 @@ export default function KnowledgeBasePage() {
   ).length
 
   const runUpload = async (file: File) => {
-    setUploadingCount((count) => count + 1)
     setUploadProgress({ name: file.name, percent: 0 })
     setError(null)
     try {
@@ -177,7 +176,9 @@ export default function KnowledgeBasePage() {
       })
       if (!confirmed) return
     }
-    // 串行入队：避免多个文件同时触发 Embedding 与向量写入
+    // 串行入队：避免多个文件同时触发 Embedding 与向量写入。
+    // 入队即计数，等待中的文件也能在状态里看到（真正的进度只在轮到它时才有）。
+    setUploadingCount((count) => count + 1)
     const task = uploadQueue.current.then(() => runUpload(file))
     uploadQueue.current = task.catch(() => undefined)
     await uploadQueue.current
@@ -623,8 +624,8 @@ export default function KnowledgeBasePage() {
                   <Text type="secondary">
                     {uploadProgress
                       ? `《${uploadProgress.name}》上传 ${uploadProgress.percent}%，随后解析并建立索引…`
-                      : '正在解析并建立索引…'}
-                    {uploadingCount > 1 ? `（队列中还有 ${uploadingCount - 1} 个）` : ''}
+                      : '正在准备上传…'}
+                    {uploadingCount > 1 ? `（排队 ${uploadingCount - 1} 个）` : ''}
                   </Text>
                 </Space>
                 {uploadProgress ? (
