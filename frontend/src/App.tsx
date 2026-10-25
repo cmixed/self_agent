@@ -13,31 +13,53 @@ import {
   SunOutlined,
   TagsOutlined,
 } from '@ant-design/icons'
-import { App as AntApp, Badge, Button, ConfigProvider, Drawer, Layout, Menu, Tooltip } from 'antd'
+import {
+  App as AntApp,
+  Badge,
+  Button,
+  ConfigProvider,
+  Drawer,
+  Layout,
+  Menu,
+  Spin,
+  Tooltip,
+} from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import type { ReactNode } from 'react'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 
 import ErrorBoundary from './components/ErrorBoundary'
-import DocumentView from './components/DocumentView'
 import ProviderSwitch, { providerLabelOf } from './components/ProviderSwitch'
-import SkillView from './components/SkillView'
-import TaskDetailView from './components/TaskDetailView'
 import { ViewStackProvider, useViewStack } from './components/ViewStack'
 import { useHealth } from './hooks/useHealth'
 import { useIsNarrow } from './hooks/useIsNarrow'
-import HistoryPage from './pages/History'
-import KnowledgeBasePage from './pages/KnowledgeBase'
-import MemoryPage from './pages/Memory'
-import PresetsPage from './pages/Presets'
-import ProvidersPage from './pages/Providers'
-import SkillsPage from './pages/Skills'
-import TaskPage from './pages/Task'
 import { NavProvider, useNav } from './state/nav'
 import type { PageKey } from './state/nav'
 import { TaskRunProvider, useTaskRun } from './state/taskRun'
 import { APP_VERSION, BRAND_NAME, BRAND_SUBTITLE, LAYOUT, buildThemeConfig } from './theme/config'
 import { useUiPreferences } from './theme/useUiPreferences'
+
+// 页面与叠加视图按需加载：首屏只解析应用壳，页面重依赖（Markdown / 表格等）随路由拆包。
+const TaskPage = lazy(() => import('./pages/Task'))
+const KnowledgeBasePage = lazy(() => import('./pages/KnowledgeBase'))
+const SkillsPage = lazy(() => import('./pages/Skills'))
+const PresetsPage = lazy(() => import('./pages/Presets'))
+const ProvidersPage = lazy(() => import('./pages/Providers'))
+const HistoryPage = lazy(() => import('./pages/History'))
+const MemoryPage = lazy(() => import('./pages/Memory'))
+
+const DocumentView = lazy(() => import('./components/DocumentView'))
+const SkillView = lazy(() => import('./components/SkillView'))
+const TaskDetailView = lazy(() => import('./components/TaskDetailView'))
+
+/** 懒加载占位：与应用壳同色，避免切页时闪白。 */
+function PageFallback() {
+  return (
+    <div className="app-loading">
+      <Spin />
+    </div>
+  )
+}
 
 const { Content, Sider } = Layout
 
@@ -240,13 +262,15 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
           <ErrorBoundary>
             {/* 页面常驻挂载；叠加视图隐藏它，返回时列表与状态不丢 */}
             <div className={overlays.length === 0 ? 'app-layer' : 'app-layer is-hidden'}>
-              {page === 'workspace' && <TaskPage />}
-              {page === 'knowledge' && <KnowledgeBasePage />}
-              {page === 'skills' && <SkillsPage />}
-              {page === 'presets' && <PresetsPage />}
-              {page === 'providers' && <ProvidersPage />}
-              {page === 'history' && <HistoryPage />}
-              {page === 'memory' && <MemoryPage />}
+              <Suspense fallback={<PageFallback />}>
+                {page === 'workspace' && <TaskPage />}
+                {page === 'knowledge' && <KnowledgeBasePage />}
+                {page === 'skills' && <SkillsPage />}
+                {page === 'presets' && <PresetsPage />}
+                {page === 'providers' && <ProvidersPage />}
+                {page === 'history' && <HistoryPage />}
+                {page === 'memory' && <MemoryPage />}
+              </Suspense>
             </div>
             {/* 叠加视图（任务详情 / 文档阅读），可嵌套返回 */}
             {overlays.map((entry, index) => (
@@ -254,13 +278,18 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
                 key={entry.id}
                 className={index === overlays.length - 1 ? 'app-layer' : 'app-layer is-hidden'}
               >
-                {entry.view.kind === 'document' ? (
-                  <DocumentView documentId={entry.view.documentId} filename={entry.view.filename} />
-                ) : entry.view.kind === 'skill' ? (
-                  <SkillView skill={entry.view.skill} />
-                ) : (
-                  <TaskDetailView taskId={entry.view.taskId} />
-                )}
+                <Suspense fallback={<PageFallback />}>
+                  {entry.view.kind === 'document' ? (
+                    <DocumentView
+                      documentId={entry.view.documentId}
+                      filename={entry.view.filename}
+                    />
+                  ) : entry.view.kind === 'skill' ? (
+                    <SkillView skill={entry.view.skill} />
+                  ) : (
+                    <TaskDetailView taskId={entry.view.taskId} />
+                  )}
+                </Suspense>
               </div>
             ))}
           </ErrorBoundary>

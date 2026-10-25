@@ -1846,6 +1846,15 @@ html[data-theme='dark'] body {
   display: none;
 }
 
+/* 懒加载占位：与内容区同底色，只显示一个居中的轻量 spinner */
+.app-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40vh;
+  padding: var(--ws-space-7) 0;
+}
+
 .view-panel {
   border: 1px solid var(--ant-color-border);
   border-radius: var(--ws-radius-lg);
