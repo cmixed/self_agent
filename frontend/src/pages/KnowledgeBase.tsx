@@ -244,7 +244,9 @@ export default function KnowledgeBasePage() {
       className={`kb-category${activeCategory === key ? ' is-active' : ''}`}
       onClick={() => setActiveCategory(key)}
     >
-      <span className="kb-category__name">{label}</span>
+      <span className="kb-category__name">
+        <span className="kb-category__label">{label}</span>
+      </span>
       <span className="kb-category__count">{count}</span>
     </button>
   )
@@ -306,7 +308,8 @@ export default function KnowledgeBasePage() {
                   onClick={() => setActiveCategory(category.category_id)}
                 >
                   <span className="kb-category__name">
-                    <TagsOutlined /> {category.name}
+                    <TagsOutlined />
+                    <span className="kb-category__label">{category.name}</span>
                   </span>
                   <span className="kb-category__count">{category.document_count}</span>
                 </button>
@@ -376,7 +379,7 @@ export default function KnowledgeBasePage() {
                       const meta = KIND_META[documentKind(filename)]
                       return (
                         <Space size={6}>
-                          <Tag color={meta.color} icon={meta.icon}>
+                          <Tag color={meta.color} icon={meta.icon} className="kb-tag">
                             {meta.label}
                           </Tag>
                           <Button
@@ -404,14 +407,18 @@ export default function KnowledgeBasePage() {
                       if (ids.length === 0) return <Text type="secondary">未分类</Text>
                       const shown = ids.slice(0, 3)
                       return (
-                        <Space size={4} wrap>
+                        <div className="kb-tag-list">
                           {shown.map((id) => (
-                            <Tag key={id}>{categoryNames[id] ?? '已删除类别'}</Tag>
+                            <Tag key={id} className="kb-tag">
+                              {categoryNames[id] ?? '已删除类别'}
+                            </Tag>
                           ))}
                           {ids.length > shown.length ? (
-                            <Text type="secondary">+{ids.length - shown.length}</Text>
+                            <Tag bordered={false} className="kb-tag kb-tag--more">
+                              +{ids.length - shown.length}
+                            </Tag>
                           ) : null}
-                        </Space>
+                        </div>
                       )
                     },
                   },

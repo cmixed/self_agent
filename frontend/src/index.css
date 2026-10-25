@@ -1667,6 +1667,170 @@ html[data-theme='dark'] body {
   }
 }
 
+/* --- 知识库：类别侧栏 / 标签统一为胶囊形 -------------------------------- */
+/* 类别是「可点击的标签」，与文档行内的类别标签保持同一形态：
+   胶囊圆角 + 统一间距，避免浏览器默认矩形按钮与贴边粘连。 */
+.kb-layout {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  gap: var(--ws-gap);
+  align-items: start;
+}
+
+.kb-sidebar .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-1);
+}
+
+.kb-category__row {
+  display: flex;
+  align-items: center;
+  gap: var(--ws-space-1);
+}
+
+.kb-category {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ws-space-2);
+  width: 100%;
+  min-width: 0;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--ant-color-fill-quaternary);
+  color: var(--ant-color-text-secondary);
+  font-family: inherit;
+  font-size: var(--ws-font-secondary);
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    color 0.2s;
+}
+
+.kb-category:hover {
+  background: var(--ant-color-fill-tertiary);
+  color: var(--ant-color-text);
+}
+
+.kb-category.is-active {
+  border-color: var(--ant-color-primary-border);
+  background: var(--ant-color-primary-bg);
+  color: var(--ant-color-primary);
+  font-weight: 500;
+}
+
+.kb-category__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.kb-category__name .anticon {
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+
+.kb-category__label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.kb-category__count {
+  flex: 0 0 auto;
+  min-width: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--ant-color-fill-secondary);
+  color: var(--ant-color-text-tertiary);
+  font-size: var(--ws-font-caption);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  text-align: center;
+}
+
+.kb-category.is-active .kb-category__count {
+  background: var(--ant-color-primary);
+  color: var(--ant-color-text-light-solid);
+}
+
+.kb-category__divider {
+  height: 1px;
+  margin: var(--ws-space-2) var(--ws-space-1);
+  background: var(--ant-color-border-secondary);
+}
+
+.kb-sidebar__hint {
+  display: block;
+  padding: var(--ws-space-2) var(--ws-space-1);
+  font-size: var(--ws-font-caption);
+  line-height: var(--ws-lh-body);
+}
+
+/* 文档行内的类别标签：容器统一 gap，标签自身去掉 antd 的 margin-inline-end，
+   否则与 gap 叠加会出现忽宽忽窄的间距。 */
+.kb-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.kb-tag.ant-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-end: 0;
+  padding-inline: 9px;
+  border-radius: 999px;
+  font-size: var(--ws-font-caption);
+  line-height: 20px;
+}
+
+.kb-tag--more.ant-tag {
+  color: var(--ant-color-text-tertiary);
+}
+
+/* 「设置类别」弹窗：复选框同样收成胶囊标签 */
+.kb-assign {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ws-space-2);
+}
+
+.kb-assign .ant-checkbox-wrapper {
+  margin-inline-start: 0;
+  padding: 4px 12px 4px 10px;
+  border: 1px solid var(--ant-color-border);
+  border-radius: 999px;
+  line-height: 1.5;
+  transition:
+    background 0.2s,
+    border-color 0.2s;
+}
+
+.kb-assign .ant-checkbox-wrapper:hover {
+  border-color: var(--ant-color-primary-border);
+}
+
+.kb-assign .ant-checkbox-wrapper-checked {
+  border-color: var(--ant-color-primary-border);
+  background: var(--ant-color-primary-bg);
+}
+
+@media (max-width: 992px) {
+  .kb-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* --- 叠加视图（任务详情 / 文档阅读）：统一面板 + 统一视图头 ---------------- */
 .doc-name {
   padding: 0;
