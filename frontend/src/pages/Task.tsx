@@ -9,6 +9,7 @@ import {
   DownloadOutlined,
   EditOutlined,
   FileTextOutlined,
+  HistoryOutlined,
   LoadingOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -68,7 +69,7 @@ import {
   formatTokenRate,
   formatTokens,
 } from '../utils/format'
-import { splitWorkspacePresets } from '../utils/presets'
+import { pickLastTask, splitWorkspacePresets, WORKSPACE_PRESET_LIMIT } from '../utils/presets'
 import { runningTaskStage } from '../utils/runningTasks'
 import { describeScope } from '../utils/scope'
 import { readTaskOptionsMemory, sanitizeScope, saveTaskOptions } from '../utils/taskOptions'
@@ -172,13 +173,10 @@ export default function TaskPage() {
     download,
     tasksVersion,
     selectTask,
+    rerun,
   } = useTaskRun()
 
   const { presets, loaded: presetsLoaded } = usePresets()
-  const { visible: workspacePresets, hidden: hiddenPresets } = useMemo(
-    () => splitWorkspacePresets(presets),
-    [presets],
-  )
   const resultRef = useRef<HTMLDivElement | null>(null)
   const [documents, setDocuments] = useState<DocumentInfo[] | null>(null)
   const [recentTasks, setRecentTasks] = useState<TaskSummary[]>([])
@@ -186,6 +184,16 @@ export default function TaskPage() {
   const [scope, setScope] = useState<TaskScope>({ category_ids: [], document_ids: [] })
   const [scopePickerOpen, setScopePickerOpen] = useState(false)
   const [outputTab, setOutputTab] = useState('plan')
+  // 「上次任务」固定占预设区第一个槽位，因此可见预设少一条
+  const lastTask = useMemo(() => pickLastTask(recentTasks), [recentTasks])
+  const { visible: workspacePresets, hidden: hiddenPresets } = useMemo(
+    () =>
+      splitWorkspacePresets(
+        presets,
+        lastTask ? WORKSPACE_PRESET_LIMIT - 1 : WORKSPACE_PRESET_LIMIT,
+      ),
+    [lastTask, presets],
+  )
   // 执行选项记忆：开关在「设置」页，这里只负责套用与记录
   const [optionMemory] = useState(() => readTaskOptionsMemory())
   const optionsHydratedRef = useRef(false)
@@ -241,7 +249,8 @@ export default function TaskPage() {
     let cancelled = false
     listTasks(8)
       .then((tasks) => {
-        if (!cancelled) setRecentTasks(tasks.tasks.slice(0, 4))
+        // 保留 8 条：最近任务只展示 4 条，但「上次任务」需要跳过运行中的任务
+        if (!cancelled) setRecentTasks(tasks.tasks)
       })
       .catch(() => {
         // 读取失败保持上一次结果
@@ -344,6 +353,12 @@ export default function TaskPage() {
     setOutputTab('plan')
     // 等 idle 视图挂载后再聚焦输入框，减少一次点击
     window.setTimeout(() => document.getElementById('task-query')?.focus(), 0)
+  }
+
+  /** 「上次任务」：沿用原任务的 query / 范围 / 深度 / 技能重新执行（新 task_id）。 */
+  const handleLastTaskRun = () => {
+    if (!lastTask) return
+    void rerun(lastTask.task_id, lastTask.query)
   }
 
   // --- 执行主线：与真实拓扑一一对应（撰写 ⇄ 校验为独立节点，重试/重规划以小注回环呈现） ---
@@ -753,7 +768,7 @@ export default function TaskPage() {
 
         <Section
           title="预设任务"
-          description="点击卡片填入输入框；标记「直接运行」的预设点击即执行"
+          description="点击卡片填入输入框；标记「直接运行」的预设与「上次任务」点击即执行"
           extra={
             <Space size={4}>
               {hiddenPresets.length > 0 ? (
@@ -781,7 +796,7 @@ export default function TaskPage() {
               </Card>
             ))}
           </div>
-        ) : presets.length === 0 ? (
+        ) : presets.length === 0 && !lastTask ? (
           <EmptyState
             compact
             title="还没有预设任务"
@@ -789,6 +804,43 @@ export default function TaskPage() {
           />
         ) : (
           <div className="ws-presets">
+            {lastTask ? (
+              <Tooltip
+                title={`${lastTask.query}（沿用原检索范围 / 深度 / 技能重新执行）`}
+                placement="top"
+              >
+                <Card
+                  size="small"
+                  className="ws-preset ws-preset--last"
+                  hoverable
+                  onClick={handleLastTaskRun}
+                >
+                  <div className="ws-preset__body">
+                    <div className="ws-preset__title ws-preset__title--last">
+                      <span className="ws-preset__last-label">
+                        <HistoryOutlined /> 上次任务
+                      </span>
+                      <StatusTag status={lastTask.status} />
+                    </div>
+                    <div className="ws-preset__desc">{lastTask.query}</div>
+                  </div>
+                  <div className="ws-preset__actions">
+                    <Button
+                      size="small"
+                      type="primary"
+                      ghost
+                      icon={<ReloadOutlined />}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handleLastTaskRun()
+                      }}
+                    >
+                      再次运行
+                    </Button>
+                  </div>
+                </Card>
+              </Tooltip>
+            ) : null}
             {workspacePresets.map((preset) => {
               const bound = presetScope(preset)
               const scopeInfo = bound ? describeScope(bound, categories, documents ?? []) : null
@@ -917,7 +969,7 @@ export default function TaskPage() {
               <EmptyState compact title="还没有任务记录" />
             ) : (
               <ul className="ws-recent">
-                {recentTasks.map((task) =>
+                {recentTasks.slice(0, 4).map((task) =>
                   task.status === 'running' ? (
                     <li key={task.task_id}>
                       <button

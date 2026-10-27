@@ -1436,6 +1436,26 @@ html[data-theme='dark'] body {
   border-color: var(--ant-color-primary) !important;
 }
 
+/* 「上次任务」固定第一张：强调可再次直接执行 */
+.ws-preset--last {
+  border-color: var(--ant-color-primary-border);
+  background: var(--ant-color-primary-bg);
+}
+
+.ws-preset__title--last {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ws-space-2);
+}
+
+.ws-preset__last-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .ws-preset .ant-card-body {
   display: flex;
   flex-direction: column;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test'
 
-import type { PresetInfo } from '../types/api'
-import { movePreset, splitWorkspacePresets, WORKSPACE_PRESET_LIMIT } from './presets'
+import type { PresetInfo, TaskSummary } from '../types/api'
+import { movePreset, pickLastTask, splitWorkspacePresets, WORKSPACE_PRESET_LIMIT } from './presets'
 
 function preset(id: string): PresetInfo {
   return {
@@ -55,5 +55,27 @@ describe('movePreset', () => {
     expect(movePreset(presets, 'a', 'a')).toBe(presets)
     expect(movePreset(presets, 'a', 'missing')).toBe(presets)
     expect(movePreset(presets, 'missing', 'a')).toBe(presets)
+  })
+})
+
+describe('pickLastTask', () => {
+  function task(id: string, status: string): TaskSummary {
+    return {
+      task_id: id,
+      query: id,
+      status,
+      created_at: '2026-01-01T00:00:00+00:00',
+      retry_count: 0,
+      failed_chapters: [],
+    }
+  }
+
+  it('跳过运行中的任务，返回最近一次已结束任务', () => {
+    expect(pickLastTask([task('run', 'running'), task('done', 'completed')])?.task_id).toBe('done')
+  })
+
+  it('没有已结束任务时返回 null', () => {
+    expect(pickLastTask([])).toBeNull()
+    expect(pickLastTask([task('run', 'running')])).toBeNull()
   })
 })

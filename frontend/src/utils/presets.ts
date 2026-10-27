@@ -1,9 +1,18 @@
 /** 预设任务在工作台 / 预设页共用的纯逻辑。 */
 
-import type { PresetInfo } from '../types/api'
+import type { PresetInfo, TaskSummary } from '../types/api'
 
 /** 工作台直接展示的预设数量；其余进入「更多」下拉。 */
 export const WORKSPACE_PRESET_LIMIT = 6
+
+/**
+ * 选出「上次任务」卡片使用的任务：最近一次**已结束**的任务。
+ *
+ * 运行中的任务不能直接 rerun（后端会 409），所以跳过；找不到时返回 null。
+ */
+export function pickLastTask(tasks: readonly TaskSummary[]): TaskSummary | null {
+  return tasks.find((task) => task.status !== 'running') ?? null
+}
 
 /** 把工作台预设拆成「直接显示」与「更多下拉」两组（保持后端顺序）。 */
 export function splitWorkspacePresets(

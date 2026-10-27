@@ -1050,9 +1050,12 @@ MAX_RETRIES=2
   那里是长期记忆，混入表单交互状态会污染记忆去重。
 - 提醒参数存 localStorage（`agent.pillSettings`），设置页修改后立即通知
   `TaskRunProvider`；主题存 `self-agent.theme`（顶栏按钮把跟随系统切成明确的浅 / 深）。
-- 胶囊数量、窄屏聚合、排序、完成态收集、选项记忆、提醒参数等纯逻辑抽成函数并
-  单测（`utils/runningTasks.ts`、`utils/taskOptions.ts`、`utils/pillSettings.ts`），
-  不要为测试引入浏览器 E2E。
+- 预设区第一张固定为「上次任务」（最近一次**已结束**任务）：点击沿用原 query /
+  检索范围 / 深度 / 技能重新执行。运行中的任务不能直接 rerun，选择时必须跳过；
+  它占用工作台 6 个预设展示槽位中的第一个。
+- 胶囊数量、窄屏聚合、预设拆分 / 排序、完成态收集、选项记忆、提醒参数等纯逻辑
+  抽成函数并单测（`utils/runningTasks.ts`、`utils/presets.ts`、
+  `utils/taskOptions.ts`、`utils/pillSettings.ts`），不要为测试引入浏览器 E2E。
 
 ---
 
