@@ -59,6 +59,16 @@ class RetrievedDocument(TypedDict):
     score: float | None
 
 
+class UserMemory(TypedDict):
+    """一条长期记忆（``fact`` / ``task_type``）。
+
+    只作背景参考：不是用户指令，也不是可引用的知识库资料。
+    """
+
+    kind: str
+    content: str
+
+
 class RetrievalScope(TypedDict, total=False):
     """本次任务的检索范围（提交时解析并冻结，随 checkpoint 持久化）。
 
@@ -143,6 +153,9 @@ class AgentState(TypedDict, total=False):
     messages: Annotated[list[ChatMessage], add]
     user_query: str
     user_preferences: dict[str, str]
+    # 任务开始时选出的长期记忆（最多 6 条）：只作背景，不得当作资料引用。
+    # 随 checkpoint 固化；续跑沿用同一份，重新生成才重新读取。
+    user_memories: list[UserMemory]
     # --- 计划 ---
     plan: Plan | None
     current_step: str | None
@@ -183,6 +196,7 @@ def initial_state(
     *,
     task_id: str,
     user_preferences: dict[str, str] | None = None,
+    user_memories: list[UserMemory] | None = None,
     retrieval_scope: RetrievalScope | None = None,
     task_profile: dict[str, object] | None = None,
 ) -> AgentState:
@@ -197,6 +211,7 @@ def initial_state(
         messages=[ChatMessage(role="user", content=query)],
         user_query=query,
         user_preferences=user_preferences or {},
+        user_memories=user_memories or [],
         plan=None,
         current_step=None,
         step_results=[],

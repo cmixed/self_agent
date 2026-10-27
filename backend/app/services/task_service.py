@@ -34,7 +34,13 @@ from app.core.task_registry import TaskRegistry, get_task_registry
 from app.llm.base import LLMError, LLMProvider
 from app.llm.usage import UsageCollector, UsageTrackingProvider, collect_usage
 from app.memory.repository import TaskRepository
-from app.models.state import AgentState, RetrievalScope, RetrievedDocument, initial_state
+from app.models.state import (
+    AgentState,
+    RetrievalScope,
+    RetrievedDocument,
+    UserMemory,
+    initial_state,
+)
 from app.models.task_profile import resolve_profile
 from app.rag.tools import RagTool, dedupe_documents
 
@@ -230,6 +236,7 @@ class TaskService:
         query: str,
         *,
         user_preferences: dict[str, str] | None = None,
+        user_memories: list[UserMemory] | None = None,
         task_id: str | None = None,
         user_id: str | None = None,
         retrieval_scope: RetrievalScope | None = None,
@@ -243,6 +250,7 @@ class TaskService:
             return await self._run_impl(
                 query,
                 user_preferences=user_preferences,
+                user_memories=user_memories,
                 task_id=run_id,
                 user_id=user_id,
                 retrieval_scope=retrieval_scope,
@@ -260,6 +268,7 @@ class TaskService:
         query: str,
         *,
         user_preferences: dict[str, str] | None = None,
+        user_memories: list[UserMemory] | None = None,
         task_id: str | None = None,
         user_id: str | None = None,
         retrieval_scope: RetrievalScope | None = None,
@@ -272,6 +281,7 @@ class TaskService:
             query,
             task_id=run_id,
             user_preferences=user_preferences,
+            user_memories=user_memories,
             retrieval_scope=retrieval_scope,
             task_profile=profile.to_dict(),
         )
@@ -363,6 +373,7 @@ class TaskService:
         query: str,
         *,
         user_preferences: dict[str, str] | None = None,
+        user_memories: list[UserMemory] | None = None,
         task_id: str | None = None,
         user_id: str | None = None,
         retrieval_scope: RetrievalScope | None = None,
@@ -376,6 +387,7 @@ class TaskService:
             async for event in self._stream_impl(
                 query,
                 user_preferences=user_preferences,
+                user_memories=user_memories,
                 task_id=run_id,
                 user_id=user_id,
                 retrieval_scope=retrieval_scope,
@@ -394,6 +406,7 @@ class TaskService:
         query: str,
         *,
         user_preferences: dict[str, str] | None = None,
+        user_memories: list[UserMemory] | None = None,
         task_id: str | None = None,
         user_id: str | None = None,
         retrieval_scope: RetrievalScope | None = None,
@@ -411,6 +424,7 @@ class TaskService:
             query,
             task_id=run_id,
             user_preferences=user_preferences,
+            user_memories=user_memories,
             retrieval_scope=retrieval_scope,
             task_profile=profile.to_dict(),
         )

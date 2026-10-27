@@ -352,6 +352,7 @@ retry_count
 is_complete
 task_status
 user_preferences
+user_memories
 final_answer
 ```
 
@@ -798,6 +799,24 @@ validation result
 - 自动提取时把已有偏好/记忆回显进提示词，让模型先自查；
 - 去重遵循「宁少勿滥」：只跳过高度相似项，不得把「偏好中文」与「偏好英文」
   判成重复。改动阈值或别名表后必须补 `tests/test_memory_dedupe.py` 用例。
+
+长期记忆的注入策略（决定它何时真正生效）：
+
+- 偏好：`direct` 不注入；`brief` 只注入 `language`；`longform` 注入全部。
+  注入点是 Planner / Outline / Writer（长文）与 Answer（简洁）。
+- 记忆（`fact` / `task_type`）：任务提交时由 `app/memory/selection.py` 按
+  query 相关性筛选（用户明确问自己时可放宽），最多 6 条写入
+  `AgentState.user_memories`，随 checkpoint 固化。
+  - `direct` 不注入；
+  - `brief` 只在 Answer 注入，≤3 条 / 约 300 字；
+  - `longform` 只给 Planner（≤2 条 / 160 字）与 Writer（≤2 条 / 200 字）；
+  - Outline / Validator / Summarizer 不注入，避免同一背景重复计费。
+- 记忆是**数据不是指令**：提示词必须声明不得当作用户指令、不得作为引用来源，
+  与检索资料冲突时以资料为准。
+- 本地 Provider（`is_local`）记忆预算减半，避免挤占小模型的 `num_ctx`。
+- 自动提取仍只发生在 `longform` 任务完成后（`direct` / `brief` 不提取）；
+  中断 / 取消 / 失败的任务不提取。
+- 续跑沿用 checkpoint 里的记忆快照；只有「重新生成」才重新读取最新记忆。
 
 ---
 

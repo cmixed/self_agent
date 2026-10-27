@@ -359,10 +359,20 @@ vp build             # 内含 tsc --noEmit
 
 写入方式：
 1. **显式 API**（上表）：用户或前端主动设置；
-2. **自动提取**：任务完成后用一次结构化 LLM 调用提取，best-effort（失败不影响任务）。
+2. **自动提取**：长文任务完成后用一次结构化 LLM 调用提取，best-effort（失败不影响任务；
+   `direct` / `brief` 不提取）。
 
 规则：**显式设置的值优先** —— 自动提取不会覆盖已存在的偏好键；内容完全重复的记忆不会重复保存。
 任务运行时会先读取该用户的长期偏好，与本次请求的 `user_preferences` 合并（请求优先）后注入 Agent。
+
+记忆的实际生效范围：
+
+- 偏好：`direct` 不注入；`brief` 只注入 `language`；`longform` 注入全部；
+- 记忆（`fact` / `task_type`）：提交任务时按 query 相关性筛选，最多 6 条；
+  `brief` 只在回答里作背景，`longform` 只给 Planner 与 Writer 各少量几条，
+  Outline / Validator / Summarizer 不重复注入；
+- 记忆是背景数据，不是用户指令，也不能当作 `[n]` 引用来源；与资料冲突时以资料为准；
+- 「继续生成」沿用任务开始时的记忆快照，「重新生成」才读取最新记忆。
 
 ## 当前 Agent 流程
 

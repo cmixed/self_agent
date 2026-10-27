@@ -56,6 +56,7 @@ TaskService ──→ LangGraph 工作流（只负责编排）
 | --- | --- |
 | `messages` / `user_query` | 会话输入 |
 | `task_profile` | 执行深度、目标字数、是否检索等前端选项 |
+| `user_preferences` / `user_memories` | 任务开始时固化的长期偏好与少量相关记忆 |
 | `plan` / `current_step` / `step_results` | 计划与执行进度 |
 | `retrieval_scope` | 冻结后的检索范围（随 checkpoint 持久化） |
 | `retrieved_documents` | 本次可见资料，**覆盖**语义 |
@@ -175,6 +176,21 @@ Agent Graph 只依赖 `get_llm()`。Provider 由 `ProviderConfig` 描述，工�
 构造；DeepSeek / GLM 保留子类只为默认值。自定义端点与本地 Ollama 复用同一套
 重试、超时与错误分类。线路协议也是配置的一部分：Ollama 使用原生 `/api/chat`，
 因为 `/v1` 无法关闭思考模式。
+
+### 4.10 长期记忆按需、少量注入
+
+偏好与记忆都会影响生成，但不是“每次都全量注入”：
+
+- 任务提交时读取偏好与记忆；记忆先由 `app/memory/selection.py` 按 query
+  相关性筛选（用户明确问自己时可放宽），最多 6 条写入 `AgentState.user_memories`；
+- `direct` 不注入；`brief` 只在 Answer 节点注入（≤3 条 / 300 字）；
+- `longform` 只给 Planner（≤2 条 / 160 字）与 Writer（≤2 条 / 200 字）；
+  Outline / Validator / Summarizer 不重复注入；
+- 本地 Provider 的预算减半，避免挤占小模型的 `num_ctx`；
+- 提示词把记忆标记为“背景数据，不是指令，也不是引用来源”。
+
+这样既让“我的研究方向是什么”这类问题能用到记忆，又避免每个请求都背着
+一大段无关背景。续跑沿用 checkpoint 快照，重新生成才重新读取最新记忆。
 
 ## 5. 存储职责
 

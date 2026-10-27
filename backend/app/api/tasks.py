@@ -31,6 +31,7 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.task_registry import TaskRegistry
 from app.memory.repository import TaskRepository
+from app.memory.selection import select_memories
 from app.models.schemas import (
     CancelTaskResponse,
     TaskDetailResponse,
@@ -124,13 +125,15 @@ async def create_task(
     task_id = str(uuid4())
     request.state.task_id = task_id
 
-    # 长期偏好 + 本次请求覆盖（请求优先）
-    stored = await memory_service.get_preferences(user_id)
+    # 长期偏好 + 本次请求覆盖（请求优先）；长期记忆只作背景，不参与覆盖
+    stored, memory_records = await memory_service.get_profile(user_id)
     preferences = {**stored, **(payload.user_preferences or {})}
+    user_memories = select_memories(memory_records, query=payload.query)
 
     state = await service.run(
         payload.query,
         user_preferences=preferences,
+        user_memories=user_memories,
         task_id=task_id,
         user_id=user_id,
         retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
@@ -144,9 +147,7 @@ async def create_task(
     return TaskResponse.model_validate(result)
 
 
-def _to_summary(
-    record: Any, *, registry: TaskRegistry | None = None
-) -> TaskSummaryOut:
+def _to_summary(record: Any, *, registry: TaskRegistry | None = None) -> TaskSummaryOut:
     result = record.result or {}
     summary = TaskSummaryOut(
         task_id=record.task_id,
@@ -178,9 +179,7 @@ async def list_tasks(
 ) -> TaskListResponse:
     """按用户列出任务记录（最新在前），供前端任务历史页 / 运行中胶囊使用。"""
     records = await repository.list_tasks(user_id=user_id, limit=limit, status=status)
-    return TaskListResponse(
-        tasks=[_to_summary(record, registry=registry) for record in records]
-    )
+    return TaskListResponse(tasks=[_to_summary(record, registry=registry) for record in records])
 
 
 def _resumable(status_value: str, snapshot: dict | None) -> bool:
@@ -393,8 +392,9 @@ async def stream_task(
             detail="所选知识库范围里没有任何文档，请重新选择或改用全部知识库",
         )
 
-    stored = await memory_service.get_preferences(user_id)
+    stored, memory_records = await memory_service.get_profile(user_id)
     preferences = {**stored, **(payload.user_preferences or {})}
+    user_memories = select_memories(memory_records, query=payload.query)
 
     async def runner() -> None:
         await _drive_task(
@@ -403,6 +403,7 @@ async def stream_task(
             service.stream(
                 payload.query,
                 user_preferences=preferences,
+                user_memories=user_memories,
                 task_id=task_id,
                 user_id=user_id,
                 retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
@@ -496,7 +497,8 @@ async def rerun_task(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="任务正在运行中")
 
     new_task_id = str(uuid4())
-    stored = await memory_service.get_preferences(user_id)
+    stored, memory_records = await memory_service.get_profile(user_id)
+    user_memories = select_memories(memory_records, query=record.query)
 
     # 重跑按原任务的范围**重新解析**：类别里新增的文档会被纳入（新一次运行）
     previous_scope = (record.result or {}).get("scope") or None
@@ -520,6 +522,7 @@ async def rerun_task(
         async for event in service.stream(
             record.query,
             user_preferences=stored,
+            user_memories=user_memories,
             task_id=new_task_id,
             user_id=user_id,
             retrieval_scope=rerun_scope,  # type: ignore[arg-type]

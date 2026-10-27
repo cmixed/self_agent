@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.agents.memory_context import render_memories
 from app.agents.preferences import render_preferences
 from app.agents.skills import (
     MAX_SKILL_STEPS,
@@ -50,11 +51,14 @@ class PlanModel(BaseModel):
     steps: list[PlanStepModel] = Field(min_length=1)
 
 
-def _render_planner_input(state: AgentState) -> str:
+def _render_planner_input(state: AgentState, *, compact: bool = False) -> str:
     parts = [f"用户任务：{state.get('user_query', '')}"]
     rendered = render_preferences(state)
     if rendered:
         parts.append(rendered)
+    memories = render_memories(state, "planner", compact=compact)
+    if memories:
+        parts.append(memories)
 
     scope = state.get("retrieval_scope") or {}
     scope_documents = scope.get("document_ids")
@@ -105,6 +109,8 @@ def make_planner_node(
     计划中加入技能步骤；技能正文不会进入规划提示词。
     """
     catalog = SkillCatalog.from_entries(skill_catalog)
+    # 本地小模型上下文更小：记忆预算减半，避免挤占 num_ctx
+    compact_memory = bool(getattr(llm, "is_local", False))
 
     async def planner_node(state: AgentState) -> dict:
         # 技能是显式 opt-in：默认不把目录注入 planner，避免模型被引导去
@@ -116,7 +122,7 @@ def make_planner_node(
             system_prompt = f"{system_prompt}\n\n{skill_catalog_for_prompt(catalog_meta)}"
         messages = [
             ChatMessage(role="system", content=system_prompt),
-            ChatMessage(role="user", content=_render_planner_input(state)),
+            ChatMessage(role="user", content=_render_planner_input(state, compact=compact_memory)),
         ]
         plan_model = await llm.chat_structured(
             messages, PlanModel, temperature=0.0, max_retries=max_retries

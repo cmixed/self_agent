@@ -33,7 +33,8 @@ const { Text } = Typography
 
 const PAGE_EYEBROW = '长期记忆'
 const PAGE_TITLE = '管理跨任务保留的偏好与信息'
-const PAGE_DESCRIPTION = 'Agent 会在后续任务中遵循这些偏好，并从中积累长期记忆。'
+const PAGE_DESCRIPTION =
+  '偏好会在后续任务中按模式生效；事实与任务类型会作为相关任务的背景参考，不会被当作引用来源。'
 const PAGE_MAX_WIDTH = 1200
 
 /** 常用偏好键（与后端 MemoryService 的提示保持一致） */

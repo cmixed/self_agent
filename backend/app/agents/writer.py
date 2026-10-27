@@ -24,6 +24,7 @@ from app.agents.chapters import (
     ensure_aligned,
     next_pending_index,
 )
+from app.agents.memory_context import render_memories
 from app.agents.preferences import render_preferences
 from app.agents.skills import render_skill_outputs
 from app.core.limits import DEFAULT_TOTAL_CHARS
@@ -48,6 +49,7 @@ def _render_section_input(
     budget: WritingBudget,
     char_target: tuple[int, int] | None = None,
     points: list[str] | None = None,
+    compact: bool = False,
 ) -> str:
     plan = state.get("plan")
     lines = [f"用户任务：{state.get('user_query', '')}"]
@@ -94,6 +96,9 @@ def _render_section_input(
     rendered = render_preferences(state)
     if rendered:
         lines.append(rendered)
+    memories = render_memories(state, "writer", compact=compact)
+    if memories:
+        lines.append(memories)
     return "\n".join(lines)
 
 
@@ -137,6 +142,8 @@ def make_writer_node(
     篇幅用「目标字数」软约束；输出被长度上限截断时（``finish_reason=length``）
     追加**一次**有限续写，仍然截断则把事实写进 step_result 与消息（可见、不静默）。
     """
+    # 本地小模型上下文更小：记忆预算减半，避免挤占 num_ctx
+    compact_memory = bool(getattr(llm, "is_local", False))
 
     async def writer_node(state: AgentState) -> dict:
         outline = state.get("outline") or []
@@ -172,6 +179,7 @@ def make_writer_node(
                     budget=budget,
                     char_target=char_target,
                     points=list(outline[index].get("points") or []),
+                    compact=compact_memory,
                 ),
             ),
         ]

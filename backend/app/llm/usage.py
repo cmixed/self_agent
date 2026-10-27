@@ -170,6 +170,11 @@ class UsageTrackingProvider(LLMProvider):
     def inner(self) -> LLMProvider:
         return self._inner
 
+    @property
+    def is_local(self) -> bool:
+        """透传底层 Provider 的本地标记（记忆预算据此收紧）。"""
+        return bool(getattr(self._inner, "is_local", False))
+
     async def chat(
         self,
         messages: Sequence[ChatMessage],

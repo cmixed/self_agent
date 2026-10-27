@@ -16,6 +16,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 
 from app.agents.citations import citation_issue_text, dangling_citation_indices
+from app.agents.memory_context import render_memories
 from app.agents.preferences import render_preferences
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMError, LLMProvider, LLMUpstreamError
@@ -34,6 +35,9 @@ def make_answer_node(
     rag_tool_provider: Callable[[], RagTool] | None = None,
 ) -> Callable[[AgentState], Awaitable[dict]]:
     """构造轻量回答节点。"""
+
+    # 本地小模型上下文更小：记忆预算减半，避免挤占 num_ctx
+    compact_memory = bool(getattr(llm, "is_local", False))
 
     async def answer_node(state: AgentState) -> dict:
         profile = state.get("task_profile") or {}
@@ -99,7 +103,13 @@ def make_answer_node(
                     )
                 )
 
-        messages = _build_messages(state, mode=mode, target_chars=target_chars, documents=documents)
+        messages = _build_messages(
+            state,
+            mode=mode,
+            target_chars=target_chars,
+            documents=documents,
+            compact=compact_memory,
+        )
         # 轻量任务关闭思考模式：推理 token 会挤占输出预算并显著增加延迟。
         with thinking_scope(False):
             response = await llm.chat(
@@ -174,6 +184,7 @@ def _build_messages(
     mode: str,
     target_chars: int,
     documents: list[RetrievedDocument],
+    compact: bool = False,
 ) -> list[ChatMessage]:
     prompt_name = "answer_brief.md" if mode == "brief" else "answer_direct.md"
     system_prompt = render_prompt(prompt_name, target_chars=target_chars)
@@ -181,6 +192,9 @@ def _build_messages(
     rendered = render_preferences(state)
     if rendered:
         parts.append(rendered)
+    memories = render_memories(state, "answer", compact=compact)
+    if memories:
+        parts.append(memories)
 
     if documents:
         parts.append(f"检索到的资料（请用 [编号] 引用）：\n{format_context(documents)}")
