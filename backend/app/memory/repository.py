@@ -485,6 +485,8 @@ class PresetRecord:
     document_ids: list[str] = field(default_factory=list)
     # 点击卡片是否直接运行（默认 False = 仅填入输入框待确认）
     auto_run: bool = False
+    # 工作台展示顺序（越小越靠前；新建预设追加到末尾）
+    sort_order: int = 0
 
 
 def _encode_scope(category_ids: list[str], document_ids: list[str]) -> str | None:
@@ -885,7 +887,7 @@ class PresetRepository:
     _PRESETS_KEY = "presets_seeded"
     _SELECT = """
         SELECT preset_id, title, description, query, scope_json, auto_run,
-               created_at, updated_at
+               sort_order, created_at, updated_at
           FROM presets
     """
 
@@ -944,6 +946,10 @@ class PresetRepository:
     async def delete_preset(self, preset_id: str) -> bool:
         return await asyncio.to_thread(self._delete_preset, preset_id)
 
+    async def reorder_presets(self, preset_ids: list[str]) -> list[PresetRecord]:
+        """按给定顺序写入 ``sort_order``（调用方负责校验 id 集合）。"""
+        return await asyncio.to_thread(self._reorder_presets, list(preset_ids))
+
     async def seed_once(self, seeds: list[dict[str, str]]) -> bool:
         """仅在「从未写入过默认预设」时写入；返回是否真的写入了。
 
@@ -967,11 +973,14 @@ class PresetRepository:
             category_ids=category_ids,
             document_ids=document_ids,
             auto_run=bool(row["auto_run"]),
+            sort_order=int(row["sort_order"]),
         )
 
     def _list_presets(self) -> list[PresetRecord]:
         with self._database.connect() as connection:
-            rows = connection.execute(self._SELECT + " ORDER BY created_at").fetchall()
+            rows = connection.execute(
+                self._SELECT + " ORDER BY sort_order, created_at, rowid"
+            ).fetchall()
         return [self._record(row) for row in rows]
 
     def _get_preset(self, preset_id: str) -> PresetRecord | None:
@@ -992,13 +1001,27 @@ class PresetRepository:
         preset_id = str(uuid4())
         scope_json = _encode_scope(category_ids, document_ids)
         with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM presets"
+            ).fetchone()
+            sort_order = int(row["next_order"])
             connection.execute(
                 """
                 INSERT INTO presets(preset_id, title, description, query, scope_json,
-                                    auto_run, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                    auto_run, sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (preset_id, title, description, query, scope_json, int(auto_run), now, now),
+                (
+                    preset_id,
+                    title,
+                    description,
+                    query,
+                    scope_json,
+                    int(auto_run),
+                    sort_order,
+                    now,
+                    now,
+                ),
             )
             connection.commit()
         return PresetRecord(
@@ -1011,6 +1034,7 @@ class PresetRepository:
             category_ids=list(category_ids),
             document_ids=list(document_ids),
             auto_run=auto_run,
+            sort_order=sort_order,
         )
 
     def _update_preset(
@@ -1057,6 +1081,16 @@ class PresetRepository:
             connection.commit()
         return cursor.rowcount > 0
 
+    def _reorder_presets(self, preset_ids: list[str]) -> list[PresetRecord]:
+        with self._database.connect() as connection:
+            for index, preset_id in enumerate(preset_ids):
+                connection.execute(
+                    "UPDATE presets SET sort_order = ? WHERE preset_id = ?",
+                    (index, preset_id),
+                )
+            connection.commit()
+        return self._list_presets()
+
     def _seed_once(self, seeds: list[dict[str, str]]) -> bool:
         now = utc_now()
         with self._database.connect() as connection:
@@ -1065,18 +1099,19 @@ class PresetRepository:
             ).fetchone()
             if seeded is not None:
                 return False
-            for seed in seeds:
+            for index, seed in enumerate(seeds):
                 connection.execute(
                     """
                     INSERT OR IGNORE INTO presets(preset_id, title, description, query,
-                                                  created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                                                  sort_order, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         seed["preset_id"],
                         seed["title"],
                         seed["description"],
                         seed["query"],
+                        index,
                         now,
                         now,
                     ),

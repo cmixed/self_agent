@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterator
 
 import pytest
@@ -9,7 +10,12 @@ from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.memory.sqlite import SqliteDatabase
-from app.services.preset_service import DEFAULT_PRESETS, PresetNotFoundError, PresetService
+from app.services.preset_service import (
+    DEFAULT_PRESETS,
+    PresetNotFoundError,
+    PresetOrderError,
+    PresetService,
+)
 
 
 @pytest.fixture
@@ -85,12 +91,8 @@ def test_preset_crud_api(client: TestClient) -> None:
 
 
 def test_preset_requires_title_and_query(client: TestClient) -> None:
-    blank_title = client.post(
-        "/api/presets", json={"title": "", "description": "d", "query": "q"}
-    )
-    blank_query = client.post(
-        "/api/presets", json={"title": "t", "description": "d", "query": ""}
-    )
+    blank_title = client.post("/api/presets", json={"title": "", "description": "d", "query": "q"})
+    blank_query = client.post("/api/presets", json={"title": "t", "description": "d", "query": ""})
     assert blank_title.status_code == 422
     assert blank_query.status_code == 422
 
@@ -162,3 +164,95 @@ def test_preset_scope_and_auto_run_api(client: TestClient) -> None:
     cleared = client.put(f"/api/presets/{preset['preset_id']}", json={"scope": None})
     assert cleared.status_code == 200
     assert cleared.json()["scope"] is None
+
+
+async def test_new_presets_append_to_end(service: PresetService) -> None:
+    await service.ensure_seeded()
+    seeded = await service.list_presets()
+    assert [item.sort_order for item in seeded] == list(range(len(seeded)))
+
+    created = await service.create_preset(
+        title="新预设", description="追加到末尾", query="执行新预设"
+    )
+    assert created.sort_order == len(seeded)
+    assert (await service.list_presets())[-1].preset_id == created.preset_id
+
+
+async def test_reorder_presets_persists_order(service: PresetService) -> None:
+    await service.ensure_seeded()
+    presets = await service.list_presets()
+    reversed_ids = [item.preset_id for item in reversed(presets)]
+
+    reordered = await service.reorder_presets(reversed_ids)
+
+    assert [item.preset_id for item in reordered] == reversed_ids
+    assert [item.sort_order for item in reordered] == list(range(len(presets)))
+    assert [item.preset_id for item in await service.list_presets()] == reversed_ids
+
+
+async def test_reorder_requires_exact_id_set(service: PresetService) -> None:
+    await service.ensure_seeded()
+    presets = await service.list_presets()
+    ids = [item.preset_id for item in presets]
+
+    with pytest.raises(PresetOrderError):
+        await service.reorder_presets(ids[:-1])
+
+    with pytest.raises(PresetOrderError):
+        await service.reorder_presets([*ids, "missing"])
+
+    with pytest.raises(PresetOrderError):
+        await service.reorder_presets([ids[0], ids[0], *ids[1:]])
+
+
+def test_reorder_api_roundtrip_and_conflict(client: TestClient) -> None:
+    presets = client.get("/api/presets").json()["presets"]
+    reversed_ids = [item["preset_id"] for item in reversed(presets)]
+
+    response = client.put("/api/presets/order", json={"preset_ids": reversed_ids})
+    assert response.status_code == 200
+    body = response.json()["presets"]
+    assert [item["preset_id"] for item in body] == reversed_ids
+    assert [item["sort_order"] for item in body] == list(range(len(presets)))
+
+    conflict = client.put("/api/presets/order", json={"preset_ids": reversed_ids[:-1]})
+    assert conflict.status_code == 409
+    assert conflict.json()["error_type"] == "preset_order_conflict"
+
+
+def test_presets_sort_order_migration_is_idempotent(tmp_path) -> None:
+    path = tmp_path / "app.db"
+    # 模拟旧库：presets 已存在且没有 sort_order
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE presets (
+                preset_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                query TEXT NOT NULL,
+                auto_run INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO presets(preset_id, title, description, query, created_at, updated_at)
+            VALUES ('old', '旧预设', '说明', '任务', '2026-01-01T00:00:00+00:00',
+                    '2026-01-01T00:00:00+00:00')
+            """
+        )
+
+    database = SqliteDatabase(path)
+    database.initialize()
+    database.initialize()
+
+    with database.connect() as connection:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(presets)")}
+        row = connection.execute(
+            "SELECT sort_order FROM presets WHERE preset_id = 'old'"
+        ).fetchone()
+    assert "sort_order" in columns
+    assert row["sort_order"] == 0

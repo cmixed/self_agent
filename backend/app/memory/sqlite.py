@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS presets (
     scope_json  TEXT,
     -- 工作台点击卡片是否直接执行（1 = 跳过「填入 → 回车」；默认 0 = 只填入输入框）
     auto_run    INTEGER NOT NULL DEFAULT 0,
+    -- 工作台展示顺序（越小越靠前；新建预设追加到末尾）
+    sort_order  INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
@@ -158,6 +160,11 @@ MIGRATIONS: tuple[tuple[str, str, str], ...] = (
         "presets",
         "auto_run",
         "ALTER TABLE presets ADD COLUMN auto_run INTEGER NOT NULL DEFAULT 0",
+    ),
+    (
+        "presets",
+        "sort_order",
+        "ALTER TABLE presets ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0",
     ),
 )
 

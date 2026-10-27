@@ -1,4 +1,10 @@
-import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import {
+  DeleteOutlined,
+  EditOutlined,
+  HolderOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons'
 import {
   App,
   Button,
@@ -14,12 +20,29 @@ import {
   Tag,
   Typography,
 } from 'antd'
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import type { DragEndEvent } from '@dnd-kit/core'
+import {
+  rectSortingStrategy,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
 import ErrorNotice from '../components/ErrorNotice'
 import PageContainer from '../components/PageContainer'
 import ScopePicker from '../components/ScopePicker'
+import { setCachedPresets } from '../hooks/usePresets'
 import {
   ApiError,
   createPreset,
@@ -27,10 +50,12 @@ import {
   listCategories,
   listDocuments,
   listPresets,
+  reorderPresets,
   updatePreset,
 } from '../services/api'
 import type { CategoryInfo, DocumentInfo, PresetInfo, TaskScope } from '../types/api'
 import { formatDateTime } from '../utils/format'
+import { movePreset } from '../utils/presets'
 import { describeScope } from '../utils/scope'
 
 const { Text, Paragraph } = Typography
@@ -57,6 +82,102 @@ function isBound(scope: TaskScope | null | undefined): boolean {
   return Boolean(scope && scope.category_ids.length + scope.document_ids.length > 0)
 }
 
+interface SortablePresetCardProps {
+  preset: PresetInfo
+  categories: CategoryInfo[]
+  documents: DocumentInfo[]
+  canReorder: boolean
+  onEdit: (preset: PresetInfo) => void
+  onDelete: (preset: PresetInfo) => void
+}
+
+/** 单张预设卡片：仅左上角手柄可拖拽，避免点击编辑 / 删除时误触排序。 */
+function SortablePresetCard({
+  preset,
+  categories,
+  documents,
+  canReorder,
+  onEdit,
+  onDelete,
+}: SortablePresetCardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: preset.preset_id,
+    disabled: !canReorder,
+  })
+  const scopeInfo = describeScope(preset.scope, categories, documents)
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  return (
+    <Card
+      ref={setNodeRef}
+      size="small"
+      style={style}
+      className={`entity-card${isDragging ? ' is-dragging' : ''}`}
+    >
+      <div className="entity-card__head">
+        <Text strong className="entity-card__title" title={preset.title}>
+          {preset.title}
+        </Text>
+        <Space size={0} className="entity-card__tools">
+          <Button
+            size="small"
+            type="text"
+            icon={<HolderOutlined />}
+            aria-label="拖拽排序"
+            className="preset-drag-handle"
+            disabled={!canReorder}
+            {...attributes}
+            {...listeners}
+          />
+          <Button
+            size="small"
+            type="text"
+            icon={<EditOutlined />}
+            aria-label="编辑"
+            onClick={() => onEdit(preset)}
+          />
+          <Popconfirm
+            title={`删除预设「${preset.title}」？`}
+            description="删除后工作台不再显示该预设"
+            okText="删除"
+            cancelText="取消"
+            onConfirm={() => onDelete(preset)}
+          >
+            <Button size="small" type="text" danger icon={<DeleteOutlined />} aria-label="删除" />
+          </Popconfirm>
+        </Space>
+      </div>
+
+      <Paragraph
+        type="secondary"
+        className="entity-card__desc"
+        ellipsis={{ rows: 2, tooltip: preset.description }}
+      >
+        {preset.description}
+      </Paragraph>
+
+      <div className="entity-card__badges">
+        {preset.auto_run ? <Tag color="green">直接运行</Tag> : null}
+        {scopeInfo.bound ? (
+          <Tag color={scopeInfo.invalid ? 'orange' : 'default'}>范围：{scopeInfo.label}</Tag>
+        ) : (
+          <Tag>全部知识库</Tag>
+        )}
+      </div>
+
+      <Text code className="entity-card__preview" ellipsis={{ tooltip: preset.query }}>
+        {preset.query}
+      </Text>
+      <Text type="secondary" className="entity-card__meta">
+        更新于 {formatDateTime(preset.updated_at)}
+      </Text>
+    </Card>
+  )
+}
+
 export default function PresetsPage() {
   const { message } = App.useApp()
   const [presets, setPresets] = useState<PresetInfo[]>([])
@@ -65,6 +186,7 @@ export default function PresetsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<ScopeFilter>('all')
+  const [sorting, setSorting] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<PresetInfo | null>(null)
   const [saving, setSaving] = useState(false)
@@ -82,6 +204,7 @@ export default function PresetsPage() {
         listDocuments(),
       ])
       setPresets(presetData.presets)
+      setCachedPresets(presetData.presets)
       setCategories(categoryData.categories)
       setDocuments(documentData.documents)
     } catch (err) {
@@ -94,6 +217,38 @@ export default function PresetsPage() {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  const canReorder = filter === 'all' && !sorting
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    if (!canReorder) return
+    const { active, over } = event
+    if (!over) return
+
+    const next = movePreset(presets, String(active.id), String(over.id))
+    if (next === presets) return
+
+    const previous = presets
+    setSorting(true)
+    setPresets(next)
+    try {
+      const data = await reorderPresets(next.map((item) => item.preset_id))
+      setPresets(data.presets)
+      setCachedPresets(data.presets)
+    } catch (err) {
+      // 后端拒绝（如并发增删）时恢复原顺序，避免界面与服务端长期不一致
+      setPresets(previous)
+      setCachedPresets(previous)
+      setError(err instanceof ApiError ? err.message : '保存排序失败，请刷新后重试')
+    } finally {
+      setSorting(false)
+    }
+  }
 
   const boundCount = presets.filter((preset) => isBound(preset.scope)).length
   const filterOptions = useMemo(
@@ -221,70 +376,37 @@ export default function PresetsPage() {
         ) : filteredPresets.length === 0 ? (
           <EmptyState compact title="没有符合条件的预设" hint="切换筛选查看其它预设，或新增一条" />
         ) : (
-          <div className="entity-grid">
-            {filteredPresets.map((preset) => {
-              const scopeInfo = describeScope(preset.scope, categories, documents)
-              return (
-                <Card key={preset.preset_id} size="small" className="entity-card">
-                  <div className="entity-card__head">
-                    <Text strong className="entity-card__title" title={preset.title}>
-                      {preset.title}
-                    </Text>
-                    <Space size={0} className="entity-card__tools">
-                      <Button
-                        size="small"
-                        type="text"
-                        icon={<EditOutlined />}
-                        aria-label="编辑"
-                        onClick={() => openEdit(preset)}
-                      />
-                      <Popconfirm
-                        title={`删除预设「${preset.title}」？`}
-                        description="删除后工作台不再显示该预设"
-                        okText="删除"
-                        cancelText="取消"
-                        onConfirm={() => void handleDelete(preset)}
-                      >
-                        <Button
-                          size="small"
-                          type="text"
-                          danger
-                          icon={<DeleteOutlined />}
-                          aria-label="删除"
-                        />
-                      </Popconfirm>
-                    </Space>
-                  </div>
-
-                  <Paragraph
-                    type="secondary"
-                    className="entity-card__desc"
-                    ellipsis={{ rows: 2, tooltip: preset.description }}
-                  >
-                    {preset.description}
-                  </Paragraph>
-
-                  <div className="entity-card__badges">
-                    {preset.auto_run ? <Tag color="green">直接运行</Tag> : null}
-                    {scopeInfo.bound ? (
-                      <Tag color={scopeInfo.invalid ? 'orange' : 'default'}>
-                        范围：{scopeInfo.label}
-                      </Tag>
-                    ) : (
-                      <Tag>全部知识库</Tag>
-                    )}
-                  </div>
-
-                  <Text code className="entity-card__preview" ellipsis={{ tooltip: preset.query }}>
-                    {preset.query}
-                  </Text>
-                  <Text type="secondary" className="entity-card__meta">
-                    更新于 {formatDateTime(preset.updated_at)}
-                  </Text>
-                </Card>
-              )
-            })}
-          </div>
+          <>
+            {filter !== 'all' ? (
+              <Text type="secondary" className="preset-sort-hint">
+                切换到「全部」后可拖拽排序
+              </Text>
+            ) : null}
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={(event) => void handleDragEnd(event)}
+            >
+              <SortableContext
+                items={filteredPresets.map((item) => item.preset_id)}
+                strategy={rectSortingStrategy}
+              >
+                <div className="entity-grid">
+                  {filteredPresets.map((preset) => (
+                    <SortablePresetCard
+                      key={preset.preset_id}
+                      preset={preset}
+                      categories={categories}
+                      documents={documents}
+                      canReorder={canReorder}
+                      onEdit={openEdit}
+                      onDelete={(item) => void handleDelete(item)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          </>
         )}
       </Card>
 

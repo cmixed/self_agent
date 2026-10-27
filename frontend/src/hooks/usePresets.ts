@@ -14,6 +14,11 @@ import type { PresetInfo } from '../types/api'
  */
 let cachedPresets: PresetInfo[] | null = null
 
+/** 预设页增删改/排序后同步缓存，返回工作台时顺序立即生效。 */
+export function setCachedPresets(presets: PresetInfo[]): void {
+  cachedPresets = presets
+}
+
 export function usePresets() {
   const [presets, setPresets] = useState<PresetInfo[]>(cachedPresets ?? [])
   const [loaded, setLoaded] = useState(cachedPresets !== null)

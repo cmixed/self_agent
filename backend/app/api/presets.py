@@ -11,10 +11,15 @@ from app.models.schemas import (
     PresetCreate,
     PresetInfo,
     PresetListResponse,
+    PresetOrderRequest,
     PresetUpdate,
     TaskScope,
 )
-from app.services.preset_service import PresetNotFoundError, PresetService
+from app.services.preset_service import (
+    PresetNotFoundError,
+    PresetOrderError,
+    PresetService,
+)
 
 router = APIRouter(prefix="/api/presets", tags=["presets"])
 
@@ -23,9 +28,7 @@ def _scope_of(record) -> TaskScope | None:
     """范围两者皆空 = 未绑定，返回 None。"""
     if not record.category_ids and not record.document_ids:
         return None
-    return TaskScope(
-        category_ids=list(record.category_ids), document_ids=list(record.document_ids)
-    )
+    return TaskScope(category_ids=list(record.category_ids), document_ids=list(record.document_ids))
 
 
 def _info(record) -> PresetInfo:
@@ -36,6 +39,7 @@ def _info(record) -> PresetInfo:
         query=record.query,
         scope=_scope_of(record),
         auto_run=record.auto_run,
+        sort_order=record.sort_order,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
@@ -44,6 +48,15 @@ def _info(record) -> PresetInfo:
 def _not_found(exc: PresetNotFoundError) -> JSONResponse:
     body = ErrorResponse(error="preset_not_found", error_type="preset_not_found", detail=str(exc))
     return JSONResponse(status_code=404, content=body.model_dump())
+
+
+def _order_conflict(exc: PresetOrderError) -> JSONResponse:
+    body = ErrorResponse(
+        error="preset_order_conflict",
+        error_type="preset_order_conflict",
+        detail=str(exc),
+    )
+    return JSONResponse(status_code=409, content=body.model_dump())
 
 
 @router.get("", response_model=PresetListResponse)
@@ -66,6 +79,18 @@ async def create_preset(
         auto_run=payload.auto_run,
     )
     return _info(record)
+
+
+@router.put("/order", response_model=PresetListResponse)
+async def reorder_presets(
+    payload: PresetOrderRequest, service: PresetService = Depends(get_preset_service)
+) -> PresetListResponse | JSONResponse:
+    """按完整 id 列表重排工作台预设。"""
+    try:
+        presets = await service.reorder_presets(list(payload.preset_ids))
+    except PresetOrderError as exc:
+        return _order_conflict(exc)
+    return PresetListResponse(presets=[_info(record) for record in presets])
 
 
 @router.put("/{preset_id}", response_model=PresetInfo)

@@ -193,6 +193,8 @@ export interface PresetInfo {
   scope?: TaskScope | null
   /** 工作台点击卡片是否直接执行（默认 false = 仅填入输入框待确认）。 */
   auto_run: boolean
+  /** 工作台展示顺序（越小越靠前；新建预设追加到末尾）。 */
+  sort_order: number
   created_at: string
   updated_at: string
 }

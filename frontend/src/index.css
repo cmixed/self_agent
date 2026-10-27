@@ -1309,6 +1309,27 @@ html[data-theme='dark'] body {
   flex-shrink: 0;
 }
 
+/* 预设排序：仅手柄可拖拽，拖拽中卡片半透明以便看清落点 */
+.preset-sort-hint {
+  display: block;
+  margin-bottom: var(--ws-space-3);
+}
+
+.preset-drag-handle {
+  cursor: grab;
+  color: var(--ant-color-text-tertiary);
+}
+
+.preset-drag-handle:active {
+  cursor: grabbing;
+}
+
+.entity-card.is-dragging {
+  z-index: 1;
+  opacity: 0.65;
+  border-color: var(--ant-color-primary) !important;
+}
+
 .entity-card__desc {
   margin: 0 !important;
   font-size: var(--ws-font-secondary);
@@ -1366,6 +1387,21 @@ html[data-theme='dark'] body {
 }
 
 /* --- 工作台预设任务 -------------------------------------------------------- */
+.ws-preset-more {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 280px;
+}
+
+.ws-preset-more__desc {
+  overflow: hidden;
+  font-size: var(--ws-font-secondary);
+  color: var(--ant-color-text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ws-presets {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

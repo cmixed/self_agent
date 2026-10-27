@@ -434,6 +434,13 @@ export function createPreset(payload: {
   return request<PresetInfo>('/presets', { method: 'POST', body: JSON.stringify(payload) })
 }
 
+export function reorderPresets(presetIds: string[]): Promise<PresetListResponse> {
+  return request<PresetListResponse>('/presets/order', {
+    method: 'PUT',
+    body: JSON.stringify({ preset_ids: presetIds }),
+  })
+}
+
 export function updatePreset(
   presetId: string,
   payload: Partial<{

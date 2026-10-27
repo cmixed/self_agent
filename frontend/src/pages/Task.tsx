@@ -5,6 +5,7 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   DatabaseOutlined,
+  DownOutlined,
   DownloadOutlined,
   EditOutlined,
   FileTextOutlined,
@@ -22,6 +23,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Dropdown,
   Input,
   Result,
   Segmented,
@@ -32,6 +34,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd'
+import type { MenuProps } from 'antd'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
@@ -64,6 +67,7 @@ import {
   formatTokenRate,
   formatTokens,
 } from '../utils/format'
+import { splitWorkspacePresets } from '../utils/presets'
 import { runningTaskStage } from '../utils/runningTasks'
 import { describeScope } from '../utils/scope'
 import { readTaskOptionsMemory, sanitizeScope, saveTaskOptions } from '../utils/taskOptions'
@@ -170,6 +174,10 @@ export default function TaskPage() {
   } = useTaskRun()
 
   const { presets, loaded: presetsLoaded } = usePresets()
+  const { visible: workspacePresets, hidden: hiddenPresets } = useMemo(
+    () => splitWorkspacePresets(presets),
+    [presets],
+  )
   const resultRef = useRef<HTMLDivElement | null>(null)
   const [documents, setDocuments] = useState<DocumentInfo[] | null>(null)
   const [recentTasks, setRecentTasks] = useState<TaskSummary[]>([])
@@ -303,6 +311,25 @@ export default function TaskPage() {
       return
     }
     handlePresetFill(preset)
+  }
+
+  // 前 6 条之外的预设：通过「更多」下拉仍然可执行，不能只留在管理页
+  const hiddenPresetItems: MenuProps['items'] = hiddenPresets.map((preset) => ({
+    key: preset.preset_id,
+    label: (
+      <div className="ws-preset-more">
+        <Space size={6}>
+          <span>{preset.title}</span>
+          {preset.auto_run ? <ThunderboltOutlined /> : null}
+        </Space>
+        <span className="ws-preset-more__desc">{preset.description}</span>
+      </div>
+    ),
+  }))
+
+  const handleHiddenPresetClick: MenuProps['onClick'] = ({ key }) => {
+    const preset = hiddenPresets.find((item) => item.preset_id === key)
+    if (preset) handlePresetOpen(preset)
   }
 
   const handleReset = () => {
@@ -720,9 +747,21 @@ export default function TaskPage() {
           title="预设任务"
           description="点击卡片填入输入框；标记「直接运行」的预设点击即执行"
           extra={
-            <Button type="link" size="small" onClick={() => navigate('presets')}>
-              查看全部 / 管理 <ArrowRightOutlined />
-            </Button>
+            <Space size={4}>
+              {hiddenPresets.length > 0 ? (
+                <Dropdown
+                  trigger={['click']}
+                  menu={{ items: hiddenPresetItems, onClick: handleHiddenPresetClick }}
+                >
+                  <Button type="link" size="small">
+                    更多（{hiddenPresets.length}） <DownOutlined />
+                  </Button>
+                </Dropdown>
+              ) : null}
+              <Button type="link" size="small" onClick={() => navigate('presets')}>
+                管理预设 <ArrowRightOutlined />
+              </Button>
+            </Space>
           }
         />
 
@@ -742,7 +781,7 @@ export default function TaskPage() {
           />
         ) : (
           <div className="ws-presets">
-            {presets.slice(0, 3).map((preset) => {
+            {workspacePresets.map((preset) => {
               const bound = presetScope(preset)
               const scopeInfo = bound ? describeScope(bound, categories, documents ?? []) : null
               return (

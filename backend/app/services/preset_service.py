@@ -12,9 +12,10 @@ from app.memory.sqlite import SqliteDatabase
 
 # 默认预设是**与领域无关的任务模板**：主题由用户的知识库内容决定，预设只描述
 # 「任务形态」（综述 / 对比 / 提炼 / 术语 / 摘要），因此在任何资料上都可直接使用。
-# 前 3 条会显示在工作台，按「最能体现 Agent 能力」的顺序排列；其中「对比分析 /
-# 要点提炼 / 术语梳理」与内置技能（builtin-compare / builtin-takeaways /
-# builtin-glossary）的触发场景对齐，便于规划器自动选用对应技能。
+# 前 6 条会显示在工作台（其余进入「更多」下拉），按「最能体现 Agent 能力」
+# 的顺序排列；其中「对比分析 / 要点提炼 / 术语梳理」与内置技能
+# （builtin-compare / builtin-takeaways / builtin-glossary）的触发场景对齐，
+# 便于规划器自动选用对应技能。
 DEFAULT_PRESETS: list[dict[str, str]] = [
     {
         "preset_id": "preset-survey",
@@ -51,6 +52,10 @@ DEFAULT_PRESETS: list[dict[str, str]] = [
 
 class PresetNotFoundError(Exception):
     """预设不存在。"""
+
+
+class PresetOrderError(Exception):
+    """提交的排序列表与当前预设不一致（通常是并发增删导致）。"""
 
 
 class PresetService:
@@ -114,3 +119,12 @@ class PresetService:
         deleted = await self._repository.delete_preset(preset_id)
         if not deleted:
             raise PresetNotFoundError(f"预设不存在：{preset_id}")
+
+    async def reorder_presets(self, preset_ids: list[str]) -> list[PresetRecord]:
+        """按完整 id 列表重排；要求与当前预设集合完全一致，避免写乱顺序。"""
+        current = await self._repository.list_presets()
+        existing = {item.preset_id for item in current}
+        ordered = list(dict.fromkeys(preset_ids))
+        if len(ordered) != len(preset_ids) or set(ordered) != existing:
+            raise PresetOrderError("预设列表已变化，请刷新后重试")
+        return await self._repository.reorder_presets(ordered)

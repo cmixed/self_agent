@@ -583,12 +583,20 @@ class PresetInfo(BaseModel):
     scope: TaskScope | None = None
     # 工作台点击卡片是否直接执行（默认 False = 仅填入输入框待确认）
     auto_run: bool = False
+    # 工作台展示顺序（越小越靠前；新建预设追加到末尾）
+    sort_order: int = 0
     created_at: str
     updated_at: str
 
 
 class PresetListResponse(BaseModel):
     presets: list[PresetInfo]
+
+
+class PresetOrderRequest(BaseModel):
+    """按完整列表重排预设；必须包含当前全部 preset_id。"""
+
+    preset_ids: list[str] = Field(min_length=1)
 
 
 class PresetCreate(BaseModel):
