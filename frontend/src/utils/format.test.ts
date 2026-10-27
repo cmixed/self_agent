@@ -66,12 +66,25 @@ describe('taskDurationSeconds', () => {
 describe('formatDateTime', () => {
   it('空值返回占位符', () => {
     expect(formatDateTime(null)).toBe('—')
+    expect(formatDateTime(undefined)).toBe('—')
     expect(formatDateTime('')).toBe('—')
   })
 
-  it('去掉 ISO 的 T、Z 与 UTC 后缀', () => {
-    expect(formatDateTime('2026-01-02T03:04:05Z')).toBe('2026-01-02 03:04:05')
-    expect(formatDateTime('2026-01-02T03:04:05+00:00')).toBe('2026-01-02 03:04:05')
+  it('非法时间返回占位符，而不是看似正常的错误值', () => {
+    expect(formatDateTime('not-a-date')).toBe('—')
+  })
+
+  it('UTC 时间转换为浏览器本地时区显示', () => {
+    const originalTz = process.env.TZ
+    process.env.TZ = 'Asia/Shanghai'
+    try {
+      // 数据库存的 03:04:05Z 在 UTC+8 下应为 11:04:05
+      expect(formatDateTime('2026-01-02T03:04:05Z')).toBe('2026-01-02 11:04:05')
+      expect(formatDateTime('2026-01-02T03:04:05+00:00')).toBe('2026-01-02 11:04:05')
+    } finally {
+      if (originalTz === undefined) delete process.env.TZ
+      else process.env.TZ = originalTz
+    }
   })
 })
 

@@ -24,10 +24,25 @@ export function taskDurationSeconds(
   return Math.max(0, (end - start) / 1000)
 }
 
-/** ISO 时间 -> 便于阅读的本地写法 */
+/** 两位数补零（日期 / 时间格式化用）。 */
+function pad2(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+/**
+ * ISO 时间 -> 浏览器本地时区的可读写法（`YYYY-MM-DD HH:mm:ss`）。
+ *
+ * 后端统一存 UTC（`+00:00`），必须经过 `Date` 转换成本地时间；
+ * 直接截掉 `Z` / `+00:00` 会把 UTC 当成本地时间，导致时区偏移
+ * （例如 UTC+8 下显示的创建时间比实际早 8 小时）。
+ */
 export function formatDateTime(value?: string | null): string {
   if (!value) return '—'
-  return value.replace('T', ' ').replace('+00:00', '').replace('Z', '')
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  const day = `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+  const time = `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
+  return `${day} ${time}`
 }
 
 export type DocumentKind = 'pdf' | 'markdown' | 'text' | 'unknown'
