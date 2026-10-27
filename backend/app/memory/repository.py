@@ -95,8 +95,10 @@ class TaskRepository:
     async def get_task(self, task_id: str) -> TaskRecord | None:
         return await asyncio.to_thread(self._get_task, task_id)
 
-    async def list_tasks(self, *, user_id: str, limit: int = 20) -> list[TaskRecord]:
-        return await asyncio.to_thread(self._list_tasks, user_id, limit)
+    async def list_tasks(
+        self, *, user_id: str, limit: int = 20, status: str | None = None
+    ) -> list[TaskRecord]:
+        return await asyncio.to_thread(self._list_tasks, user_id, limit, status)
 
     # --- 同步实现（在线程中执行）---
 
@@ -253,22 +255,26 @@ class TaskRepository:
             ).fetchone()
         return _row_to_record(row)
 
-    def _list_tasks(self, user_id: str, limit: int) -> list[TaskRecord]:
+    def _list_tasks(
+        self, user_id: str, limit: int, status: str | None = None
+    ) -> list[TaskRecord]:
+        query = """
+            SELECT t.task_id, t.user_id, t.query, t.status, t.created_at,
+                   r.finished_at, r.error_type, r.result_json
+              FROM tasks t
+              LEFT JOIN task_runs r ON r.run_id = (
+                   SELECT run_id FROM task_runs
+                    WHERE task_id = t.task_id ORDER BY attempt_no DESC LIMIT 1)
+             WHERE t.user_id = ?
+            """
+        params: list[object] = [user_id]
+        if status:
+            query += " AND t.status = ?"
+            params.append(status)
+        query += " ORDER BY t.created_at DESC, t.rowid DESC LIMIT ?"
+        params.append(max(1, limit))
         with self._database.connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT t.task_id, t.user_id, t.query, t.status, t.created_at,
-                       r.finished_at, r.error_type, r.result_json
-                  FROM tasks t
-                  LEFT JOIN task_runs r ON r.run_id = (
-                       SELECT run_id FROM task_runs
-                        WHERE task_id = t.task_id ORDER BY attempt_no DESC LIMIT 1)
-                 WHERE t.user_id = ?
-                 ORDER BY t.created_at DESC, t.rowid DESC
-                 LIMIT ?
-                """,
-                (user_id, max(1, limit)),
-            ).fetchall()
+            rows = connection.execute(query, params).fetchall()
         return [record for row in rows if (record := _row_to_record(row)) is not None]
 
 

@@ -302,16 +302,141 @@ html[data-theme='dark'] body {
   border-color: var(--ant-color-border);
 }
 
-.app-header-run {
+/* 顶栏「运行中任务」胶囊（AGENTS.md §17/§19）：
+   任务执行归属后端，胶囊只负责展示与切换观察对象。 */
+.run-pills {
+  display: flex;
+  align-items: center;
+  gap: var(--ws-space-1);
+  max-width: 46vw;
+  overflow: hidden;
+}
+
+.run-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 2px 0 var(--ws-space-2);
+  border: 1px solid var(--ant-color-border);
+  border-radius: 999px;
+  background: var(--ant-color-fill-quaternary);
+}
+
+.run-pill.is-active {
+  border-color: var(--ant-color-primary-border);
+  background: var(--ant-color-primary-bg);
+}
+
+.run-pill__main {
   display: inline-flex;
   align-items: center;
   gap: var(--ws-space-1);
+  min-width: 0;
+  max-width: 220px;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ant-color-text);
   font-size: var(--ws-font-secondary);
-  color: var(--ant-color-text-secondary);
+  cursor: pointer;
 }
 
-.app-header-run__text {
-  margin-left: 2px;
+.run-pill__main:hover .run-pill__title,
+.run-pill__main:focus-visible .run-pill__title {
+  color: var(--ant-color-primary);
+}
+
+.run-pill__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-pill__meta {
+  flex: 0 0 auto;
+  font-size: var(--ws-font-caption);
+  color: var(--ant-color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.run-pill__stop {
+  flex: 0 0 auto;
+}
+
+.run-pill__tip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 280px;
+  white-space: normal;
+}
+
+.run-pill__tip-query {
+  font-weight: 600;
+}
+
+.run-pill__tip-row {
+  font-size: var(--ws-font-caption);
+}
+
+.run-pill__tip-hint {
+  margin-top: 2px;
+  font-size: var(--ws-font-caption);
+  color: var(--ant-color-text-tertiary);
+}
+
+.run-pills__more {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--ws-font-secondary);
+}
+
+.run-pill-menu {
+  display: flex;
+  align-items: center;
+  gap: var(--ws-space-2);
+  min-width: 220px;
+}
+
+.run-pill-menu__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.run-pill-menu__title {
+  font-size: var(--ws-font-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-pill-menu__stage {
+  font-size: var(--ws-font-caption);
+  color: var(--ant-color-text-tertiary);
+}
+
+/* 最近任务里「运行中」条目：点击回到工作台继续观察 */
+.ws-recent__open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ws-recent__open:hover .ws-recent__query {
+  color: var(--ant-color-primary);
 }
 
 /* 顶栏模型服务商切换器：宽度随当前模型名自适应（不再固定 118px 导致模型名被截断），
@@ -2138,10 +2263,6 @@ html[data-theme='dark'] body {
 }
 
 @media (max-width: 640px) {
-  .app-header-run__text {
-    display: none;
-  }
-
   /* 窄屏给标题留空间：切换器收窄，模型名仍可悬停查看 */
   .app-header-provider {
     min-width: 104px;

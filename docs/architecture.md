@@ -32,9 +32,11 @@ TaskService ──→ LangGraph 工作流（只负责编排）
 ## 2. 一次长文任务的执行路径
 
 1. `POST /api/tasks` 解析检索范围（类别 ∪ 单文档），**冻结**为 `document_id`
-   列表写入 `retrieval_scope`，创建 `task_runs` 记录并启动后台执行。
-2. 前端订阅 `GET /api/tasks/{id}/stream`（SSE），只接收阶段与进度，不接收
-   模型隐藏推理。
+   列表写入 `retrieval_scope`，创建 `task_runs` 记录，并启动**后台执行任务**
+   （与浏览器连接解耦）。
+2. 前端用 SSE 订阅事件通道（`POST /api/tasks/stream` 或
+   `GET /api/tasks/{id}/stream`）：先回放已缓冲事件，再跟随实时事件，只接收
+   阶段与进度，不接收模型隐藏推理。断开（刷新页面）只取消订阅，任务继续执行。
 3. `planner` 输出结构化计划：目标、是否需要检索、步骤列表（可带 `skill_id`）。
    轻量模式（`direct` / `brief`）由入口路由直接进入 `answer`，不启动长文流水线。
 4. `researcher` 按 `retrieval_scope` 调用 RAG Tool，结果**覆盖**写入
@@ -119,7 +121,31 @@ effective_chars  min(requested, max(300, source_chars * 2))   # 资料受限时
 
 无 checkpoint 时续跑返回 409，提示改用重新生成，不会静默从头开始。
 
-### 4.7 技能是文件，不是数据库记录
+### 4.7 任务执行与浏览器解耦
+
+任务**不属于**某条 HTTP 连接。三个 SSE 入口（新建 / 续跑 / 重跑）都在后台
+`asyncio.Task` 中驱动 Agent Graph，请求协程只负责订阅事件：
+
+```text
+POST /tasks/stream ─┐
+POST /{id}/resume  ─┼─> 后台 driver ──> LangGraph
+POST /{id}/rerun   ─┘        │
+                             ├─> TaskChannel（进程内事件缓冲 + Condition）
+                             └─> SQLite（状态 / 结果）
+GET /tasks/{id}/stream ──> 回放缓冲区 + 跟随实时事件
+```
+
+- 浏览器断开只取消订阅者，driver 继续执行并落库；刷新后重新订阅即可完整重建进度。
+- 已结束任务的 channel 保留最近 20 个（刚结束就刷新也能回放）；更早的任务由
+  SQLite 记录合成一条终态事件（`task_completed` / `task_cancelled` / `task_failed`）。
+- 事件缓冲在**进程内存**，进程重启丢失；启动时 `reconcile_running_tasks` 把遗留
+  的 `running` 记录标记为 `cancelled`（`error_type=interrupted`），不会假装还在跑。
+- `GET /api/tasks?status=running` 供前端顶栏胶囊使用，并附带进程内通道的
+  `stage` / `message`（仅运行中任务），无需额外请求。
+- 前端同一时刻只**观察**一个任务（工作台内容），但后端可同时执行多个任务：
+  切换观察对象只是断开旧订阅，旧任务继续跑并留在胶囊里。
+
+### 4.8 技能是文件，不是数据库记录
 
 `data/skills/<skill_id>/` 下：`SKILL.md`（YAML frontmatter + 指令正文）、
 `.skill-state.json`（启停 / 内置标记 / 来源 / 时间戳）、
@@ -127,7 +153,7 @@ effective_chars  min(requested, max(300, source_chars * 2))   # 资料受限时
 渐进式披露：L1 只把技能目录（名称 + 描述）给 Planner；L2 在技能被选中时注入
 正文；L3 只在模型显式请求时注入附件。导入导出走标准 zip 技能包。
 
-### 4.8 LLM Provider 是配置
+### 4.9 LLM Provider 是配置
 
 Agent Graph 只依赖 `get_llm()`。Provider 由 `ProviderConfig` 描述，工厂按配置
 构造；DeepSeek / GLM 保留子类只为默认值。自定义端点与本地 Ollama 复用同一套

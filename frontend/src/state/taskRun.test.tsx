@@ -3,14 +3,17 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
-import type { Plan, Source, TaskEvent, WritingBudget } from '../types/api'
+import type { Plan, Source, TaskEvent, TaskSummary, WritingBudget } from '../types/api'
 import { TaskRunProvider, useTaskRun } from './taskRun'
 
 const mocks = vi.hoisted(() => ({
   streamTask: vi.fn(),
   streamResume: vi.fn(),
   streamRerun: vi.fn(),
+  streamObserve: vi.fn(),
   cancelTask: vi.fn(),
+  listTasks: vi.fn(),
+  getTask: vi.fn(),
 }))
 
 vi.mock('../services/api', async (importOriginal) => {
@@ -20,7 +23,10 @@ vi.mock('../services/api', async (importOriginal) => {
     streamTask: mocks.streamTask,
     streamResume: mocks.streamResume,
     streamRerun: mocks.streamRerun,
+    streamObserve: mocks.streamObserve,
     cancelTask: mocks.cancelTask,
+    listTasks: mocks.listTasks,
+    getTask: mocks.getTask,
   }
 })
 
@@ -82,7 +88,11 @@ beforeEach(() => {
   mocks.streamTask.mockReset()
   mocks.streamResume.mockReset()
   mocks.streamRerun.mockReset()
+  mocks.streamObserve.mockReset()
   mocks.cancelTask.mockReset()
+  mocks.listTasks.mockReset()
+  mocks.getTask.mockReset()
+  mocks.listTasks.mockResolvedValue({ tasks: [] })
   mocks.cancelTask.mockResolvedValue({ task_id: 'run-1', status: 'cancelled' })
 })
 
@@ -241,6 +251,201 @@ describe('TaskRunProvider 事件归并', () => {
     expect(result.current.aborted).toBe(true)
     expect(result.current.error).toBeNull()
     expect(result.current.nodes.planner).toBe('wait')
+    expect(result.current.log.some((entry) => entry.label === '终止')).toBe(true)
+  })
+})
+
+/** 等待挂载效果 / 异步回调落地（listTasks -> attach -> streamObserve）。 */
+async function flush() {
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+}
+
+function runningTask(taskId: string, extra: Partial<TaskSummary> = {}): TaskSummary {
+  return {
+    task_id: taskId,
+    query: `任务 ${taskId}`,
+    status: 'running',
+    created_at: new Date().toISOString(),
+    retry_count: 0,
+    failed_chapters: [],
+    ...extra,
+  }
+}
+
+describe('TaskRunProvider 刷新恢复与多任务', () => {
+  it('挂载时自动接上最近一个运行中任务并回放进度', async () => {
+    const createdAt = new Date(Date.now() - 30_000).toISOString()
+    mocks.listTasks.mockResolvedValue({
+      tasks: [
+        runningTask('run-7', {
+          query: '刷新前的任务',
+          mode: 'longform',
+          created_at: createdAt,
+          stage: 'writer_started',
+          message: '正在撰写第 1 章',
+        }),
+      ],
+    })
+    const captured: Array<(event: TaskEvent) => void> = []
+    mocks.streamObserve.mockImplementation(
+      async (_taskId: string, onEvent: (event: TaskEvent) => void) => {
+        captured.push(onEvent)
+        // 回放：任务开始 + 已完成的规划
+        onEvent(ev('task_started', { task_id: 'run-7', mode: 'longform' }))
+        onEvent(ev('planner_completed', { task_id: 'run-7', plan }))
+        await new Promise(() => {}) // 保持订阅打开（任务仍在执行）
+      },
+    )
+
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+
+    expect(mocks.listTasks).toHaveBeenCalledWith(20, 'running')
+    expect(result.current.hasStarted).toBe(true)
+    expect(result.current.taskId).toBe('run-7')
+    expect(result.current.query).toBe('刷新前的任务')
+    expect(result.current.mode).toBe('longform')
+    expect(result.current.plan).toEqual(plan)
+    expect(result.current.running).toBe(true)
+    expect(result.current.elapsed).toBeGreaterThanOrEqual(29)
+    expect(result.current.runningTasks).toHaveLength(1)
+    expect(result.current.runningTasks[0].stage).toBe('writer_started')
+
+    // 终态：耗时按服务端 finished_at 计算，而不是「现在」
+    act(() =>
+      captured[0](
+        ev('task_completed', {
+          task_id: 'run-7',
+          status: 'completed',
+          result: {
+            task_id: 'run-7',
+            status: 'completed',
+            plan,
+            outline: [],
+            step_results: [],
+            sources: [],
+            validation: null,
+            retry_count: 0,
+            failed_chapters: [],
+            final_answer: '# 已完成',
+          },
+        }),
+      ),
+    )
+    expect(result.current.finalAnswer).toBe('# 已完成')
+    expect(result.current.duration).toBeGreaterThanOrEqual(29)
+  })
+
+  it('切换到另一个任务只断开旧订阅，不取消旧任务', async () => {
+    let emitA: ((event: TaskEvent) => void) | null = null
+    let signalA: AbortSignal | undefined
+    mocks.streamTask.mockImplementation(
+      async (_query: string, onEvent: (event: TaskEvent) => void, signal?: AbortSignal) => {
+        emitA = onEvent
+        signalA = signal
+        onEvent(ev('task_started', { task_id: 'A' }))
+        await new Promise(() => {}) // A 一直在后台跑
+      },
+    )
+    mocks.getTask.mockResolvedValue({
+      ...runningTask('B', { query: '另一个任务' }),
+      user_id: 'local-user',
+      plan: null,
+      outline: [],
+      step_results: [],
+      sources: [],
+      validation: null,
+      final_answer: '',
+    })
+    mocks.streamObserve.mockImplementation(
+      async (_taskId: string, onEvent: (event: TaskEvent) => void) => {
+        onEvent(ev('task_started', { task_id: 'B', mode: 'brief' }))
+        await new Promise(() => {})
+      },
+    )
+
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+    act(() => result.current.setQuery('任务 A'))
+    act(() => {
+      void result.current.run()
+    })
+    await flush()
+    expect(result.current.taskId).toBe('A')
+    expect(result.current.running).toBe(true)
+
+    act(() => {
+      void result.current.selectTask('B')
+    })
+    await flush()
+
+    expect(result.current.taskId).toBe('B')
+    expect(result.current.query).toBe('另一个任务')
+    expect(mocks.cancelTask).not.toHaveBeenCalled()
+    expect(signalA?.aborted).toBe(true)
+
+    // 旧任务的迟到事件不得污染新观察对象
+    act(() => emitA!(ev('planner_completed', { task_id: 'A', plan })))
+    expect(result.current.plan).toBeNull()
+  })
+
+  it('已有任务运行时仍可新建任务：旧任务转入后台而不是被取消', async () => {
+    const signals: AbortSignal[] = []
+    mocks.streamTask.mockImplementation(
+      async (_query: string, onEvent: (event: TaskEvent) => void, signal?: AbortSignal) => {
+        signals.push(signal as AbortSignal)
+        onEvent(ev('task_started', { task_id: signals.length === 1 ? 'A' : 'B' }))
+        await new Promise(() => {})
+      },
+    )
+
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+    act(() => result.current.setQuery('任务 A'))
+    act(() => {
+      void result.current.run()
+    })
+    await flush()
+
+    act(() => {
+      void result.current.run('任务 B')
+    })
+    await flush()
+
+    expect(mocks.streamTask).toHaveBeenCalledTimes(2)
+    expect(result.current.taskId).toBe('B')
+    expect(signals[0].aborted).toBe(true)
+    expect(mocks.cancelTask).not.toHaveBeenCalled()
+  })
+
+  it('终止任意任务调用取消接口并刷新运行中列表', async () => {
+    mocks.listTasks.mockResolvedValue({ tasks: [runningTask('X'), runningTask('Y')] })
+    mocks.streamObserve.mockResolvedValue(undefined)
+
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+    const before = mocks.listTasks.mock.calls.length
+
+    await act(async () => {
+      await result.current.cancelRunning('Y')
+    })
+
+    expect(mocks.cancelTask).toHaveBeenCalledWith('Y')
+    expect(mocks.listTasks.mock.calls.length).toBeGreaterThan(before)
+  })
+
+  it('task_cancelled 终态按已终止收尾', async () => {
+    const result = await runScript([
+      ev('task_started'),
+      ev('task_cancelled', { status: 'cancelled', message: '任务已被终止' }),
+    ])
+
+    expect(result.current.aborted).toBe(true)
+    expect(result.current.running).toBe(false)
+    expect(result.current.error).toBeNull()
     expect(result.current.log.some((entry) => entry.label === '终止')).toBe(true)
   })
 })

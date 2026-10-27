@@ -41,6 +41,7 @@ from app.api.deps import (
 from app.api.errors import register_exception_handlers
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
+from app.core.task_registry import get_task_registry
 from app.llm.factory import close_llm, current_llm_provider
 from app.skills.migration import migrate_skills_from_sqlite
 
@@ -100,6 +101,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     try:
         yield
     finally:
+        # 取消仍在后台执行的任务（事件与浏览器连接解耦后，任务不再随请求结束）
+        await get_task_registry().shutdown()
         store = get_checkpoint_store()
         if store is not None:
             await store.close()

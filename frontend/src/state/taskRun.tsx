@@ -7,7 +7,16 @@ import type {
   LogEntry,
   StageStatus,
 } from '../components/AgentProgress'
-import { ApiError, cancelTask, streamRerun, streamResume, streamTask } from '../services/api'
+import {
+  ApiError,
+  cancelTask,
+  getTask,
+  listTasks,
+  streamObserve,
+  streamRerun,
+  streamResume,
+  streamTask,
+} from '../services/api'
 import type {
   Plan,
   Source,
@@ -15,6 +24,7 @@ import type {
   TaskEvent,
   TaskProfile,
   TaskScope,
+  TaskSummary,
   TokenUsage,
   Validation,
   WritingBudget,
@@ -58,6 +68,7 @@ const NODE_LABELS: Record<string, string> = {
   task_started: '开始',
   task_completed: '完成',
   task_failed: '失败',
+  task_cancelled: '终止',
 }
 
 const MAX_LOG_ENTRIES = 60
@@ -65,6 +76,10 @@ const MAX_LOG_ENTRIES = 60
 // 这里再加一层 UI 上限，避免任何异常情况下无限增长。
 const MAX_PLANNER_NOTES = 4
 const MAX_CHAPTER_NOTES_PER_CHAPTER = 3
+
+/** 有任务在跑时的列表轮询间隔（毫秒）。 */
+const RUNNING_POLL_MS = 5000
+const RUNNING_TASKS_LIMIT = 20
 
 interface ChapterState {
   written: number
@@ -85,15 +100,32 @@ function markRunningAsError(nodes: Record<NodeKey, StageStatus>): Record<NodeKey
   return next
 }
 
+function markRunningAsWait(nodes: Record<NodeKey, StageStatus>): Record<NodeKey, StageStatus> {
+  const next = { ...nodes }
+  for (const key of NODE_KEYS) {
+    if (next[key] === 'process') next[key] = 'wait'
+  }
+  return next
+}
+
 function eventLabel(eventName: string): string {
   const prefix = eventName.replace(/_(started|completed)$/, '')
   return NODE_LABELS[prefix] ?? prefix
 }
 
+function isAbortError(error: unknown): boolean {
+  return (error as { name?: string } | null)?.name === 'AbortError'
+}
+
 export interface TaskRunValue {
   query: string
   setQuery: (value: string) => void
+  /** 当前观察的任务是否仍在执行（后台其它任务不影响它） */
   running: boolean
+  /** 服务端所有运行中任务（顶栏胶囊数据） */
+  runningTasks: TaskSummary[]
+  /** 任务状态变化信号：列表页 / 最近任务据此刷新 */
+  tasksVersion: number
   hasStarted: boolean
   aborted: boolean
   error: string | null
@@ -141,6 +173,10 @@ export interface TaskRunValue {
   resume: (taskId: string) => Promise<void>
   /** 用原任务内容重新生成（新任务） */
   rerun: (taskId: string, sourceQuery: string) => Promise<void>
+  /** 把工作台切换到某个任务（运行中则重建进度；已结束则回放终态） */
+  selectTask: (taskId: string) => Promise<void>
+  /** 终止任意运行中任务（活动任务会收到 task_cancelled 终态） */
+  cancelRunning: (taskId: string) => Promise<void>
   abort: () => void
   clear: () => void
   copy: () => Promise<void>
@@ -151,11 +187,16 @@ const TaskRunContext = createContext<TaskRunValue | null>(null)
 
 /**
  * 任务运行状态提升到 App 层：
- * 切换页面不再丢失进度，任务也不会因为离开页面而被中止。
+ * 切换页面不再丢失进度，刷新页面后也能通过后端事件通道重建进度。
+ *
+ * 观察模型：**同一时刻只观察一个任务**（工作台内容），但后端可以同时执行多个
+ * 任务。切换观察对象只是断开旧订阅（不取消任务），顶栏胶囊负责展示与管理。
  */
 export function TaskRunProvider({ children }: { children: ReactNode }) {
   const [query, setQuery] = useState('')
   const [running, setRunning] = useState(false)
+  const [runningTasks, setRunningTasks] = useState<TaskSummary[]>([])
+  const [tasksVersion, setTasksVersion] = useState(0)
   const [hasStarted, setHasStarted] = useState(false)
   const [aborted, setAborted] = useState(false)
   const [taskId, setTaskId] = useState<string | null>(null)
@@ -188,8 +229,16 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   const [activeTab, setActiveTab] = useState('content')
 
   const startedAtRef = useRef<number | null>(null)
+  const finishedAtRef = useRef<string | null>(null)
   const logIdRef = useRef(0)
-  const abortRef = useRef<AbortController | null>(null)
+  /** 当前观察订阅的 AbortController（只影响订阅，不影响后端任务） */
+  const observeRef = useRef<AbortController | null>(null)
+  /** 观察令牌：每次 attach / detach 自增，旧流的迟到事件直接丢弃 */
+  const generationRef = useRef(0)
+  const activeTaskIdRef = useRef<string | null>(null)
+  const hasStartedRef = useRef(false)
+  const runningTasksRef = useRef<TaskSummary[]>([])
+  const runningSignatureRef = useRef('')
   const roundRef = useRef(1)
 
   useEffect(() => {
@@ -201,6 +250,31 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     }, 1000)
     return () => window.clearInterval(timer)
   }, [running])
+
+  // --- 运行中任务列表（顶栏胶囊 / 页面刷新联动） ---
+
+  /** 合并服务端返回的运行中任务；任务集合变化时递增 tasksVersion。 */
+  const applyRunningTasks = useCallback((tasks: TaskSummary[]) => {
+    runningTasksRef.current = tasks
+    setRunningTasks(tasks)
+    const signature = tasks
+      .map((task) => task.task_id)
+      .sort()
+      .join(',')
+    if (signature !== runningSignatureRef.current) {
+      runningSignatureRef.current = signature
+      setTasksVersion((value) => value + 1)
+    }
+  }, [])
+
+  const refreshRunning = useCallback(async () => {
+    try {
+      const data = await listTasks(RUNNING_TASKS_LIMIT, 'running')
+      applyRunningTasks(data.tasks)
+    } catch {
+      // 轮询失败静默：不影响正在观察的任务
+    }
+  }, [applyRunningTasks])
 
   const pushLog = useCallback((label: string, message: string, tone: LogEntry['tone'] = 'info') => {
     logIdRef.current += 1
@@ -235,14 +309,30 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     }))
   }, [])
 
+  /**
+   * 终态耗时：优先用服务的 finished_at（回放已结束任务时不能按「现在」算），
+   * 其次用本地开始时间。
+   */
+  const finishDuration = useCallback(() => {
+    const parsed = finishedAtRef.current ? Date.parse(finishedAtRef.current) : Number.NaN
+    const end = Number.isNaN(parsed) ? Date.now() : parsed
+    const start = startedAtRef.current ?? end
+    setDuration(Math.max(0, Math.floor((end - start) / 1000)))
+  }, [])
+
   const handleEvent = useCallback(
     (event: TaskEvent) => {
-      if (event.task_id) setTaskId(event.task_id)
+      if (event.task_id) {
+        setTaskId(event.task_id)
+        activeTaskIdRef.current = event.task_id
+      }
 
       if (event.event === 'task_started') {
         if (event.mode) setMode(event.mode)
         if (event.profile) setProfile(event.profile)
         pushLog('开始', event.message, 'info')
+        // 新任务立刻进入顶栏胶囊（不必等下一轮轮询）
+        void refreshRunning()
         return
       }
 
@@ -289,7 +379,15 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         pushLog('失败', event.message, 'error')
         setNodes((prev) => markRunningAsError(prev))
         setError(event.message)
-        setDuration(Math.floor((Date.now() - (startedAtRef.current ?? Date.now())) / 1000))
+        finishDuration()
+        return
+      }
+
+      if (event.event === 'task_cancelled') {
+        pushLog('终止', event.message || '任务已被终止', 'warn')
+        setNodes((prev) => markRunningAsError(prev))
+        setAborted(true)
+        finishDuration()
         return
       }
 
@@ -319,7 +417,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
           const n = chapterNumber(target)
           if (n !== null) updateChapter(n, { validation: 'failed' })
         }
-        setDuration(Math.floor((Date.now() - (startedAtRef.current ?? Date.now())) / 1000))
+        finishDuration()
         setActiveTab('content')
         return
       }
@@ -447,12 +545,23 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         })
       }
     },
-    [addPlannerNote, addSkillNote, addChapterNote, pushLog, updateChapter],
+    [
+      addPlannerNote,
+      addSkillNote,
+      addChapterNote,
+      pushLog,
+      updateChapter,
+      finishDuration,
+      refreshRunning,
+    ],
   )
 
-  const clear = useCallback(() => {
+  /** 只重置展示状态，不触碰订阅（clear / 开始新运行共用）。 */
+  const resetDisplay = useCallback(() => {
     setHasStarted(false)
+    hasStartedRef.current = false
     setTaskId(null)
+    activeTaskIdRef.current = null
     setNodes(INITIAL_NODES)
     setPlannerNotes([])
     setSkillNotes([])
@@ -483,48 +592,114 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     setActiveTab('content')
   }, [])
 
+  /** 断开当前订阅（不取消后端任务），并让后续迟到事件失效。 */
+  const detach = useCallback(() => {
+    generationRef.current += 1
+    observeRef.current?.abort()
+    observeRef.current = null
+    setRunning(false)
+  }, [])
+
+  const clear = useCallback(() => {
+    detach()
+    resetDisplay()
+  }, [detach, resetDisplay])
+
+  /** 订阅一个已有任务：回放缓冲区 + 跟随实时事件。 */
+  const attachTask = useCallback(
+    async (task: Pick<TaskSummary, 'task_id' | 'query'> & Partial<TaskSummary>) => {
+      generationRef.current += 1
+      const generation = generationRef.current
+      observeRef.current?.abort()
+      const controller = new AbortController()
+      observeRef.current = controller
+
+      resetDisplay()
+      setHasStarted(true)
+      hasStartedRef.current = true
+      setTaskId(task.task_id)
+      activeTaskIdRef.current = task.task_id
+      setQuery(task.query)
+      if (task.mode) setMode(task.mode)
+      const start = task.created_at ? Date.parse(task.created_at) : Number.NaN
+      startedAtRef.current = Number.isNaN(start) ? Date.now() : start
+      finishedAtRef.current = task.finished_at ?? null
+      setElapsed(Math.max(0, Math.floor((Date.now() - startedAtRef.current) / 1000)))
+      setRunning(true)
+
+      try {
+        await streamObserve(
+          task.task_id,
+          (event) => {
+            // 观察对象已切换：旧流的迟到事件直接丢弃，避免状态串台
+            if (generationRef.current !== generation) return
+            handleEvent(event)
+          },
+          controller.signal,
+        )
+      } catch (err) {
+        if (generationRef.current !== generation || isAbortError(err)) return
+        setError(err instanceof ApiError ? err.message : '无法读取任务进度，请稍后重试')
+      } finally {
+        if (generationRef.current === generation) {
+          observeRef.current = null
+          setRunning(false)
+        }
+        void refreshRunning()
+      }
+    },
+    [handleEvent, refreshRunning, resetDisplay],
+  )
+
   /** 公共执行体：复位状态 + 消费一条 SSE 流（新建 / 续跑 / 重跑共用）。 */
   const runStream = useCallback(
     async (start: (onEvent: (event: TaskEvent) => void, signal: AbortSignal) => Promise<void>) => {
-      setRunning(true)
-      clear()
-      setHasStarted(true)
-      startedAtRef.current = Date.now()
+      generationRef.current += 1
+      const generation = generationRef.current
+      observeRef.current?.abort()
       const controller = new AbortController()
-      abortRef.current = controller
+      observeRef.current = controller
+
+      resetDisplay()
+      setHasStarted(true)
+      hasStartedRef.current = true
+      startedAtRef.current = Date.now()
+      finishedAtRef.current = null
+      setRunning(true)
 
       try {
-        await start(handleEvent, controller.signal)
+        await start((event) => {
+          // 已切换到别的观察对象：旧流的迟到事件直接丢弃
+          if (generationRef.current !== generation) return
+          handleEvent(event)
+        }, controller.signal)
       } catch (err) {
-        if ((err as { name?: string } | null)?.name === 'AbortError') {
+        // 已切换到别的观察对象：本地状态由新观察者接管，不再写入
+        if (generationRef.current !== generation) return
+        if (isAbortError(err)) {
           setAborted(true)
-          setNodes(
-            (prev) =>
-              Object.fromEntries(
-                Object.entries(prev).map(([key, value]) => [
-                  key,
-                  value === 'process' ? 'wait' : value,
-                ]),
-              ) as Record<NodeKey, StageStatus>,
-          )
+          setNodes((prev) => markRunningAsWait(prev))
           pushLog('终止', '用户手动终止任务，连接已关闭（后端 Agent 同步取消）', 'warn')
         } else {
           setError(err instanceof ApiError ? err.message : '任务执行失败，请稍后重试')
           setNodes((prev) => markRunningAsError(prev))
         }
-        setDuration(Math.floor((Date.now() - (startedAtRef.current ?? Date.now())) / 1000))
+        finishDuration()
       } finally {
-        abortRef.current = null
-        setRunning(false)
+        if (generationRef.current === generation) {
+          observeRef.current = null
+          setRunning(false)
+        }
+        void refreshRunning()
       }
     },
-    [clear, handleEvent, pushLog],
+    [finishDuration, handleEvent, pushLog, refreshRunning, resetDisplay],
   )
 
   const run = useCallback(
     async (overrideQuery?: string, scope?: TaskScope | null) => {
       const trimmed = (overrideQuery ?? query).trim()
-      if (!trimmed || running) return
+      if (!trimmed) return
       // 预设任务「直接运行」路径：把预设写入输入框，保持界面与实际执行一致
       if (overrideQuery !== undefined && overrideQuery !== query) {
         setQuery(overrideQuery)
@@ -533,35 +708,72 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         streamTask(trimmed, onEvent, signal, scope, depth, useSkills),
       )
     },
-    [depth, query, running, runStream, setQuery, useSkills],
+    [depth, query, runStream, setQuery, useSkills],
   )
 
   const resume = useCallback(
     async (taskId: string) => {
-      if (running) return
       await runStream((onEvent, signal) => streamResume(taskId, onEvent, signal))
     },
-    [running, runStream],
+    [runStream],
   )
 
   const rerun = useCallback(
     async (taskId: string, sourceQuery: string) => {
-      if (running) return
       setQuery(sourceQuery)
       await runStream((onEvent, signal) => streamRerun(taskId, onEvent, signal))
     },
-    [runStream, running, setQuery],
+    [runStream, setQuery],
+  )
+
+  /** 切换到某个任务：运行中则重建进度，已结束则回放终态事件。 */
+  const selectTask = useCallback(
+    async (targetId: string) => {
+      const known = runningTasksRef.current.find((task) => task.task_id === targetId)
+      if (known) {
+        await attachTask(known)
+        return
+      }
+      try {
+        const detail = await getTask(targetId)
+        await attachTask(detail)
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : '无法打开该任务的实时进度')
+      }
+    },
+    [attachTask],
+  )
+
+  /** 终止任意任务；活动任务会收到后端推送的 task_cancelled 终态。 */
+  const cancelRunning = useCallback(
+    async (targetId: string) => {
+      try {
+        await cancelTask(targetId)
+      } catch {
+        // 任务可能刚好结束 / 已被取消（404），视为已终止
+      }
+      await refreshRunning()
+    },
+    [refreshRunning],
   )
 
   const abort = useCallback(() => {
-    // 先请求后端取消（标记 cancelled 并中断模型调用），再关闭本地 SSE 流
-    if (taskId) {
-      void cancelTask(taskId).catch(() => {
+    // 先请求后端取消（标记 cancelled 并中断模型调用），再关闭本地订阅
+    if (activeTaskIdRef.current) {
+      void cancelTask(activeTaskIdRef.current).catch(() => {
         // 任务可能刚好结束/已被取消 -> 404，忽略
       })
     }
-    abortRef.current?.abort()
-  }, [taskId])
+    generationRef.current += 1
+    observeRef.current?.abort()
+    observeRef.current = null
+    setRunning(false)
+    setAborted(true)
+    setNodes((prev) => markRunningAsWait(prev))
+    pushLog('终止', '用户手动终止任务，后端 Agent 已同步取消', 'warn')
+    finishDuration()
+    void refreshRunning()
+  }, [finishDuration, pushLog, refreshRunning])
 
   const copy = useCallback(async () => {
     if (finalAnswer === null) return
@@ -578,6 +790,36 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     // 文件名优先用任务目标，其次用用户输入，便于本地归档
     downloadMarkdown(finalAnswer, plan?.goal || query || 'agent-result')
   }, [finalAnswer, plan, query])
+
+  // 启动恢复：刷新页面后自动接上最近一个正在执行的任务（与未刷新时一致），
+  // 之后按固定间隔刷新运行中列表（其它标签页 / 刷新前启动的任务）。
+  useEffect(() => {
+    let stopped = false
+    const load = async (attachIfIdle: boolean) => {
+      const generation = generationRef.current
+      try {
+        const data = await listTasks(RUNNING_TASKS_LIMIT, 'running')
+        if (stopped) return
+        applyRunningTasks(data.tasks)
+        // 只在「用户还没开始任何任务」且期间没有被新运行占用时恢复
+        if (attachIfIdle && data.tasks.length > 0 && !hasStartedRef.current) {
+          if (generationRef.current !== generation) return
+          await attachTask(data.tasks[0])
+        }
+      } catch {
+        // 启动恢复失败静默：不阻塞工作台
+      }
+    }
+    void load(true)
+    const timer = window.setInterval(() => void load(false), RUNNING_POLL_MS)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+      // 卸载（应用关闭 / 测试清理）：断开订阅，但后端任务继续执行
+      observeRef.current?.abort()
+      observeRef.current = null
+    }
+  }, [applyRunningTasks, attachTask])
 
   const chapterList: ChapterView[] = outline.map((title, index) => {
     const state = chapters[index + 1]
@@ -598,6 +840,8 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     query,
     setQuery,
     running,
+    runningTasks,
+    tasksVersion,
     hasStarted,
     aborted,
     error,
@@ -638,6 +882,8 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     scopeLabel,
     resume,
     rerun,
+    selectTask,
+    cancelRunning,
     abort,
     clear,
     copy,

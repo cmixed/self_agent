@@ -30,6 +30,7 @@ import { lazy, Suspense, useState } from 'react'
 
 import ErrorBoundary from './components/ErrorBoundary'
 import ProviderSwitch, { providerLabelOf } from './components/ProviderSwitch'
+import RunningTasks from './components/RunningTasks'
 import { ViewStackProvider, useViewStack } from './components/ViewStack'
 import { useHealth } from './hooks/useHealth'
 import { useIsNarrow } from './hooks/useIsNarrow'
@@ -99,7 +100,7 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
   const narrow = useIsNarrow()
 
   const { health, loaded, reload } = useHealth()
-  const { running } = useTaskRun()
+  const { running, runningTasks } = useTaskRun()
   const { overlays, closeAll } = useViewStack()
 
   const menuTheme = mode === 'dark' ? 'dark' : 'light'
@@ -127,9 +128,9 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
   const menuItems = PAGE_META.map((item) => ({
     key: item.key,
     label: item.label,
-    // 任务运行中时在图标上显示小圆点（折叠状态下也可见）
+    // 有任务在跑时在图标上显示小圆点（折叠状态下也可见）
     icon:
-      item.key === 'workspace' && running ? (
+      item.key === 'workspace' && (running || runningTasks.length > 0) ? (
         <Badge dot offset={[2, -2]}>
           {item.icon}
         </Badge>
@@ -225,24 +226,12 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
             />
           )}
           <div className="app-header-actions">
-            {running ? (
-              <Tooltip title="任务正在后台执行，点击返回工作台">
-                <Button
-                  type="text"
-                  size="small"
-                  className="app-header-run"
-                  aria-label="任务执行中，返回工作台"
-                  onClick={() => handleNav('workspace')}
-                >
-                  <Badge status="processing" />
-                  <span className="app-header-run__text">执行中</span>
-                </Button>
-              </Tooltip>
-            ) : null}
+            <RunningTasks />
             {healthy ? (
               <ProviderSwitch
                 activeProvider={health?.llm_provider ?? ''}
-                running={running}
+                // 任一任务在跑时禁止切换模型：避免同一次运行混用两个 Provider
+                running={running || runningTasks.length > 0}
                 onSwitched={reload}
               />
             ) : null}

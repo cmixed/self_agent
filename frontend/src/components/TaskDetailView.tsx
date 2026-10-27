@@ -98,7 +98,7 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
   const { message } = App.useApp()
   const { back } = useViewStack()
   const { navigate } = useNav()
-  const { running: taskRunning, resume, rerun } = useTaskRun()
+  const { resume, rerun, selectTask } = useTaskRun()
   const [detail, setDetail] = useState<TaskDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -187,6 +187,22 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
         extra={
           detail ? (
             <Space size={8}>
+              {detail.running ? (
+                <Tooltip title="任务在后端执行中：回到工作台查看实时进度">
+                  <Button
+                    size="small"
+                    type="primary"
+                    ghost
+                    onClick={() => {
+                      back()
+                      navigate('workspace')
+                      void selectTask(taskId)
+                    }}
+                  >
+                    在工作台查看
+                  </Button>
+                </Tooltip>
+              ) : null}
               {detail.final_answer ? (
                 <Button
                   size="small"
@@ -202,7 +218,7 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
                     size="small"
                     type="primary"
                     icon={<RightCircleOutlined />}
-                    disabled={taskRunning}
+                    disabled={running}
                     onClick={() => handleResume()}
                   >
                     继续生成
@@ -214,7 +230,7 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
                   <Button
                     size="small"
                     icon={<ReloadOutlined />}
-                    disabled={taskRunning}
+                    disabled={running}
                     onClick={() => handleRerun()}
                   >
                     重新生成

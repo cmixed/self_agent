@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 from collections.abc import AsyncIterator
 from typing import Any
@@ -142,9 +144,11 @@ async def create_task(
     return TaskResponse.model_validate(result)
 
 
-def _to_summary(record: Any) -> TaskSummaryOut:
+def _to_summary(
+    record: Any, *, registry: TaskRegistry | None = None
+) -> TaskSummaryOut:
     result = record.result or {}
-    return TaskSummaryOut(
+    summary = TaskSummaryOut(
         task_id=record.task_id,
         query=record.query,
         status=record.status,
@@ -155,17 +159,28 @@ def _to_summary(record: Any) -> TaskSummaryOut:
         retry_count=int(result.get("retry_count") or 0),
         failed_chapters=list(result.get("failed_chapters") or []),
     )
+    # 运行中任务附带最近一次事件（顶栏胶囊显示阶段；§19 事件名 + 可读消息）
+    if record.status == "running" and registry is not None:
+        last = registry.last_event(record.task_id)
+        if last is not None:
+            summary.stage = str(last.get("event") or "") or None
+            summary.message = str(last.get("message") or "") or None
+    return summary
 
 
 @router.get("/tasks", response_model=TaskListResponse)
 async def list_tasks(
     limit: int = Query(default=20, ge=1, le=100),
+    status: str | None = Query(default=None),
+    registry: TaskRegistry = Depends(get_task_registry),
     repository: TaskRepository = Depends(get_task_repository),
     user_id: str = Depends(get_user_id),
 ) -> TaskListResponse:
-    """按用户列出任务记录（最新在前），供前端任务历史页使用。"""
-    records = await repository.list_tasks(user_id=user_id, limit=limit)
-    return TaskListResponse(tasks=[_to_summary(record) for record in records])
+    """按用户列出任务记录（最新在前），供前端任务历史页 / 运行中胶囊使用。"""
+    records = await repository.list_tasks(user_id=user_id, limit=limit, status=status)
+    return TaskListResponse(
+        tasks=[_to_summary(record, registry=registry) for record in records]
+    )
 
 
 def _resumable(status_value: str, snapshot: dict | None) -> bool:
@@ -276,6 +291,82 @@ async def cancel_task(
     return CancelTaskResponse(task_id=task_id, status="cancelling")
 
 
+def _sse(event: dict[str, Any]) -> str:
+    """把一条 §19 事件编码为 SSE 帧。"""
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+async def _drive_task(
+    registry: TaskRegistry,
+    task_id: str,
+    events: AsyncIterator[dict[str, Any]],
+    repository: TaskRepository,
+    *,
+    on_complete: Any = None,
+) -> None:
+    """后台驱动一次任务执行：把事件写入通道，与浏览器连接解耦。
+
+    客户端断开（刷新页面）只会取消 SSE 订阅者，不会取消这里的执行；
+    前端重新 ``GET /tasks/{id}/stream`` 即可从缓冲区完整回放。
+    """
+    completed: dict[str, Any] = {}
+    try:
+        async for event in events:
+            if event.get("event") == "task_completed" and event.get("result"):
+                completed.update(event["result"])
+            await registry.publish(task_id, event)
+    except asyncio.CancelledError:
+        # TaskService 已把运行记录落库为 cancelled；这里补发终态事件，
+        # 让正在观察的前端（以及之后回放的订阅者）也能看到取消结论。
+        logger.info(
+            "任务已终止，补发终态事件",
+            extra={"task_id": task_id, "event": "task_cancelled", "status": "cancelled"},
+        )
+        await registry.publish(
+            task_id,
+            {
+                "task_id": task_id,
+                "event": "task_cancelled",
+                "status": "cancelled",
+                "message": "任务已被终止",
+                "error_type": "task_cancelled",
+            },
+        )
+        raise
+    except Exception:
+        # TaskService 内部已把可预期错误转为 task_failed 事件；
+        # 这里兜底真正的意外异常，保证通道一定以终态关闭。
+        logger.exception(
+            "任务执行出现未预期错误",
+            extra={"task_id": task_id, "event": "task_failed", "status": "error"},
+        )
+        with contextlib.suppress(Exception):
+            await repository.fail_run(task_id, "internal_error")
+        await registry.publish(
+            task_id,
+            {
+                "task_id": task_id,
+                "event": "task_failed",
+                "status": "error",
+                "message": "任务执行出现内部错误，请查看后端日志",
+                "error_type": "internal_error",
+            },
+        )
+    finally:
+        # 先关闭通道让订阅者及时结束，再做收尾（长期记忆提取等）
+        await registry.close(task_id)
+        if completed and on_complete is not None:
+            with contextlib.suppress(Exception):
+                await on_complete(completed)
+
+
+async def _subscribe(registry: TaskRegistry, task_id: str) -> AsyncIterator[str]:
+    """订阅任务事件通道：回放缓冲区 + 跟随实时事件，直到任务终态。"""
+    channel = registry.ensure_channel(task_id)
+    async for event in channel.follow():
+        yield _sse(event)
+
+
 @router.post("/tasks/stream")
 async def stream_task(
     request: Request,
@@ -283,11 +374,14 @@ async def stream_task(
     service: TaskService = Depends(get_task_service),
     categories: CategoryService = Depends(get_category_service),
     memory_service: MemoryService = Depends(get_memory_service),
+    repository: TaskRepository = Depends(get_task_repository),
+    registry: TaskRegistry = Depends(get_task_registry),
     user_id: str = Depends(get_user_id),
 ) -> StreamingResponse:
     """以 SSE 推送 Agent 执行进度。
 
-    前端不应展示模型隐藏推理过程。
+    执行在后台任务里进行：前端刷新 / 断开只影响订阅，不影响任务本身
+    （AGENTS.md §19）。
     """
     task_id = str(uuid4())
     request.state.task_id = task_id
@@ -301,30 +395,35 @@ async def stream_task(
 
     stored = await memory_service.get_preferences(user_id)
     preferences = {**stored, **(payload.user_preferences or {})}
-    completed: dict = {}
 
-    async def event_source() -> AsyncIterator[str]:
-        async for event in service.stream(
-            payload.query,
-            user_preferences=preferences,
-            task_id=task_id,
-            user_id=user_id,
-            retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
-            depth=payload.depth,
-            use_skills=payload.use_skills,
-        ):
-            if event.get("event") == "task_completed" and event.get("result"):
-                completed.update(event["result"])
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+    async def runner() -> None:
+        await _drive_task(
+            registry,
+            task_id,
+            service.stream(
+                payload.query,
+                user_preferences=preferences,
+                task_id=task_id,
+                user_id=user_id,
+                retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
+                depth=payload.depth,
+                use_skills=payload.use_skills,
+            ),
+            repository,
+            on_complete=lambda result: _maybe_extract_memories(
+                memory_service, user_id, query=payload.query, result=result, task_id=task_id
+            ),
+        )
 
-        # 任务完成后提取长期记忆（仅长文；best-effort，失败不影响已推送的结果）
-        if completed:
-            await _maybe_extract_memories(
-                memory_service, user_id, query=payload.query, result=completed, task_id=task_id
-            )
+    registry.start(task_id, runner())
 
+    return _stream_response(_subscribe(registry, task_id))
+
+
+def _stream_response(source: AsyncIterator[str]) -> StreamingResponse:
+    """SSE 响应的公共头。"""
     return StreamingResponse(
-        event_source(),
+        source,
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -337,6 +436,7 @@ async def resume_task(
     repository: TaskRepository = Depends(get_task_repository),
     store: CheckpointStore | None = Depends(get_checkpoint_store),
     memory_service: MemoryService = Depends(get_memory_service),
+    registry: TaskRegistry = Depends(get_task_registry),
     user_id: str = Depends(get_user_id),
 ) -> StreamingResponse:
     """从断点继续执行被中断（失败/取消）的任务，SSE 协议与 /tasks/stream 一致。
@@ -358,24 +458,21 @@ async def resume_task(
         )
 
     stored = await memory_service.get_preferences(user_id)
-    completed: dict = {}
 
-    async def event_source() -> AsyncIterator[str]:
-        async for event in service.resume(task_id, user_preferences=stored, user_id=user_id):
-            if event.get("event") == "task_completed" and event.get("result"):
-                completed.update(event["result"])
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+    async def runner() -> None:
+        await _drive_task(
+            registry,
+            task_id,
+            service.resume(task_id, user_preferences=stored, user_id=user_id),
+            repository,
+            on_complete=lambda result: _maybe_extract_memories(
+                memory_service, user_id, query=record.query, result=result, task_id=task_id
+            ),
+        )
 
-        if completed:
-            await _maybe_extract_memories(
-                memory_service, user_id, query=record.query, result=completed, task_id=task_id
-            )
+    registry.start(task_id, runner())
 
-    return StreamingResponse(
-        event_source(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    return _stream_response(_subscribe(registry, task_id))
 
 
 @router.post("/tasks/{task_id}/rerun")
@@ -385,6 +482,7 @@ async def rerun_task(
     categories: CategoryService = Depends(get_category_service),
     repository: TaskRepository = Depends(get_task_repository),
     memory_service: MemoryService = Depends(get_memory_service),
+    registry: TaskRegistry = Depends(get_task_registry),
     user_id: str = Depends(get_user_id),
 ) -> StreamingResponse:
     """用同一 query **重新生成**：新建一次运行（新 task_id），原任务记录保持不变。
@@ -399,7 +497,6 @@ async def rerun_task(
 
     new_task_id = str(uuid4())
     stored = await memory_service.get_preferences(user_id)
-    completed: dict = {}
 
     # 重跑按原任务的范围**重新解析**：类别里新增的文档会被纳入（新一次运行）
     previous_scope = (record.result or {}).get("scope") or None
@@ -415,10 +512,11 @@ async def rerun_task(
             categories,
         )
 
-    async def event_source() -> AsyncIterator[str]:
-        previous = record.result or {}
-        previous_mode = previous.get("mode")
-        rerun_depth = previous_mode if previous_mode in {"brief", "longform"} else "auto"
+    previous = record.result or {}
+    previous_mode = previous.get("mode")
+    rerun_depth = previous_mode if previous_mode in {"brief", "longform"} else "auto"
+
+    async def rerun_events() -> AsyncIterator[dict[str, Any]]:
         async for event in service.stream(
             record.query,
             user_preferences=stored,
@@ -431,17 +529,103 @@ async def rerun_task(
             # 让前端知道这是一次重新生成（并指向原任务）
             if event.get("event") == "task_started":
                 event = {**event, "rerun_of": task_id}
-            if event.get("event") == "task_completed" and event.get("result"):
-                completed.update(event["result"])
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            yield event
 
-        if completed:
-            await _maybe_extract_memories(
-                memory_service, user_id, query=record.query, result=completed, task_id=new_task_id
-            )
+    async def runner() -> None:
+        await _drive_task(
+            registry,
+            new_task_id,
+            rerun_events(),
+            repository,
+            on_complete=lambda result: _maybe_extract_memories(
+                memory_service, user_id, query=record.query, result=result, task_id=new_task_id
+            ),
+        )
 
-    return StreamingResponse(
-        event_source(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    registry.start(new_task_id, runner())
+
+    return _stream_response(_subscribe(registry, new_task_id))
+
+
+@router.get("/tasks/{task_id}/stream")
+async def observe_task(
+    task_id: str,
+    registry: TaskRegistry = Depends(get_task_registry),
+    repository: TaskRepository = Depends(get_task_repository),
+) -> StreamingResponse:
+    """观察一个任务的事件流（AGENTS.md §18/§19）。
+
+    - 任务在本进程内有事件通道（运行中或刚结束）→ 回放全部缓冲事件并跟随；
+    - 通道已淘汰但 SQLite 有记录 → 用落库结果合成一条终态事件；
+    - 都不存在 → 404。
+
+    前端刷新页面后据此重建进度；重复订阅（多标签页）互不影响。
+    """
+    channel = registry.channel(task_id)
+    record = None if channel is not None else await repository.get_task(task_id)
+    if channel is None and record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
+
+    if channel is not None:
+
+        async def source() -> AsyncIterator[str]:
+            async for event in channel.follow():  # type: ignore[union-attr]
+                yield _sse(event)
+
+    else:
+
+        async def source() -> AsyncIterator[str]:
+            assert record is not None
+            yield _sse(_synthesized_terminal(record))
+
+    return _stream_response(source())
+
+
+def _synthesized_terminal(record: Any) -> dict[str, Any]:
+    """任务已不在本进程（重启 / 通道淘汰）时，用落库记录合成终态事件。"""
+    result = record.result or {}
+    status_value = record.status
+    base: dict[str, Any] = {
+        "task_id": record.task_id,
+        "status": status_value,
+    }
+    if status_value == "completed":
+        base.update(
+            {
+                "event": "task_completed",
+                "status": "completed",
+                "message": "任务完成",
+                "result": result,
+            }
+        )
+        return base
+    if status_value == "cancelled":
+        base.update(
+            {
+                "event": "task_cancelled",
+                "status": "cancelled",
+                "message": "任务已被终止",
+                "error_type": record.error_type or "task_cancelled",
+            }
+        )
+        return base
+    if status_value == "running":
+        # 理论上只会出现在重启后状态残留：如实告知进度不可恢复
+        base.update(
+            {
+                "event": "task_failed",
+                "status": "error",
+                "message": "任务进度已丢失（后端可能重启过），请使用「重新生成」",
+                "error_type": "interrupted",
+            }
+        )
+        return base
+    base.update(
+        {
+            "event": "task_failed",
+            "status": "error",
+            "message": f"任务执行失败（{record.error_type or 'unknown'}）",
+            "error_type": record.error_type or "unknown",
+        }
     )
+    return base

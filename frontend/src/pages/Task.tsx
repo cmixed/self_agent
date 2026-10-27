@@ -63,6 +63,7 @@ import {
   formatTokenRate,
   formatTokens,
 } from '../utils/format'
+import { runningTaskStage } from '../utils/runningTasks'
 import { describeScope } from '../utils/scope'
 
 const { Text, Paragraph } = Typography
@@ -162,6 +163,8 @@ export default function TaskPage() {
     clear,
     copy,
     download,
+    tasksVersion,
+    selectTask,
   } = useTaskRun()
 
   const { presets, loaded: presetsLoaded } = usePresets()
@@ -173,15 +176,14 @@ export default function TaskPage() {
   const [scopePickerOpen, setScopePickerOpen] = useState(false)
   const [outputTab, setOutputTab] = useState('plan')
 
-  // 闲置态：轻量读取资料与最近任务（环境感知；失败静默，不打扰主流程）
+  // 闲置态：轻量读取资料与类别（环境感知；失败静默，不打扰主流程）
   useEffect(() => {
     if (hasStarted) return
     let cancelled = false
-    Promise.all([listDocuments(), listTasks(), listCategories()])
-      .then(([docs, tasks, categoryData]) => {
+    Promise.all([listDocuments(), listCategories()])
+      .then(([docs, categoryData]) => {
         if (cancelled) return
         setDocuments(docs.documents)
-        setRecentTasks(tasks.tasks.slice(0, 4))
         setCategories(categoryData.categories)
       })
       .catch(() => {
@@ -191,6 +193,22 @@ export default function TaskPage() {
       cancelled = true
     }
   }, [hasStarted])
+
+  // 最近任务：任务状态变化（tasksVersion）时自动刷新，无需手动刷新页面
+  useEffect(() => {
+    if (hasStarted) return
+    let cancelled = false
+    listTasks(8)
+      .then((tasks) => {
+        if (!cancelled) setRecentTasks(tasks.tasks.slice(0, 4))
+      })
+      .catch(() => {
+        // 读取失败保持上一次结果
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [hasStarted, tasksVersion])
 
   // 结果出现后定位（含从其它页面切回来的情况）
   useEffect(() => {
@@ -806,13 +824,28 @@ export default function TaskPage() {
               <EmptyState compact title="还没有任务记录" />
             ) : (
               <ul className="ws-recent">
-                {recentTasks.map((task) => (
-                  <li key={task.task_id}>
-                    <StatusTag status={task.status} />
-                    <span className="ws-recent__query">{task.query}</span>
-                    <span className="ws-recent__time">{formatDateTime(task.created_at)}</span>
-                  </li>
-                ))}
+                {recentTasks.map((task) =>
+                  task.status === 'running' ? (
+                    <li key={task.task_id}>
+                      <button
+                        type="button"
+                        className="ws-recent__open"
+                        aria-label={`在工作台查看运行中的任务：${task.query}`}
+                        onClick={() => void selectTask(task.task_id)}
+                      >
+                        <StatusTag status={task.status} />
+                        <span className="ws-recent__query">{task.query}</span>
+                        <span className="ws-recent__time">{runningTaskStage(task)}</span>
+                      </button>
+                    </li>
+                  ) : (
+                    <li key={task.task_id}>
+                      <StatusTag status={task.status} />
+                      <span className="ws-recent__query">{task.query}</span>
+                      <span className="ws-recent__time">{formatDateTime(task.created_at)}</span>
+                    </li>
+                  ),
+                )}
               </ul>
             )}
           </Card>

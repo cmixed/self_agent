@@ -988,6 +988,20 @@ MAX_RETRIES=2
 
 如果需要解释 Agent 行为，应展示结构化的“任务步骤/执行状态”，而不是模型内部推理过程。
 
+运行中任务的展示与管理（执行归属后端，前端只是观察者）：
+
+- 顶栏胶囊展示**所有**运行中任务（支持多个）：脉冲点 + 截断标题 + 已运行时长 +
+  终止按钮；hover 显示完整 query、模式、当前阶段；点击把工作台切换到该任务
+  （只切换观察对象，**不取消**其它任务）。
+- 工作台同一时刻只观察一个任务，但后端可同时执行多个；开始新任务时旧任务转入
+  后台并留在胶囊里，不得因此阻塞提交。
+- 刷新页面后自动接上**最近一个**运行中任务（与未刷新一致），不强迫用户跳页；
+  找不到运行中任务才回到闲置态。
+- 终态（`task_completed` / `task_failed` / `task_cancelled`）到达后胶囊移除，
+  并递增 `tasksVersion` 让历史页 / 工作台「最近任务」自动刷新。
+- 胶囊数量、窄屏聚合、排序等纯逻辑抽成函数并单测（`utils/runningTasks.ts`），
+  不要为测试引入浏览器 E2E。
+
 ---
 
 ## 18. FastAPI
@@ -1053,6 +1067,7 @@ validator_completed
 retrying
 task_completed
 task_failed
+task_cancelled
 ```
 
 事件结构建议：
@@ -1079,6 +1094,25 @@ task_failed
 - 续跑必须**不重做**已完成的步骤（检查点停在失败节点的上一个超步）；
 - 续跑推送 ``task_resumed`` 事件并携带进度快照，前端据此预填；
 - 无检查点时返回 409 并提示改用重新生成，不得静默从头开始。
+
+任务执行与 SSE 订阅解耦（**执行归属后端**）：
+
+- `POST /api/tasks/stream`、`/{id}/resume`、`/{id}/rerun` 都在后台 `asyncio.Task`
+  中驱动 Agent Graph；请求协程只订阅事件通道。浏览器断开只取消订阅，**不得**
+  取消任务本身（刷新页面不能把任务弄死）。
+- `GET /api/tasks/{id}/stream` 观察一个已有任务：通道存在（运行中或刚结束）→
+  回放缓冲区 + 跟随实时事件；通道已淘汰但 SQLite 有记录 → 合成一条终态事件；
+  两者都没有 → 404。
+- 每个任务一个 `TaskChannel`（事件缓冲 + `asyncio.Condition`，支持多订阅者）；
+  已结束的 channel 保留最近 20 个（刚结束就刷新仍能完整回放）。
+- 事件缓冲在**进程内存**，进程重启丢失：启动时 `reconcile_running_tasks` 把遗留
+  `running` 记录标记为 `cancelled`（`error_type=interrupted`），不得假装还在跑。
+- `GET /api/tasks?status=running` 供顶栏胶囊使用，并为运行中任务附带
+  `stage` / `message`（纯增量字段，旧前端不受影响）。
+- 终止语义：`POST /api/tasks/{id}/cancel` 后 driver 补发 `task_cancelled` 终态事件
+  再关闭通道；前端按「已终止」收尾，不依赖本地断开连接。
+- 测试注意：httpx 的 `ASGITransport` 会缓冲整个响应、无法模拟「读到一半断开」，
+  验证断线不取消任务必须用 `TestClient` 逐帧读取。
 
 ---
 

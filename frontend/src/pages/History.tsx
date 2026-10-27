@@ -1,6 +1,6 @@
 import { ReloadOutlined } from '@ant-design/icons'
 import { Button, Card, Input, Segmented, Table, Tooltip, Typography } from 'antd'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
 import ErrorNotice from '../components/ErrorNotice'
@@ -8,6 +8,7 @@ import PageContainer from '../components/PageContainer'
 import StatusTag from '../components/StatusTag'
 import { useViewStack } from '../components/ViewStack'
 import { ApiError, listTasks } from '../services/api'
+import { useTaskRun } from '../state/taskRun'
 import type { TaskSummary } from '../types/api'
 import { formatDateTime, formatDuration, taskDurationSeconds } from '../utils/format'
 
@@ -26,8 +27,10 @@ export default function HistoryPage() {
   const [keyword, setKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
 
-  const refresh = useCallback(async () => {
-    setLoading(true)
+  const { tasksVersion } = useTaskRun()
+
+  const refresh = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) setLoading(true)
     setError(null)
     try {
       const data = await listTasks()
@@ -35,13 +38,23 @@ export default function HistoryPage() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '加载任务历史失败')
     } finally {
-      setLoading(false)
+      if (!options?.silent) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  // 任务开始 / 结束（tasksVersion 变化）时静默刷新，无需手动点刷新
+  const versioned = useRef(false)
+  useEffect(() => {
+    if (!versioned.current) {
+      versioned.current = true
+      return
+    }
+    void refresh({ silent: true })
+  }, [refresh, tasksVersion])
 
   const visibleTasks = tasks.filter((task) => {
     if (statusFilter !== 'all' && task.status !== statusFilter) return false

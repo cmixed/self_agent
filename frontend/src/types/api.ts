@@ -346,6 +346,10 @@ export interface TaskSummary {
   error_type?: string | null
   retry_count: number
   failed_chapters: string[]
+  /** 运行中任务：最近一次事件名（如 writer_started），由后端进程内事件通道填充 */
+  stage?: string | null
+  /** 运行中任务：最近一次事件的可读消息（如「正在撰写第 2 章」） */
+  message?: string | null
 }
 
 export interface TaskListResponse {

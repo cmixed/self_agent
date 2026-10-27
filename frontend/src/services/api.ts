@@ -94,8 +94,10 @@ export function sendChat(messages: ChatMessage[], signal?: AbortSignal): Promise
 
 // --- 任务 ---
 
-export function listTasks(limit = 20): Promise<TaskListResponse> {
-  return request<TaskListResponse>(`/tasks?limit=${limit}`)
+export function listTasks(limit = 20, status?: string): Promise<TaskListResponse> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (status) params.set('status', status)
+  return request<TaskListResponse>(`/tasks?${params.toString()}`)
 }
 
 export function getTask(taskId: string): Promise<TaskDetail> {
@@ -170,6 +172,25 @@ export async function streamRerun(
   return streamSse(
     `/tasks/${encodeURIComponent(taskId)}/rerun`,
     { method: 'POST' },
+    onEvent,
+    signal,
+  )
+}
+
+/**
+ * 观察一个已有任务的事件流（AGENTS.md §18/§19）。
+ *
+ * 任务执行与浏览器连接解耦：刷新页面后重新订阅即可从服务端事件缓冲区完整
+ * 回放，再跟随实时事件；断开只会取消订阅，不会取消任务本身。
+ */
+export async function streamObserve(
+  taskId: string,
+  onEvent: (event: TaskEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return streamSse(
+    `/tasks/${encodeURIComponent(taskId)}/stream`,
+    { method: 'GET' },
     onEvent,
     signal,
   )

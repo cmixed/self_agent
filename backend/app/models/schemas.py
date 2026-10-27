@@ -473,6 +473,9 @@ class TaskSummaryOut(BaseModel):
     error_type: str | None = None
     retry_count: int = 0
     failed_chapters: list[str] = Field(default_factory=list)
+    # 仅运行中任务由进程内注册表填充（§19 事件名与消息），供顶栏胶囊展示阶段
+    stage: str | None = None
+    message: str | None = None
 
 
 class CancelTaskResponse(BaseModel):
