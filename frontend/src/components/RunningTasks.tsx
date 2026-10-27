@@ -108,7 +108,8 @@ export default function RunningTasks() {
   const openTask = (targetId: string) => {
     closeAll()
     navigate('workspace')
-    void selectTask(targetId)
+    // 当前已观察的就是它：只切回工作台，不重建订阅（避免白清一次进度）
+    if (targetId !== taskId) void selectTask(targetId)
   }
 
   const cancel = (targetId: string) => {
