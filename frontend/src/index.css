@@ -1102,6 +1102,107 @@ html[data-theme='dark'] body {
   color: var(--ant-color-text-tertiary);
 }
 
+/* --- 设置页（设置项 / 记忆摘要） ------------------------------------------ */
+.settings-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ws-space-4);
+  padding: var(--ws-space-3) 0;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+.settings-row:first-child {
+  padding-top: 0;
+}
+
+.settings-row:last-of-type {
+  border-bottom: none;
+}
+
+.settings-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-row__title {
+  font-weight: 500;
+  color: var(--ant-color-text);
+}
+
+.settings-row__desc {
+  font-size: var(--ws-font-secondary);
+  line-height: 1.6;
+  color: var(--ant-color-text-tertiary);
+}
+
+.settings-row__control {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--ws-space-2);
+}
+
+.settings-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-2);
+  margin-top: var(--ws-space-2);
+  padding: var(--ws-space-3);
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: var(--ws-radius-sm);
+  background: var(--ant-color-fill-quaternary);
+}
+
+.settings-summary__head {
+  display: flex;
+  align-items: center;
+  gap: var(--ws-space-2);
+  font-weight: 500;
+  color: var(--ant-color-text);
+}
+
+.settings-summary__row {
+  display: flex;
+  gap: var(--ws-space-3);
+  font-size: var(--ws-font-secondary);
+}
+
+.settings-summary__label {
+  flex: none;
+  width: 72px;
+  color: var(--ant-color-text-tertiary);
+}
+
+.settings-summary__detail {
+  display: flex;
+  align-items: center;
+  gap: var(--ws-space-1);
+  flex-wrap: wrap;
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ws-space-3);
+  flex-wrap: wrap;
+  margin-top: var(--ws-space-3);
+}
+
+@media (max-width: 720px) {
+  .settings-row {
+    flex-direction: column;
+    gap: var(--ws-space-2);
+  }
+
+  .settings-row__control {
+    align-self: flex-start;
+  }
+}
+
 /* --- 工作台（Composer / 执行态） ------------------------------------------ */
 .ws-compose {
   display: flex;

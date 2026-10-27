@@ -30,11 +30,12 @@ import type {
   WritingBudget,
 } from '../types/api'
 import { downloadMarkdown } from '../utils/download'
+import { clampPillSettings, readPillSettings, writePillSettings } from '../utils/pillSettings'
+import type { PillSettings } from '../utils/pillSettings'
 import {
   collectFinishedTasks,
   isTerminalStatus,
   loadAcknowledgedTasks,
-  MAX_RESTORED_FINISHED,
   saveAcknowledgedTasks,
   splitPendingFinished,
 } from '../utils/runningTasks'
@@ -148,6 +149,12 @@ export interface TaskRunValue {
   ackFinished: (taskId: string) => void
   /** 一次性把所有「完成待查看」胶囊标为已查看（不影响任务记录） */
   ackAllFinished: () => void
+  /** 顶栏胶囊的可调参数（设置页维护，立即生效） */
+  pillSettings: PillSettings
+  /** 更新胶囊参数：写盘并立即按新上限裁剪待查看列表 */
+  updatePillSettings: (patch: Partial<PillSettings>) => void
+  /** 清除「已查看」记录：最近结束的任务会重新出现在胶囊里 */
+  clearAcknowledged: () => void
   /** 任务状态变化信号：列表页 / 最近任务据此刷新 */
   tasksVersion: number
   hasStarted: boolean
@@ -222,6 +229,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   const [running, setRunning] = useState(false)
   const [runningTasks, setRunningTasks] = useState<TaskSummary[]>([])
   const [finishedTasks, setFinishedTasks] = useState<TaskSummary[]>([])
+  const [pillSettings, setPillSettings] = useState<PillSettings>(readPillSettings)
   const [tasksVersion, setTasksVersion] = useState(0)
   const [hasStarted, setHasStarted] = useState(false)
   const [aborted, setAborted] = useState(false)
@@ -265,6 +273,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   const hasStartedRef = useRef(false)
   const runningTasksRef = useRef<TaskSummary[]>([])
   const finishedTasksRef = useRef<TaskSummary[]>([])
+  const pillSettingsRef = useRef(pillSettings)
   const tasksSignatureRef = useRef('')
   const acknowledgedRef = useRef<Set<string>>(new Set())
   const acknowledgedLoadedRef = useRef(false)
@@ -337,6 +346,24 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   )
 
   /**
+   * 按上限裁剪待查看列表；被裁掉的条目写入「已查看」。
+   *
+   * 失败任务由 `splitPendingFinished` 豁免，永远不会在这里被丢弃。
+   */
+  const trimFinished = useCallback(
+    (list: TaskSummary[], limit: number) => {
+      const { kept, dropped } = splitPendingFinished(list, limit)
+      if (dropped.length > 0) {
+        const ids = acknowledged()
+        for (const task of dropped) ids.add(task.task_id)
+        saveAcknowledgedTasks(ids)
+      }
+      return kept
+    },
+    [acknowledged],
+  )
+
+  /**
    * 合并服务端任务列表：运行中进胶囊；终态且用户未查看的进「完成待查看」。
    *
    * `restore` 只在启动首次加载时为 true，用于恢复刷新前未处理的完成任务
@@ -365,15 +392,12 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         tasks,
         current: finishedTasksRef.current,
         acknowledged: ids,
-        limit: options.restore ? MAX_RESTORED_FINISHED : undefined,
+        windowMs: pillSettingsRef.current.restoreWindowHours * 60 * 60 * 1000,
+        limit: options.restore ? pillSettingsRef.current.restoreLimit : undefined,
       })
-      // 会话内兜底：非失败任务最多保留 5 条，更早的自动标为已查看
+      // 会话内兜底：非失败任务最多保留用户设定的条数，更早的自动标为已查看
       //（失败任务不参与丢弃，红色提醒不能被静默吞掉）。
-      const { kept, dropped } = splitPendingFinished(collected)
-      if (dropped.length > 0) {
-        for (const task of dropped) ids.add(task.task_id)
-        saveAcknowledgedTasks(ids)
-      }
+      const kept = trimFinished(collected, pillSettingsRef.current.pendingLimit)
       finishedTasksRef.current = kept
       setFinishedTasks(kept)
 
@@ -383,7 +407,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         setTasksVersion((value) => value + 1)
       }
     },
-    [acknowledged],
+    [acknowledged, trimFinished],
   )
 
   const refreshTasks = useCallback(
@@ -397,6 +421,28 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     },
     [applyTaskList],
   )
+
+  /** 更新胶囊设置：写盘 + 立即按新的待查看上限裁剪当前列表。 */
+  const updatePillSettings = useCallback(
+    (patch: Partial<PillSettings>) => {
+      const next = clampPillSettings({ ...pillSettingsRef.current, ...patch })
+      pillSettingsRef.current = next
+      setPillSettings(next)
+      writePillSettings(next)
+      const trimmed = trimFinished(finishedTasksRef.current, next.pendingLimit)
+      finishedTasksRef.current = trimmed
+      setFinishedTasks(trimmed)
+    },
+    [trimFinished],
+  )
+
+  /** 清除「已查看」记录，让最近结束的任务重新进入待查看（仍受上限与窗口约束）。 */
+  const clearAcknowledged = useCallback(() => {
+    const ids = acknowledged()
+    ids.clear()
+    saveAcknowledgedTasks(ids)
+    void refreshTasks()
+  }, [acknowledged, refreshTasks])
 
   const pushLog = useCallback((label: string, message: string, tone: LogEntry['tone'] = 'info') => {
     logIdRef.current += 1
@@ -977,6 +1023,9 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     finishedTasks,
     ackFinished: acknowledgeTask,
     ackAllFinished: acknowledgeAllFinished,
+    pillSettings,
+    updatePillSettings,
+    clearAcknowledged,
     tasksVersion,
     hasStarted,
     aborted,

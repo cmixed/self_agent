@@ -10,6 +10,7 @@ import {
   MoonOutlined,
   ReloadOutlined,
   RocketOutlined,
+  SettingOutlined,
   SunOutlined,
   TagsOutlined,
 } from '@ant-design/icons'
@@ -24,6 +25,7 @@ import {
   Spin,
   Tooltip,
 } from 'antd'
+import type { MenuProps } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import type { ReactNode } from 'react'
 import { lazy, Suspense, useState } from 'react'
@@ -38,6 +40,7 @@ import { NavProvider, useNav } from './state/nav'
 import type { PageKey } from './state/nav'
 import { TaskRunProvider, useTaskRun } from './state/taskRun'
 import { APP_VERSION, BRAND_NAME, BRAND_SUBTITLE, LAYOUT, buildThemeConfig } from './theme/config'
+import type { ResolvedTheme, ThemeMode } from './theme/config'
 import { useUiPreferences } from './theme/useUiPreferences'
 
 // 页面与叠加视图按需加载：首屏只解析应用壳，页面重依赖（Markdown / 表格等）随路由拆包。
@@ -48,6 +51,7 @@ const PresetsPage = lazy(() => import('./pages/Presets'))
 const ProvidersPage = lazy(() => import('./pages/Providers'))
 const HistoryPage = lazy(() => import('./pages/History'))
 const MemoryPage = lazy(() => import('./pages/Memory'))
+const SettingsPage = lazy(() => import('./pages/Settings'))
 
 const DocumentView = lazy(() => import('./components/DocumentView'))
 const SkillView = lazy(() => import('./components/SkillView'))
@@ -72,19 +76,25 @@ const PAGE_META: Array<{ key: string; label: string; icon: ReactNode }> = [
   { key: 'history', label: '任务历史', icon: <HistoryOutlined /> },
   { key: 'memory', label: '长期记忆', icon: <BulbOutlined /> },
   { key: 'providers', label: '模型服务', icon: <CloudServerOutlined /> },
+  { key: 'settings', label: '设置', icon: <SettingOutlined /> },
 ]
 
 export default function App() {
-  const { mode, toggleMode } = useUiPreferences()
+  const { mode, resolvedMode, setMode, toggleMode } = useUiPreferences()
 
   return (
-    <ConfigProvider locale={zhCN} theme={buildThemeConfig(mode)}>
+    <ConfigProvider locale={zhCN} theme={buildThemeConfig(resolvedMode)}>
       <AntApp>
         {/* 任务运行状态提升到 App 层：切换页面不丢进度，任务继续在后台执行 */}
         <NavProvider>
           <TaskRunProvider>
             <ViewStackProvider>
-              <AppShell mode={mode} toggleMode={toggleMode} />
+              <AppShell
+                mode={mode}
+                resolvedMode={resolvedMode}
+                setMode={setMode}
+                toggleMode={toggleMode}
+              />
             </ViewStackProvider>
           </TaskRunProvider>
         </NavProvider>
@@ -93,7 +103,17 @@ export default function App() {
   )
 }
 
-function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: () => void }) {
+function AppShell({
+  mode,
+  resolvedMode,
+  setMode,
+  toggleMode,
+}: {
+  mode: ThemeMode
+  resolvedMode: ResolvedTheme
+  setMode: (mode: ThemeMode) => void
+  toggleMode: () => void
+}) {
   const { page, navigate } = useNav()
   const [collapsed, setCollapsed] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -103,7 +123,7 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
   const { running, runningTasks } = useTaskRun()
   const { overlays, closeAll } = useViewStack()
 
-  const menuTheme = mode === 'dark' ? 'dark' : 'light'
+  const menuTheme = resolvedMode === 'dark' ? 'dark' : 'light'
   const healthy = health?.status === 'ok'
   const healthColor = !loaded ? 'default' : healthy ? 'success' : 'error'
   // 展示「模型名」而不是内部 provider id（如 custom-ba45f8fa）
@@ -125,19 +145,23 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
         : '后端正常，但尚未配置模型 API Key'
     : '无法连接后端（请确认 FastAPI 已启动）'
 
-  const menuItems = PAGE_META.map((item) => ({
-    key: item.key,
-    label: item.label,
-    // 有任务在跑时在图标上显示小圆点（折叠状态下也可见）
-    icon:
-      item.key === 'workspace' && (running || runningTasks.length > 0) ? (
-        <Badge dot offset={[2, -2]}>
-          {item.icon}
-        </Badge>
-      ) : (
-        item.icon
-      ),
-  }))
+  const menuItems: MenuProps['items'] = PAGE_META.flatMap((item, index) => {
+    const entry: NonNullable<MenuProps['items']>[number] = {
+      key: item.key,
+      label: item.label,
+      // 有任务在跑时在图标上显示小圆点（折叠状态下也可见）
+      icon:
+        item.key === 'workspace' && (running || runningTasks.length > 0) ? (
+          <Badge dot offset={[2, -2]}>
+            {item.icon}
+          </Badge>
+        ) : (
+          item.icon
+        ),
+    }
+    // 「设置」与功能页面分组：前面加一条分隔线
+    return index === PAGE_META.length - 1 ? [{ type: 'divider' as const }, entry] : [entry]
+  })
 
   const handleNav = (key: PageKey) => {
     // 从侧栏切页时退出所有叠加视图，回到正常浏览
@@ -235,12 +259,20 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
                 onSwitched={reload}
               />
             ) : null}
-            <Tooltip title={mode === 'dark' ? '切换到浅色' : '切换到深色'}>
+            <Tooltip
+              title={
+                mode === 'system'
+                  ? `跟随系统（当前${resolvedMode === 'dark' ? '深色' : '浅色'}），点击切换为固定主题`
+                  : resolvedMode === 'dark'
+                    ? '切换到浅色'
+                    : '切换到深色'
+              }
+            >
               <Button
                 type="text"
                 size="small"
                 aria-label="切换主题"
-                icon={mode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+                icon={resolvedMode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
                 onClick={toggleMode}
               />
             </Tooltip>
@@ -259,6 +291,7 @@ function AppShell({ mode, toggleMode }: { mode: 'dark' | 'light'; toggleMode: ()
                 {page === 'providers' && <ProvidersPage />}
                 {page === 'history' && <HistoryPage />}
                 {page === 'memory' && <MemoryPage />}
+                {page === 'settings' && <SettingsPage mode={mode} setMode={setMode} />}
               </Suspense>
             </div>
             {/* 叠加视图（任务详情 / 文档阅读），可嵌套返回 */}

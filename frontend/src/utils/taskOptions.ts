@@ -3,6 +3,9 @@
  *
  * 存储位置刻意选 localStorage 而不是 SQLite `user_preferences`：
  * 偏好表存的是写作风格 / 输出格式等长期记忆，混入表单交互状态会污染记忆去重。
+ *
+ * 数据模型是「值 + 开关」：工作台每次实际使用都会记录最后一组选项，
+ * 开关只决定进入工作台时是否自动套用。因此关闭再打开仍能回到上次的选择。
  */
 
 import type { CategoryInfo, DocumentInfo, TaskDepth, TaskScope } from '../types/api'
@@ -18,14 +21,29 @@ export interface TaskOptions {
   scope: TaskScope
 }
 
+/** 记住的选项 + 是否在进入工作台时自动套用。 */
+export interface TaskOptionsMemory {
+  remember: boolean
+  options: TaskOptions
+}
+
 export const DEFAULT_TASK_OPTIONS: TaskOptions = {
   depth: 'auto',
   useSkills: false,
   scope: { category_ids: [], document_ids: [] },
 }
 
+export function defaultTaskOptionsMemory(): TaskOptionsMemory {
+  return {
+    remember: false,
+    options: { ...DEFAULT_TASK_OPTIONS, scope: { category_ids: [], document_ids: [] } },
+  }
+}
+
 type ReadableStorage = { getItem: (key: string) => string | null }
 type WritableStorage = Pick<Storage, 'setItem' | 'removeItem'>
+/** 读改写都需要的最小存储接口（localStorage 的子集，便于单测注入）。 */
+type ReadWriteStorage = ReadableStorage & WritableStorage
 
 function defaultStorage(): Storage | null {
   try {
@@ -73,39 +91,71 @@ export function normalizeTaskOptions(raw: unknown): TaskOptions | null {
   })
 }
 
-/** 读取已保存的选项；未开启「记住选项」或数据无效时返回 null。 */
-export function readRememberedOptions(
+/** 读取记住的选项；缺失 / 损坏时回退默认值（开关关闭）。 */
+export function readTaskOptionsMemory(
   storage: ReadableStorage | null = defaultStorage(),
-): TaskOptions | null {
+): TaskOptionsMemory {
   try {
     const raw = storage?.getItem(TASK_OPTIONS_STORAGE_KEY)
-    if (!raw) return null
+    if (!raw) return defaultTaskOptionsMemory()
     const parsed: unknown = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return null
-    if ((parsed as Record<string, unknown>).remember !== true) return null
-    return normalizeTaskOptions(parsed)
+    if (!parsed || typeof parsed !== 'object') return defaultTaskOptionsMemory()
+    const data = parsed as Record<string, unknown>
+    const options = normalizeTaskOptions(data)
+    if (!options) return defaultTaskOptionsMemory()
+    return { remember: data.remember === true, options }
   } catch {
-    return null
+    return defaultTaskOptionsMemory()
   }
 }
 
-/** 保存选项（调用方保证当前已开启「记住选项」）。 */
-export function writeRememberedOptions(
-  options: TaskOptions,
+/** 写入完整的记忆结构（开关 + 选项）。 */
+export function writeTaskOptionsMemory(
+  memory: TaskOptionsMemory,
   storage: WritableStorage | null = defaultStorage(),
 ): void {
   try {
     storage?.setItem(
       TASK_OPTIONS_STORAGE_KEY,
-      JSON.stringify({ version: STORAGE_VERSION, remember: true, ...clampTaskOptions(options) }),
+      JSON.stringify({
+        version: STORAGE_VERSION,
+        remember: memory.remember,
+        ...clampTaskOptions(memory.options),
+      }),
     )
   } catch {
     // 忽略写入失败：不影响本次使用
   }
 }
 
-/** 关闭「记住选项」时清除已存值。 */
-export function clearRememberedOptions(
+/**
+ * 记录「上一次实际使用」的选项，保留当前开关状态。
+ *
+ * 工作台在提交任务 / 开启记忆时调用；关闭记忆时也会照常记录，方便再次开启。
+ */
+export function saveTaskOptions(
+  options: TaskOptions,
+  storage: ReadWriteStorage | null = defaultStorage(),
+): TaskOptionsMemory {
+  const memory = readTaskOptionsMemory(storage)
+  const next: TaskOptionsMemory = { remember: memory.remember, options: clampTaskOptions(options) }
+  writeTaskOptionsMemory(next, storage)
+  return next
+}
+
+/** 切换「记住上次的执行选项」；不清空已记录的选项值。 */
+export function setTaskOptionsRemember(
+  remember: boolean,
+  storage: ReadWriteStorage | null = defaultStorage(),
+): TaskOptionsMemory {
+  const memory = readTaskOptionsMemory(storage)
+  const next: TaskOptionsMemory = { remember, options: memory.options }
+  writeTaskOptionsMemory(next, storage)
+  return next
+}
+
+/** 清除记住的选项（开关同时回到关闭）。 */
+export function clearTaskOptionsMemory(
   storage: Pick<Storage, 'removeItem'> | null = defaultStorage(),
 ): void {
   try {

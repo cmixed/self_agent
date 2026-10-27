@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vite-plus/test'
 
 import type { CategoryInfo, DocumentInfo } from '../types/api'
 import {
+  clearTaskOptionsMemory,
   clampTaskOptions,
-  clearRememberedOptions,
+  DEFAULT_TASK_OPTIONS,
+  defaultTaskOptionsMemory,
   normalizeTaskOptions,
-  readRememberedOptions,
+  readTaskOptionsMemory,
   sanitizeScope,
+  saveTaskOptions,
+  setTaskOptionsRemember,
   TASK_OPTIONS_STORAGE_KEY,
-  writeRememberedOptions,
+  writeTaskOptionsMemory,
 } from './taskOptions'
 
 function fakeStorage() {
@@ -73,33 +77,84 @@ describe('normalizeTaskOptions', () => {
   })
 })
 
-describe('记住选项的读写', () => {
-  it('写入后可读回，关闭时清除', () => {
+describe('执行选项记忆的读写', () => {
+  it('缺失 / 损坏时回退默认值（开关关闭）', () => {
     const storage = fakeStorage()
-    writeRememberedOptions(
-      { depth: 'brief', useSkills: true, scope: { category_ids: ['c1'], document_ids: [] } },
+    expect(readTaskOptionsMemory(storage)).toEqual(defaultTaskOptionsMemory())
+
+    storage.setItem(TASK_OPTIONS_STORAGE_KEY, 'not-json')
+    expect(readTaskOptionsMemory(storage)).toEqual(defaultTaskOptionsMemory())
+
+    // 深度非法：整条记忆作废，而不是套用一半脏数据
+    storage.setItem(TASK_OPTIONS_STORAGE_KEY, JSON.stringify({ depth: 'deep', remember: true }))
+    expect(readTaskOptionsMemory(storage)).toEqual(defaultTaskOptionsMemory())
+
+    expect(readTaskOptionsMemory(null)).toEqual(defaultTaskOptionsMemory())
+  })
+
+  it('写入后可读回，简洁模式不会记住技能', () => {
+    const storage = fakeStorage()
+    writeTaskOptionsMemory(
+      {
+        remember: true,
+        options: {
+          depth: 'brief',
+          useSkills: true,
+          scope: { category_ids: ['c1'], document_ids: ['d1'] },
+        },
+      },
       storage,
     )
 
-    expect(readRememberedOptions(storage)).toEqual({
-      depth: 'brief',
-      useSkills: false,
-      scope: { category_ids: ['c1'], document_ids: [] },
+    expect(readTaskOptionsMemory(storage)).toEqual({
+      remember: true,
+      options: {
+        depth: 'brief',
+        useSkills: false,
+        scope: { category_ids: ['c1'], document_ids: ['d1'] },
+      },
     })
-
-    clearRememberedOptions(storage)
-    expect(storage.data.has(TASK_OPTIONS_STORAGE_KEY)).toBe(false)
-    expect(readRememberedOptions(storage)).toBeNull()
   })
 
-  it('未开启 / 数据损坏时返回 null', () => {
+  it('关闭记忆只改开关，已记住的选项仍然保留', () => {
     const storage = fakeStorage()
-    storage.setItem(TASK_OPTIONS_STORAGE_KEY, JSON.stringify({ depth: 'auto' }))
-    expect(readRememberedOptions(storage)).toBeNull()
+    saveTaskOptions(
+      { depth: 'longform', useSkills: true, scope: { category_ids: ['c1'], document_ids: [] } },
+      storage,
+    )
 
-    storage.setItem(TASK_OPTIONS_STORAGE_KEY, 'not-json')
-    expect(readRememberedOptions(storage)).toBeNull()
-    expect(readRememberedOptions(null)).toBeNull()
+    const off = setTaskOptionsRemember(false, storage)
+    expect(off.remember).toBe(false)
+    expect(off.options.depth).toBe('longform')
+    expect(off.options.useSkills).toBe(true)
+
+    // 重新开启：回到上次选择，而不是默认值
+    const on = setTaskOptionsRemember(true, storage)
+    expect(on).toEqual({ remember: true, options: off.options })
+    expect(readTaskOptionsMemory(storage).options).toEqual(off.options)
+  })
+
+  it('提交时记录「上一次实际使用」并保留开关状态', () => {
+    const storage = fakeStorage()
+    setTaskOptionsRemember(true, storage)
+
+    const saved = saveTaskOptions(
+      { depth: 'auto', useSkills: false, scope: { category_ids: [], document_ids: ['d2'] } },
+      storage,
+    )
+    expect(saved.remember).toBe(true)
+    expect(saved.options.scope.document_ids).toEqual(['d2'])
+    expect(readTaskOptionsMemory(storage)).toEqual(saved)
+  })
+
+  it('清除后回到默认值且移除存储键', () => {
+    const storage = fakeStorage()
+    saveTaskOptions(DEFAULT_TASK_OPTIONS, storage)
+    expect(storage.data.has(TASK_OPTIONS_STORAGE_KEY)).toBe(true)
+
+    clearTaskOptionsMemory(storage)
+    expect(storage.data.has(TASK_OPTIONS_STORAGE_KEY)).toBe(false)
+    expect(readTaskOptionsMemory(storage)).toEqual(defaultTaskOptionsMemory())
   })
 })
 

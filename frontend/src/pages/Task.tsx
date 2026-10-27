@@ -11,6 +11,7 @@ import {
   LoadingOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
+  SettingOutlined,
   StopOutlined,
   ThunderboltOutlined,
   UnorderedListOutlined,
@@ -65,12 +66,7 @@ import {
 } from '../utils/format'
 import { runningTaskStage } from '../utils/runningTasks'
 import { describeScope } from '../utils/scope'
-import {
-  clearRememberedOptions,
-  readRememberedOptions,
-  sanitizeScope,
-  writeRememberedOptions,
-} from '../utils/taskOptions'
+import { readTaskOptionsMemory, sanitizeScope, saveTaskOptions } from '../utils/taskOptions'
 
 const { Text, Paragraph } = Typography
 const { TextArea } = Input
@@ -181,9 +177,8 @@ export default function TaskPage() {
   const [scope, setScope] = useState<TaskScope>({ category_ids: [], document_ids: [] })
   const [scopePickerOpen, setScopePickerOpen] = useState(false)
   const [outputTab, setOutputTab] = useState('plan')
-  // 「记住执行选项」：存储里存在即视为开启（关闭时会清除存储）
-  const [remembered] = useState(() => readRememberedOptions())
-  const [rememberOptions, setRememberOptions] = useState(remembered !== null)
+  // 执行选项记忆：开关在「设置」页，这里只负责套用与记录
+  const [optionMemory] = useState(() => readTaskOptionsMemory())
   const optionsHydratedRef = useRef(false)
 
   // 闲置态：轻量读取资料与类别（环境感知；失败静默，不打扰主流程）
@@ -204,11 +199,12 @@ export default function TaskPage() {
     }
   }, [hasStarted])
 
-  // 「记住执行选项」：资料列表就绪后恢复一次（含失效 id 清理）
+  // 「记住执行选项」已开启时：资料列表就绪后恢复一次（含失效 id 清理）
   useEffect(() => {
     if (optionsHydratedRef.current || documents === null) return
     optionsHydratedRef.current = true
-    if (!remembered) return
+    if (!optionMemory.remember) return
+    const remembered = optionMemory.options
     setDepth(remembered.depth)
     setUseSkills(remembered.useSkills)
     const hadScope = remembered.scope.category_ids.length + remembered.scope.document_ids.length > 0
@@ -222,13 +218,13 @@ export default function TaskPage() {
           : `已忽略 ${dropped} 个不存在的检索范围项`,
       )
     }
-  }, [categories, documents, message, remembered, setDepth, setUseSkills])
+  }, [categories, documents, message, optionMemory, setDepth, setUseSkills])
 
-  // 开启时随表单变化持久化；关闭时在开关回调里清除
+  // 开启记忆时随表单变化持久化；关闭时只在提交任务时记录「上一次实际使用」
   useEffect(() => {
-    if (!rememberOptions || !optionsHydratedRef.current) return
-    writeRememberedOptions({ depth, useSkills, scope })
-  }, [depth, rememberOptions, scope, useSkills])
+    if (!optionMemory.remember || !optionsHydratedRef.current) return
+    saveTaskOptions({ depth, useSkills, scope })
+  }, [depth, optionMemory.remember, scope, useSkills])
 
   // 最近任务：任务状态变化（tasksVersion）时自动刷新，无需手动刷新页面
   useEffect(() => {
@@ -254,6 +250,8 @@ export default function TaskPage() {
   }, [finalAnswer])
 
   const handleStart = () => {
+    // 提交即视为「上一次实际使用」，关闭记忆时也为下次开启留档
+    saveTaskOptions({ depth, useSkills, scope })
     void startRun(undefined, scope)
   }
 
@@ -293,7 +291,9 @@ export default function TaskPage() {
       }
       setScope(bound)
     }
-    void startRun(preset.query, bound ?? scope)
+    const effectiveScope = bound ?? scope
+    saveTaskOptions({ depth, useSkills, scope: effectiveScope })
+    void startRun(preset.query, effectiveScope)
   }
 
   /** 点击预设卡片：绑定了「直接运行」的立即执行，否则只填入待确认。 */
@@ -662,22 +662,15 @@ export default function TaskPage() {
                   允许技能
                 </Checkbox>
               </Tooltip>
-              <Tooltip title="下次进入工作台自动套用执行深度、技能开关与检索范围（仅保存在当前浏览器）">
-                <Checkbox
-                  checked={rememberOptions}
-                  onChange={(event) => {
-                    const next = event.target.checked
-                    setRememberOptions(next)
-                    if (!next) {
-                      clearRememberedOptions()
-                      message.success('已忘记上次的执行选项')
-                      return
-                    }
-                    writeRememberedOptions({ depth, useSkills, scope })
-                  }}
+              <Tooltip title="在设置中管理默认值：记住上次的执行选项、检索范围与提醒">
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<SettingOutlined />}
+                  onClick={() => navigate('settings')}
                 >
-                  记住选项
-                </Checkbox>
+                  默认值
+                </Button>
               </Tooltip>
             </Space>
           </div>

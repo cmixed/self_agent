@@ -1,7 +1,10 @@
 import { theme } from 'antd'
 import type { ThemeConfig } from 'antd'
 
-export type ThemeMode = 'dark' | 'light'
+/** 用户的主题偏好：跟随系统 / 固定浅色 / 固定深色。 */
+export type ThemeMode = 'dark' | 'light' | 'system'
+/** 解析后的实际主题（跟随系统后只可能是浅色或深色）。 */
+export type ResolvedTheme = 'dark' | 'light'
 
 export const THEME_STORAGE_KEY = 'self-agent.theme'
 
@@ -98,7 +101,7 @@ export const SIZES = { controlHeight: 34, controlHeightSM: 28, controlHeightLG: 
  * 单一 token 源：颜色全部在这里定义，业务组件只消费 antd 变量 / --ws-* 变量，
  * 不在页面里写死颜色。
  */
-export function buildThemeConfig(mode: ThemeMode): ThemeConfig {
+export function buildThemeConfig(mode: ResolvedTheme): ThemeConfig {
   const dark = mode === 'dark'
   const s = dark ? SURFACE.dark : SURFACE.light
   const st = dark ? STATUS.dark : STATUS.light

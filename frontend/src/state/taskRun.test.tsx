@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import type { Plan, Source, TaskEvent, TaskSummary, WritingBudget } from '../types/api'
 import { loadAcknowledgedTasks } from '../utils/runningTasks'
+import { DEFAULT_PILL_SETTINGS, readPillSettings, writePillSettings } from '../utils/pillSettings'
 import { NavProvider, useNav } from './nav'
 import type { PageKey } from './nav'
 import { TaskRunProvider, useTaskRun } from './taskRun'
@@ -496,6 +497,85 @@ function resultPayload(taskId: string) {
     final_answer: '# 完成',
   }
 }
+
+describe('顶栏胶囊设置（设置页维护）', () => {
+  it('默认值来自 pillSettings，调小上限立即裁剪并持久化', async () => {
+    mocks.listTasks.mockResolvedValueOnce({ tasks: [] })
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+    expect(result.current.pillSettings).toEqual(DEFAULT_PILL_SETTINGS)
+
+    const finished = [
+      endedTask('fail-1', {}, 'failed'),
+      ...Array.from({ length: 4 }, (_, index) =>
+        endedTask(
+          `ok-${index}`,
+          { finished_at: new Date(Date.now() - 1000 * (index + 1)).toISOString() },
+          'completed',
+        ),
+      ),
+    ]
+    mocks.listTasks.mockResolvedValue({ tasks: finished })
+    // 启动恢复受 restoreLimit 限制；这里借一次列表刷新模拟会话内新增的待查看提醒
+    await act(async () => {
+      await result.current.cancelRunning('other')
+    })
+    expect(result.current.finishedTasks).toHaveLength(5)
+
+    act(() => result.current.updatePillSettings({ pendingLimit: 2 }))
+
+    // 失败任务豁免，非失败只留最新 2 条
+    expect(result.current.finishedTasks.map((task) => task.task_id)).toEqual([
+      'fail-1',
+      'ok-0',
+      'ok-1',
+    ])
+    expect(readPillSettings().pendingLimit).toBe(2)
+    const acknowledged = loadAcknowledgedTasks()
+    expect(acknowledged.has('ok-2')).toBe(true)
+    expect(acknowledged.has('fail-1')).toBe(false)
+
+    // 调大上限不会把已归档的提醒找回来
+    act(() => result.current.updatePillSettings({ pendingLimit: 5 }))
+    expect(result.current.finishedTasks).toHaveLength(3)
+  })
+
+  it('刷新恢复遵循自定义窗口与条数', async () => {
+    writePillSettings({ pendingLimit: 5, restoreWindowHours: 1, restoreLimit: 1 })
+    const now = Date.now()
+    mocks.listTasks.mockResolvedValue({
+      tasks: [
+        endedTask('recent', { finished_at: new Date(now - 5 * 60 * 1000).toISOString() }),
+        endedTask('half-hour', { finished_at: new Date(now - 30 * 60 * 1000).toISOString() }),
+        endedTask('too-old', { finished_at: new Date(now - 2 * 60 * 60 * 1000).toISOString() }),
+      ],
+    })
+
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+
+    // 2 小时前的任务在 1 小时窗口外；窗口内最多恢复 1 条（最新）
+    expect(result.current.finishedTasks.map((task) => task.task_id)).toEqual(['recent'])
+  })
+
+  it('清除「已查看」记录后，最近结束的任务重新出现在待查看里', async () => {
+    mocks.listTasks.mockResolvedValue({ tasks: [endedTask('done-9')] })
+
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+    expect(result.current.finishedTasks).toHaveLength(1)
+
+    act(() => result.current.ackFinished('done-9'))
+    expect(result.current.finishedTasks).toHaveLength(0)
+    expect(loadAcknowledgedTasks().has('done-9')).toBe(true)
+
+    act(() => result.current.clearAcknowledged())
+    await flush()
+
+    expect(loadAcknowledgedTasks().size).toBe(0)
+    expect(result.current.finishedTasks.map((task) => task.task_id)).toEqual(['done-9'])
+  })
+})
 
 describe('完成态胶囊（常驻待查看）', () => {
   it('启动时恢复最近完成且未查看的任务，关闭后持久化不再出现', async () => {

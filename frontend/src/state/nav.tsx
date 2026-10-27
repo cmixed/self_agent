@@ -9,6 +9,7 @@ export const PAGES = [
   'providers',
   'history',
   'memory',
+  'settings',
 ] as const
 export type PageKey = (typeof PAGES)[number]
 
