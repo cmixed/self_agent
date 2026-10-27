@@ -328,6 +328,26 @@ html[data-theme='dark'] body {
   background: var(--ant-color-primary-bg);
 }
 
+/* 完成待查看：常驻并以颜色区分结果，等待用户点击或关闭 */
+.run-pill.is-completed {
+  border-color: var(--ant-color-success-border);
+  background: var(--ant-color-success-bg);
+}
+
+.run-pill.is-failed {
+  border-color: var(--ant-color-error-border);
+  background: var(--ant-color-error-bg);
+}
+
+.run-pill.is-cancelled {
+  border-color: var(--ant-color-border);
+  background: var(--ant-color-fill-tertiary);
+}
+
+.run-pill.is-cancelled .run-pill__title {
+  color: var(--ant-color-text-secondary);
+}
+
 .run-pill__main {
   display: inline-flex;
   align-items: center;

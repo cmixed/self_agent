@@ -34,6 +34,7 @@ import {
   formatTokens,
   taskDurationSeconds,
 } from '../utils/format'
+import { isTerminalStatus } from '../utils/runningTasks'
 import EmptyState from './EmptyState'
 import ErrorNotice from './ErrorNotice'
 import MarkdownReader from './MarkdownReader'
@@ -98,7 +99,7 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
   const { message } = App.useApp()
   const { back } = useViewStack()
   const { navigate } = useNav()
-  const { resume, rerun, selectTask } = useTaskRun()
+  const { resume, rerun, selectTask, ackFinished } = useTaskRun()
   const [detail, setDetail] = useState<TaskDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -111,7 +112,11 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
     setState(null)
     setStateError(null)
     getTask(taskId)
-      .then((data) => setDetail(data))
+      .then((data) => {
+        setDetail(data)
+        // 打开详情 = 用户已经看过结果：清掉顶栏的完成提醒
+        if (isTerminalStatus(data.status)) ackFinished(taskId)
+      })
       .catch((err) => setError(err instanceof ApiError ? err.message : '加载任务详情失败'))
       .finally(() => setLoading(false))
     // 自动读取 Agent checkpoint 状态（失败时给出可读提示，不影响详情）
@@ -126,7 +131,7 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
             : '读取 Checkpoint 失败',
         ),
       )
-  }, [taskId])
+  }, [ackFinished, taskId])
 
   useEffect(() => {
     load()

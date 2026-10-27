@@ -4,6 +4,9 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import type { Plan, Source, TaskEvent, TaskSummary, WritingBudget } from '../types/api'
+import { loadAcknowledgedTasks } from '../utils/runningTasks'
+import { NavProvider, useNav } from './nav'
+import type { PageKey } from './nav'
 import { TaskRunProvider, useTaskRun } from './taskRun'
 
 const mocks = vi.hoisted(() => ({
@@ -66,8 +69,23 @@ function ev(event: string, extra: Partial<TaskEvent> = {}): TaskEvent {
   }
 }
 
+let navigateTo: ((page: PageKey) => void) | null = null
+
+/** 让测试可以真正切页（「离开工作台后完成」的胶囊提醒依赖当前页面）。 */
+function NavProbe() {
+  navigateTo = useNav().navigate
+  return null
+}
+
 function wrapper({ children }: { children: ReactNode }) {
-  return <TaskRunProvider>{children}</TaskRunProvider>
+  return (
+    <NavProvider>
+      <TaskRunProvider>
+        <NavProbe />
+        {children}
+      </TaskRunProvider>
+    </NavProvider>
+  )
 }
 
 async function runScript(script: TaskEvent[], query = '写一篇 RAG 综述') {
@@ -85,6 +103,8 @@ async function runScript(script: TaskEvent[], query = '写一篇 RAG 综述') {
 }
 
 beforeEach(() => {
+  localStorage.clear()
+  navigateTo = null
   mocks.streamTask.mockReset()
   mocks.streamResume.mockReset()
   mocks.streamRerun.mockReset()
@@ -303,7 +323,7 @@ describe('TaskRunProvider 刷新恢复与多任务', () => {
     const { result } = renderHook(() => useTaskRun(), { wrapper })
     await flush()
 
-    expect(mocks.listTasks).toHaveBeenCalledWith(20, 'running')
+    expect(mocks.listTasks).toHaveBeenCalledWith(20)
     expect(result.current.hasStarted).toBe(true)
     expect(result.current.taskId).toBe('run-7')
     expect(result.current.query).toBe('刷新前的任务')
@@ -447,5 +467,190 @@ describe('TaskRunProvider 刷新恢复与多任务', () => {
     expect(result.current.running).toBe(false)
     expect(result.current.error).toBeNull()
     expect(result.current.log.some((entry) => entry.label === '终止')).toBe(true)
+  })
+})
+
+function endedTask(
+  taskId: string,
+  extra: Partial<TaskSummary> = {},
+  status: 'completed' | 'failed' | 'cancelled' = 'completed',
+): TaskSummary {
+  return runningTask(taskId, {
+    status,
+    finished_at: new Date().toISOString(),
+    ...extra,
+  })
+}
+
+function resultPayload(taskId: string) {
+  return {
+    task_id: taskId,
+    status: 'completed',
+    plan: null,
+    outline: [],
+    step_results: [],
+    sources: [],
+    validation: null,
+    retry_count: 0,
+    failed_chapters: [],
+    final_answer: '# 完成',
+  }
+}
+
+describe('完成态胶囊（常驻待查看）', () => {
+  it('启动时恢复最近完成且未查看的任务，关闭后持久化不再出现', async () => {
+    mocks.listTasks.mockResolvedValue({ tasks: [endedTask('done-1')] })
+
+    const first = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+    expect(first.result.current.finishedTasks.map((task) => task.task_id)).toEqual(['done-1'])
+
+    act(() => first.result.current.ackFinished('done-1'))
+    expect(first.result.current.finishedTasks).toHaveLength(0)
+    expect(loadAcknowledgedTasks().has('done-1')).toBe(true)
+
+    first.unmount()
+    const second = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+    expect(second.result.current.finishedTasks).toHaveLength(0)
+  })
+
+  it('超过恢复窗口的旧任务不会重新弹出', async () => {
+    mocks.listTasks.mockResolvedValue({
+      tasks: [
+        endedTask('old', {
+          finished_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+        }),
+      ],
+    })
+
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+    expect(result.current.finishedTasks).toHaveLength(0)
+  })
+
+  it('正在工作台观察的任务完成时不弹胶囊，并记为已查看', async () => {
+    mocks.listTasks
+      .mockResolvedValueOnce({ tasks: [] })
+      .mockResolvedValue({ tasks: [endedTask('run-1')] })
+    mocks.streamTask.mockImplementation(
+      async (_query: string, onEvent: (event: TaskEvent) => void) => {
+        onEvent(ev('task_started', { task_id: 'run-1' }))
+        onEvent(
+          ev('task_completed', {
+            task_id: 'run-1',
+            status: 'completed',
+            result: resultPayload('run-1'),
+          }),
+        )
+      },
+    )
+
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+    act(() => result.current.setQuery('写一篇综述'))
+    await act(async () => {
+      await result.current.run()
+    })
+
+    expect(result.current.finishedTasks).toHaveLength(0)
+    expect(loadAcknowledgedTasks().has('run-1')).toBe(true)
+  })
+
+  it('离开工作台后完成的任务进入胶囊，查看或关闭后消失', async () => {
+    mocks.listTasks.mockResolvedValue({ tasks: [runningTask('X')] })
+    mocks.streamObserve.mockImplementation(
+      async (_taskId: string, onEvent: (event: TaskEvent) => void) => {
+        onEvent(ev('task_started', { task_id: 'X' }))
+        await new Promise(() => {})
+      },
+    )
+
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+    expect(result.current.runningTasks).toHaveLength(1)
+
+    act(() => navigateTo?.('history'))
+    mocks.listTasks.mockResolvedValue({ tasks: [endedTask('X')] })
+    // 任意一次列表刷新即可发现后台任务已结束（这里借用取消接口触发的刷新）
+    await act(async () => {
+      await result.current.cancelRunning('other')
+    })
+
+    expect(result.current.finishedTasks.map((task) => task.task_id)).toEqual(['X'])
+
+    // 点击胶囊 / 关闭提醒都会调用 ackFinished
+    act(() => result.current.ackFinished('X'))
+    expect(result.current.finishedTasks).toHaveLength(0)
+    expect(loadAcknowledgedTasks().has('X')).toBe(true)
+  })
+
+  it('通过 selectTask 打开已完成任务时自动移除胶囊', async () => {
+    mocks.listTasks.mockResolvedValue({ tasks: [endedTask('done-2')] })
+    mocks.streamObserve.mockImplementation(
+      async (taskId: string, onEvent: (event: TaskEvent) => void) => {
+        onEvent(
+          ev('task_completed', {
+            task_id: taskId,
+            status: 'completed',
+            result: resultPayload(taskId),
+          }),
+        )
+      },
+    )
+
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+    expect(result.current.finishedTasks).toHaveLength(1)
+
+    await act(async () => {
+      await result.current.selectTask('done-2')
+    })
+
+    expect(result.current.finishedTasks).toHaveLength(0)
+    expect(result.current.finalAnswer).toBe('# 完成')
+    expect(loadAcknowledgedTasks().has('done-2')).toBe(true)
+  })
+
+  it('续跑复用 task_id 时清除「已查看」标记，新的终态仍会提醒', async () => {
+    mocks.listTasks
+      .mockResolvedValueOnce({ tasks: [endedTask('done-3')] })
+      .mockResolvedValue({ tasks: [runningTask('done-3')] })
+    mocks.streamResume.mockResolvedValue(undefined)
+
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+    act(() => result.current.ackFinished('done-3'))
+    expect(loadAcknowledgedTasks().has('done-3')).toBe(true)
+
+    await act(async () => {
+      await result.current.resume('done-3')
+    })
+
+    expect(loadAcknowledgedTasks().has('done-3')).toBe(false)
+    expect(result.current.finishedTasks).toHaveLength(0)
+  })
+
+  it('失败与已终止的任务同样常驻，状态来自后端记录', async () => {
+    mocks.listTasks.mockResolvedValue({
+      tasks: [
+        endedTask(
+          'f-1',
+          {
+            error_type: 'llm_timeout',
+            finished_at: new Date(Date.now() - 2000).toISOString(),
+          },
+          'failed',
+        ),
+        endedTask('c-1', { finished_at: new Date(Date.now() - 1000).toISOString() }, 'cancelled'),
+      ],
+    })
+
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+
+    expect(
+      Object.fromEntries(result.current.finishedTasks.map((task) => [task.task_id, task.status])),
+    ).toEqual({ 'f-1': 'failed', 'c-1': 'cancelled' })
   })
 })

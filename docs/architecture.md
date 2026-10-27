@@ -141,9 +141,14 @@ GET /tasks/{id}/stream ──> 回放缓冲区 + 跟随实时事件
 - 事件缓冲在**进程内存**，进程重启丢失；启动时 `reconcile_running_tasks` 把遗留
   的 `running` 记录标记为 `cancelled`（`error_type=interrupted`），不会假装还在跑。
 - `GET /api/tasks?status=running` 供前端顶栏胶囊使用，并附带进程内通道的
-  `stage` / `message`（仅运行中任务），无需额外请求。
+  `stage` / `message`（仅运行中任务），无需额外请求。前端另以
+  `GET /api/tasks?limit=20` 轮询做客户端差分，用于把「刚结束」的任务转成
+  常驻的「完成待查看」胶囊（短任务不会在两次轮询之间被漏掉）。
 - 前端同一时刻只**观察**一个任务（工作台内容），但后端可同时执行多个任务：
   切换观察对象只是断开旧订阅，旧任务继续跑并留在胶囊里。
+- 已查看的完成态胶囊 id 存 localStorage（`agent.finishedTasks.ack`），刷新后
+  最多恢复最近 24 小时内的 3 条未查看任务；「记住选项」同样只用 localStorage
+  （`agent.taskOptions`），不写 SQLite 偏好表。
 
 ### 4.8 技能是文件，不是数据库记录
 

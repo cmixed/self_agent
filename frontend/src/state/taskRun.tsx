@@ -30,6 +30,14 @@ import type {
   WritingBudget,
 } from '../types/api'
 import { downloadMarkdown } from '../utils/download'
+import {
+  collectFinishedTasks,
+  isTerminalStatus,
+  loadAcknowledgedTasks,
+  MAX_RESTORED_FINISHED,
+  saveAcknowledgedTasks,
+} from '../utils/runningTasks'
+import { useNav } from './nav'
 
 /** 图中可能出现的节点（skills 仅在存在启用技能时挂载） */
 const NODE_KEYS = [
@@ -79,7 +87,8 @@ const MAX_CHAPTER_NOTES_PER_CHAPTER = 3
 
 /** 有任务在跑时的列表轮询间隔（毫秒）。 */
 const RUNNING_POLL_MS = 5000
-const RUNNING_TASKS_LIMIT = 20
+/** 轮询最近任务数：同时用于运行中胶囊与「完成待查看」差分。 */
+const RECENT_TASKS_LIMIT = 20
 
 interface ChapterState {
   written: number
@@ -117,6 +126,14 @@ function isAbortError(error: unknown): boolean {
   return (error as { name?: string } | null)?.name === 'AbortError'
 }
 
+/** 任务集合签名：用于判断是否需要通知列表页刷新。 */
+function taskSignature(tasks: readonly TaskSummary[]): string {
+  return tasks
+    .map((task) => task.task_id)
+    .sort()
+    .join(',')
+}
+
 export interface TaskRunValue {
   query: string
   setQuery: (value: string) => void
@@ -124,6 +141,10 @@ export interface TaskRunValue {
   running: boolean
   /** 服务端所有运行中任务（顶栏胶囊数据） */
   runningTasks: TaskSummary[]
+  /** 已结束但用户还没查看的任务（顶栏常驻胶囊，刷新后仍保留） */
+  finishedTasks: TaskSummary[]
+  /** 关闭「完成待查看」胶囊（持久化，刷新后不再出现） */
+  ackFinished: (taskId: string) => void
   /** 任务状态变化信号：列表页 / 最近任务据此刷新 */
   tasksVersion: number
   hasStarted: boolean
@@ -193,9 +214,11 @@ const TaskRunContext = createContext<TaskRunValue | null>(null)
  * 任务。切换观察对象只是断开旧订阅（不取消任务），顶栏胶囊负责展示与管理。
  */
 export function TaskRunProvider({ children }: { children: ReactNode }) {
+  const { page } = useNav()
   const [query, setQuery] = useState('')
   const [running, setRunning] = useState(false)
   const [runningTasks, setRunningTasks] = useState<TaskSummary[]>([])
+  const [finishedTasks, setFinishedTasks] = useState<TaskSummary[]>([])
   const [tasksVersion, setTasksVersion] = useState(0)
   const [hasStarted, setHasStarted] = useState(false)
   const [aborted, setAborted] = useState(false)
@@ -238,8 +261,16 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   const activeTaskIdRef = useRef<string | null>(null)
   const hasStartedRef = useRef(false)
   const runningTasksRef = useRef<TaskSummary[]>([])
-  const runningSignatureRef = useRef('')
+  const finishedTasksRef = useRef<TaskSummary[]>([])
+  const tasksSignatureRef = useRef('')
+  const acknowledgedRef = useRef<Set<string>>(new Set())
+  const acknowledgedLoadedRef = useRef(false)
+  const pageRef = useRef(page)
   const roundRef = useRef(1)
+
+  useEffect(() => {
+    pageRef.current = page
+  }, [page])
 
   useEffect(() => {
     if (!running) return
@@ -251,30 +282,100 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(timer)
   }, [running])
 
-  // --- 运行中任务列表（顶栏胶囊 / 页面刷新联动） ---
+  // --- 任务列表（顶栏胶囊 / 页面刷新联动） ---
 
-  /** 合并服务端返回的运行中任务；任务集合变化时递增 tasksVersion。 */
-  const applyRunningTasks = useCallback((tasks: TaskSummary[]) => {
-    runningTasksRef.current = tasks
-    setRunningTasks(tasks)
-    const signature = tasks
-      .map((task) => task.task_id)
-      .sort()
-      .join(',')
-    if (signature !== runningSignatureRef.current) {
-      runningSignatureRef.current = signature
-      setTasksVersion((value) => value + 1)
+  /** 懒加载「已确认（查看/关闭过）」的任务 id。 */
+  const acknowledged = useCallback(() => {
+    if (!acknowledgedLoadedRef.current) {
+      acknowledgedLoadedRef.current = true
+      acknowledgedRef.current = loadAcknowledgedTasks()
     }
+    return acknowledgedRef.current
   }, [])
 
-  const refreshRunning = useCallback(async () => {
-    try {
-      const data = await listTasks(RUNNING_TASKS_LIMIT, 'running')
-      applyRunningTasks(data.tasks)
-    } catch {
-      // 轮询失败静默：不影响正在观察的任务
-    }
-  }, [applyRunningTasks])
+  /**
+   * 标记任务已被用户查看（点击胶囊 / 关闭提醒 / 从其它入口打开）。
+   *
+   * 持久化到 localStorage，刷新页面后不再重复弹出完成态胶囊。
+   */
+  const acknowledgeTask = useCallback(
+    (targetId: string) => {
+      const ids = acknowledged()
+      if (!ids.has(targetId)) {
+        ids.add(targetId)
+        saveAcknowledgedTasks(ids)
+      }
+      finishedTasksRef.current = finishedTasksRef.current.filter(
+        (task) => task.task_id !== targetId,
+      )
+      setFinishedTasks((prev) => prev.filter((task) => task.task_id !== targetId))
+    },
+    [acknowledged],
+  )
+
+  /** 同一条任务再次运行（续跑）时，允许新的终态重新提醒。 */
+  const forgetAcknowledged = useCallback(
+    (targetId: string) => {
+      const ids = acknowledged()
+      if (ids.delete(targetId)) saveAcknowledgedTasks(ids)
+    },
+    [acknowledged],
+  )
+
+  /**
+   * 合并服务端任务列表：运行中进胶囊；终态且用户未查看的进「完成待查看」。
+   *
+   * `restore` 只在启动首次加载时为 true，用于恢复刷新前未处理的完成任务
+   * （限制条数与时间窗口，避免把陈年旧账翻出来）。
+   */
+  const applyTaskList = useCallback(
+    (tasks: TaskSummary[], options: { restore?: boolean } = {}) => {
+      const running = tasks.filter((task) => task.status === 'running')
+      runningTasksRef.current = running
+      setRunningTasks(running)
+
+      const activeId = activeTaskIdRef.current
+      const ids = acknowledged()
+      // 正在工作台观察的任务：结果已经在眼前，视为已查看，不再弹常驻胶囊。
+      // 离开了工作台则照常提醒（否则切页后完成的任务会被悄悄漏掉）。
+      const observingFinished =
+        activeId !== null &&
+        pageRef.current === 'workspace' &&
+        tasks.some((task) => task.task_id === activeId && isTerminalStatus(task.status))
+      if (observingFinished && activeId && !ids.has(activeId)) {
+        ids.add(activeId)
+        saveAcknowledgedTasks(ids)
+      }
+
+      const nextFinished = collectFinishedTasks({
+        tasks,
+        current: finishedTasksRef.current,
+        acknowledged: ids,
+        limit: options.restore ? MAX_RESTORED_FINISHED : undefined,
+      })
+      finishedTasksRef.current = nextFinished
+      setFinishedTasks(nextFinished)
+
+      const signature = `${taskSignature(running)}|${taskSignature(nextFinished)}`
+      if (signature !== tasksSignatureRef.current) {
+        tasksSignatureRef.current = signature
+        setTasksVersion((value) => value + 1)
+      }
+    },
+    [acknowledged],
+  )
+
+  const refreshTasks = useCallback(
+    async (options: { restore?: boolean } = {}) => {
+      try {
+        const data = await listTasks(RECENT_TASKS_LIMIT)
+        applyTaskList(data.tasks, options)
+      } catch {
+        // 轮询失败静默：不影响正在观察的任务
+      }
+    },
+    [applyTaskList],
+  )
 
   const pushLog = useCallback((label: string, message: string, tone: LogEntry['tone'] = 'info') => {
     logIdRef.current += 1
@@ -332,7 +433,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         if (event.profile) setProfile(event.profile)
         pushLog('开始', event.message, 'info')
         // 新任务立刻进入顶栏胶囊（不必等下一轮轮询）
-        void refreshRunning()
+        void refreshTasks()
         return
       }
 
@@ -552,7 +653,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
       pushLog,
       updateChapter,
       finishDuration,
-      refreshRunning,
+      refreshTasks,
     ],
   )
 
@@ -645,10 +746,10 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
           observeRef.current = null
           setRunning(false)
         }
-        void refreshRunning()
+        void refreshTasks()
       }
     },
-    [handleEvent, refreshRunning, resetDisplay],
+    [handleEvent, refreshTasks, resetDisplay],
   )
 
   /** 公共执行体：复位状态 + 消费一条 SSE 流（新建 / 续跑 / 重跑共用）。 */
@@ -690,10 +791,10 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
           observeRef.current = null
           setRunning(false)
         }
-        void refreshRunning()
+        void refreshTasks()
       }
     },
-    [finishDuration, handleEvent, pushLog, refreshRunning, resetDisplay],
+    [finishDuration, handleEvent, pushLog, refreshTasks, resetDisplay],
   )
 
   const run = useCallback(
@@ -713,9 +814,11 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
 
   const resume = useCallback(
     async (taskId: string) => {
+      // 续跑复用同一 task_id：清掉旧的「已查看」标记，新的结果仍能提醒
+      forgetAcknowledged(taskId)
       await runStream((onEvent, signal) => streamResume(taskId, onEvent, signal))
     },
-    [runStream],
+    [forgetAcknowledged, runStream],
   )
 
   const rerun = useCallback(
@@ -729,19 +832,24 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   /** 切换到某个任务：运行中则重建进度，已结束则回放终态事件。 */
   const selectTask = useCallback(
     async (targetId: string) => {
-      const known = runningTasksRef.current.find((task) => task.task_id === targetId)
+      const known =
+        runningTasksRef.current.find((task) => task.task_id === targetId) ??
+        finishedTasksRef.current.find((task) => task.task_id === targetId)
       if (known) {
+        // 打开已结束任务 = 已查看：常驻胶囊随之消失（运行中任务不标记）
+        if (isTerminalStatus(known.status)) acknowledgeTask(targetId)
         await attachTask(known)
         return
       }
       try {
         const detail = await getTask(targetId)
+        if (isTerminalStatus(detail.status)) acknowledgeTask(targetId)
         await attachTask(detail)
       } catch (err) {
         setError(err instanceof ApiError ? err.message : '无法打开该任务的实时进度')
       }
     },
-    [attachTask],
+    [acknowledgeTask, attachTask],
   )
 
   /** 终止任意任务；活动任务会收到后端推送的 task_cancelled 终态。 */
@@ -752,9 +860,9 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
       } catch {
         // 任务可能刚好结束 / 已被取消（404），视为已终止
       }
-      await refreshRunning()
+      await refreshTasks()
     },
-    [refreshRunning],
+    [refreshTasks],
   )
 
   const abort = useCallback(() => {
@@ -772,8 +880,8 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     setNodes((prev) => markRunningAsWait(prev))
     pushLog('终止', '用户手动终止任务，后端 Agent 已同步取消', 'warn')
     finishDuration()
-    void refreshRunning()
-  }, [finishDuration, pushLog, refreshRunning])
+    void refreshTasks()
+  }, [finishDuration, pushLog, refreshTasks])
 
   const copy = useCallback(async () => {
     if (finalAnswer === null) return
@@ -792,19 +900,23 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   }, [finalAnswer, plan, query])
 
   // 启动恢复：刷新页面后自动接上最近一个正在执行的任务（与未刷新时一致），
-  // 之后按固定间隔刷新运行中列表（其它标签页 / 刷新前启动的任务）。
+  // 并恢复未查看的「完成」胶囊；之后按固定间隔刷新最近任务列表
+  // （其它标签页 / 刷新前启动的任务）。
   useEffect(() => {
     let stopped = false
+    let restore = true
     const load = async (attachIfIdle: boolean) => {
       const generation = generationRef.current
       try {
-        const data = await listTasks(RUNNING_TASKS_LIMIT, 'running')
+        const data = await listTasks(RECENT_TASKS_LIMIT)
         if (stopped) return
-        applyRunningTasks(data.tasks)
+        applyTaskList(data.tasks, { restore })
+        restore = false
+        const running = data.tasks.filter((task) => task.status === 'running')
         // 只在「用户还没开始任何任务」且期间没有被新运行占用时恢复
-        if (attachIfIdle && data.tasks.length > 0 && !hasStartedRef.current) {
+        if (attachIfIdle && running.length > 0 && !hasStartedRef.current) {
           if (generationRef.current !== generation) return
-          await attachTask(data.tasks[0])
+          await attachTask(running[0])
         }
       } catch {
         // 启动恢复失败静默：不阻塞工作台
@@ -819,7 +931,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
       observeRef.current?.abort()
       observeRef.current = null
     }
-  }, [applyRunningTasks, attachTask])
+  }, [applyTaskList, attachTask])
 
   const chapterList: ChapterView[] = outline.map((title, index) => {
     const state = chapters[index + 1]
@@ -841,6 +953,8 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     setQuery,
     running,
     runningTasks,
+    finishedTasks,
+    ackFinished: acknowledgeTask,
     tasksVersion,
     hasStarted,
     aborted,

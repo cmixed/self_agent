@@ -81,13 +81,13 @@ export default function App() {
     <ConfigProvider locale={zhCN} theme={buildThemeConfig(mode)}>
       <AntApp>
         {/* 任务运行状态提升到 App 层：切换页面不丢进度，任务继续在后台执行 */}
-        <TaskRunProvider>
-          <NavProvider>
+        <NavProvider>
+          <TaskRunProvider>
             <ViewStackProvider>
               <AppShell mode={mode} toggleMode={toggleMode} />
             </ViewStackProvider>
-          </NavProvider>
-        </TaskRunProvider>
+          </TaskRunProvider>
+        </NavProvider>
       </AntApp>
     </ConfigProvider>
   )

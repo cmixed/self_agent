@@ -1,9 +1,168 @@
-/** 顶栏「运行中任务」胶囊的纯逻辑（便于单测，不依赖 React）。 */
+/** 顶栏任务胶囊（运行中 / 完成待查看）的纯逻辑（便于单测，不依赖 React）。 */
 
 import type { TaskSummary } from '../types/api'
 
 /** 桌面端直接展示的胶囊数量上限，超出部分折叠进「+N」下拉。 */
 export const MAX_VISIBLE_CAPSULES = 2
+
+/** 终态：任务已结束，胶囊转为「完成待查看」常驻。 */
+const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled'] as const
+export type TerminalStatus = (typeof TERMINAL_STATUSES)[number]
+export type TaskPillState = 'running' | TerminalStatus
+
+/** 刷新页面后最多恢复多少条「完成待查看」胶囊（避免翻出很久以前的旧账）。 */
+export const MAX_RESTORED_FINISHED = 3
+
+/** 「完成待查看」的恢复窗口：只恢复最近 24 小时内结束的任务。 */
+export const FINISHED_RESTORE_WINDOW_MS = 24 * 60 * 60 * 1000
+
+/** 已确认（查看/关闭）的任务 id 存储键，刷新后不再重复弹出。 */
+export const ACKNOWLEDGED_STORAGE_KEY = 'agent.finishedTasks.ack'
+const MAX_ACKNOWLEDGED = 100
+
+export function isTerminalStatus(status?: string | null): status is TerminalStatus {
+  return (TERMINAL_STATUSES as readonly string[]).includes(status ?? '')
+}
+
+/** 胶囊状态：运行中 + 三种终态（后端只会有这四种）。 */
+export function taskPillState(task: Pick<TaskSummary, 'status'>): TaskPillState {
+  return isTerminalStatus(task.status) ? task.status : 'running'
+}
+
+/** 终态胶囊上的短标签。 */
+export function pillStatusLabel(state: TaskPillState): string {
+  switch (state) {
+    case 'completed':
+      return '已完成'
+    case 'failed':
+      return '失败'
+    case 'cancelled':
+      return '已终止'
+    default:
+      return '执行中'
+  }
+}
+
+/** 终态排序键：优先 finished_at，缺失时退回 created_at。 */
+function finishTime(task: Pick<TaskSummary, 'finished_at' | 'created_at'>): number {
+  const value = task.finished_at ?? task.created_at
+  const parsed = value ? Date.parse(value) : Number.NaN
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
+/**
+ * 合并「运行中 + 完成待查看」为一条胶囊列表。
+ *
+ * 运行中排在前（用户正在等待的任务优先），完成态按结束时间倒序；
+ * 同一 task_id 只保留一条（切换瞬间可能两边都出现）。
+ */
+export function mergeTaskPills(
+  running: readonly TaskSummary[],
+  finished: readonly TaskSummary[],
+): TaskSummary[] {
+  const seen = new Set<string>()
+  const result: TaskSummary[] = []
+  for (const task of running) {
+    if (seen.has(task.task_id)) continue
+    seen.add(task.task_id)
+    result.push(task)
+  }
+  const terminal = finished
+    .filter((task) => {
+      if (seen.has(task.task_id)) return false
+      seen.add(task.task_id)
+      return true
+    })
+    .sort((a, b) => finishTime(b) - finishTime(a))
+  return [...result, ...terminal]
+}
+
+/**
+ * 计算「完成待查看」列表：保留已有条目，并补上服务端新出现的终态任务。
+ *
+ * - `acknowledged`：用户已查看/关闭过的任务，永不重复出现；
+ * - `skipIds`：正在工作台观察的任务（已经看得到结果，不再弹胶囊）；
+ * - 只接受 `windowMs` 内结束的任务，避免启动时把陈年旧账翻出来；
+ * - `limit` 仅用于启动恢复，运行期间新完成的任务不丢。
+ */
+export function collectFinishedTasks(options: {
+  tasks: readonly TaskSummary[]
+  current: readonly TaskSummary[]
+  acknowledged: ReadonlySet<string>
+  skipIds?: ReadonlySet<string>
+  now?: number
+  windowMs?: number
+  limit?: number
+}): TaskSummary[] {
+  const now = options.now ?? Date.now()
+  const windowMs = options.windowMs ?? FINISHED_RESTORE_WINDOW_MS
+  const skip = options.skipIds ?? new Set<string>()
+  const latestById = new Map(options.tasks.map((task) => [task.task_id, task]))
+
+  const keep = options.current
+    .filter((task) => {
+      if (!isTerminalStatus(task.status)) return false
+      if (options.acknowledged.has(task.task_id) || skip.has(task.task_id)) return false
+      // 同一条任务被续跑（复用 task_id）后重新变成 running：撤掉旧的完成态
+      const latest = latestById.get(task.task_id)
+      return !latest || isTerminalStatus(latest.status)
+    })
+    // 用服务端最新记录刷新（失败原因 / finished_at 可能已更新）
+    .map((task) => latestById.get(task.task_id) ?? task)
+  const known = new Set(keep.map((task) => task.task_id))
+
+  for (const task of options.tasks) {
+    if (!isTerminalStatus(task.status)) continue
+    if (options.acknowledged.has(task.task_id) || skip.has(task.task_id)) continue
+    if (known.has(task.task_id)) continue
+    const finished = task.finished_at ? Date.parse(task.finished_at) : Number.NaN
+    if (Number.isNaN(finished)) continue
+    if (now - finished > windowMs) continue
+    known.add(task.task_id)
+    keep.push(task)
+  }
+
+  keep.sort((a, b) => finishTime(b) - finishTime(a))
+  return options.limit && options.limit > 0 ? keep.slice(0, options.limit) : keep
+}
+
+type ReadableStorage = { getItem: (key: string) => string | null }
+
+function defaultStorage(): Storage | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage
+  } catch {
+    // 隐私模式等场景下 localStorage 不可用
+    return null
+  }
+}
+
+/** 读取「已确认」任务 id（损坏 / 不可用时按空集合处理）。 */
+export function loadAcknowledgedTasks(
+  storage: ReadableStorage | null = defaultStorage(),
+): Set<string> {
+  try {
+    const raw = storage?.getItem(ACKNOWLEDGED_STORAGE_KEY)
+    if (!raw) return new Set()
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return new Set()
+    return new Set(parsed.filter((id): id is string => typeof id === 'string' && id.length > 0))
+  } catch {
+    return new Set()
+  }
+}
+
+/** 持久化「已确认」任务 id（只保留最近 100 条，避免无限增长）。 */
+export function saveAcknowledgedTasks(
+  ids: ReadonlySet<string>,
+  storage: Pick<Storage, 'setItem'> | null = defaultStorage(),
+): void {
+  try {
+    storage?.setItem(ACKNOWLEDGED_STORAGE_KEY, JSON.stringify([...ids].slice(-MAX_ACKNOWLEDGED)))
+  } catch {
+    // 忽略写入失败：本次会话内仍生效
+  }
+}
 
 /** §19 事件名 -> 阶段文案（有 message 时优先用 message）。 */
 const STAGE_LABELS: Record<string, string> = {

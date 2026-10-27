@@ -65,6 +65,12 @@ import {
 } from '../utils/format'
 import { runningTaskStage } from '../utils/runningTasks'
 import { describeScope } from '../utils/scope'
+import {
+  clearRememberedOptions,
+  readRememberedOptions,
+  sanitizeScope,
+  writeRememberedOptions,
+} from '../utils/taskOptions'
 
 const { Text, Paragraph } = Typography
 const { TextArea } = Input
@@ -175,6 +181,10 @@ export default function TaskPage() {
   const [scope, setScope] = useState<TaskScope>({ category_ids: [], document_ids: [] })
   const [scopePickerOpen, setScopePickerOpen] = useState(false)
   const [outputTab, setOutputTab] = useState('plan')
+  // 「记住执行选项」：存储里存在即视为开启（关闭时会清除存储）
+  const [remembered] = useState(() => readRememberedOptions())
+  const [rememberOptions, setRememberOptions] = useState(remembered !== null)
+  const optionsHydratedRef = useRef(false)
 
   // 闲置态：轻量读取资料与类别（环境感知；失败静默，不打扰主流程）
   useEffect(() => {
@@ -193,6 +203,32 @@ export default function TaskPage() {
       cancelled = true
     }
   }, [hasStarted])
+
+  // 「记住执行选项」：资料列表就绪后恢复一次（含失效 id 清理）
+  useEffect(() => {
+    if (optionsHydratedRef.current || documents === null) return
+    optionsHydratedRef.current = true
+    if (!remembered) return
+    setDepth(remembered.depth)
+    setUseSkills(remembered.useSkills)
+    const hadScope = remembered.scope.category_ids.length + remembered.scope.document_ids.length > 0
+    const { scope: restored, dropped } = sanitizeScope(remembered.scope, categories, documents)
+    setScope(restored)
+    if (dropped > 0) {
+      const empty = restored.category_ids.length + restored.document_ids.length === 0
+      message.info(
+        hadScope && empty
+          ? '上次的检索范围已失效，已改为全部知识库'
+          : `已忽略 ${dropped} 个不存在的检索范围项`,
+      )
+    }
+  }, [categories, documents, message, remembered, setDepth, setUseSkills])
+
+  // 开启时随表单变化持久化；关闭时在开关回调里清除
+  useEffect(() => {
+    if (!rememberOptions || !optionsHydratedRef.current) return
+    writeRememberedOptions({ depth, useSkills, scope })
+  }, [depth, rememberOptions, scope, useSkills])
 
   // 最近任务：任务状态变化（tasksVersion）时自动刷新，无需手动刷新页面
   useEffect(() => {
@@ -624,6 +660,23 @@ export default function TaskPage() {
                   onChange={(event) => setUseSkills(event.target.checked)}
                 >
                   允许技能
+                </Checkbox>
+              </Tooltip>
+              <Tooltip title="下次进入工作台自动套用执行深度、技能开关与检索范围（仅保存在当前浏览器）">
+                <Checkbox
+                  checked={rememberOptions}
+                  onChange={(event) => {
+                    const next = event.target.checked
+                    setRememberOptions(next)
+                    if (!next) {
+                      clearRememberedOptions()
+                      message.success('已忘记上次的执行选项')
+                      return
+                    }
+                    writeRememberedOptions({ depth, useSkills, scope })
+                  }}
+                >
+                  记住选项
                 </Checkbox>
               </Tooltip>
             </Space>
