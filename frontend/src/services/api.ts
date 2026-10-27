@@ -14,6 +14,7 @@ import type {
   ProviderInfo,
   ProviderListResponse,
   ProviderProbeResponse,
+  RetrievalMode,
   SettingsResponse,
   SkillGenerateResponse,
   SkillImportPreview,
@@ -128,19 +129,23 @@ export async function streamTask(
   scope?: TaskScope | null,
   depth: TaskDepth = 'auto',
   useSkills = false,
+  retrievalMode: RetrievalMode = 'all',
 ): Promise<void> {
-  const hasScope = Boolean(scope && (scope.category_ids.length || scope.document_ids.length))
+  const hasScope =
+    retrievalMode === 'selected' &&
+    Boolean(scope && (scope.category_ids.length || scope.document_ids.length))
   return streamSse(
     '/tasks/stream',
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // scope 缺省 = 全部知识库（后端不解析、不加过滤）；
-      // depth=auto 由后端确定性路由决定，use_skills 默认关闭。
+      // retrieval_mode=all 时不传 scope（后端按整个知识库处理）；
+      // none 表示本次完全不检索；depth=auto 由后端确定性路由决定。
       body: JSON.stringify({
         query,
         depth,
         use_skills: useSkills,
+        retrieval_mode: retrievalMode,
         ...(hasScope ? { scope } : {}),
       }),
     },

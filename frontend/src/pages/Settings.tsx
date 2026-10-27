@@ -145,6 +145,12 @@ export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
   }, [categories, documents, memory])
 
   const resolvedLabel = mode === 'system' ? '跟随系统' : mode === 'dark' ? '深色' : '浅色'
+  const retrievalLabel =
+    memory.options.retrievalMode === 'none'
+      ? '不使用知识库'
+      : memory.options.retrievalMode === 'all'
+        ? '全部知识库'
+        : scopeSummary.label
 
   return (
     <PageContainer
@@ -203,9 +209,9 @@ export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
           </div>
           <div className="settings-summary__row">
             <span className="settings-summary__label">检索范围</span>
-            <span>{scopeSummary.label}</span>
+            <span>{retrievalLabel}</span>
           </div>
-          {scopeSummary.bound ? (
+          {memory.options.retrievalMode === 'selected' && scopeSummary.bound ? (
             <div className="settings-summary__row">
               <span className="settings-summary__label">范围明细</span>
               <span className="settings-summary__detail">
@@ -223,7 +229,7 @@ export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
               </span>
             </div>
           ) : null}
-          {scopeSummary.dropped > 0 ? (
+          {memory.options.retrievalMode === 'selected' && scopeSummary.dropped > 0 ? (
             <Text type="secondary">
               有 {scopeSummary.dropped} 个类别 / 文档已被删除，恢复时会自动忽略。
             </Text>

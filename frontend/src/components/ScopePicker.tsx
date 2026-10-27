@@ -1,4 +1,4 @@
-import { Modal, Space, Tree, Typography } from 'antd'
+import { Modal, Segmented, Space, Tree, Typography } from 'antd'
 import type { TreeDataNode } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 
@@ -14,8 +14,13 @@ export interface ScopeSelection {
   document_ids: string[]
 }
 
+/** 范围选择器只处理「全部 / 指定」；「不检索」由工作台的三态选择器决定。 */
+export type ScopeMode = 'all' | 'selected'
+
 interface ScopePickerProps {
   open: boolean
+  /** 打开时的初始模式；缺省按 value 是否为空推断 */
+  initialMode?: ScopeMode
   categories: CategoryInfo[]
   documents: DocumentInfo[]
   value: ScopeSelection
@@ -32,7 +37,7 @@ interface ScopePickerProps {
  * 提交时再回推成后端协议：
  * - 完全勾选的类别 → `category_ids`（保留"整类"语义，重跑时新加入的文档会被纳入）；
  * - 未被已选类别覆盖的文档 → `document_ids`（单篇选择 / 未分类文档）；
- * - 都不勾 = 全部知识库。
+ * - 显式选择「全部知识库」→ 空选择；「指定范围」不允许空确定。
  */
 
 /** 由勾选状态回推后端协议（纯函数，便于审阅）。 */
@@ -61,6 +66,7 @@ export function deriveSelection(checkedKeys: string[], documents: DocumentInfo[]
 }
 export default function ScopePicker({
   open,
+  initialMode,
   categories,
   documents,
   value,
@@ -68,9 +74,14 @@ export default function ScopePicker({
   onConfirm,
 }: ScopePickerProps) {
   const [checkedKeys, setCheckedKeys] = useState<React.Key[]>([])
+  const [mode, setMode] = useState<ScopeMode>('all')
 
   useEffect(() => {
     if (!open) return
+    setMode(
+      initialMode ??
+        (value.category_ids.length + value.document_ids.length > 0 ? 'selected' : 'all'),
+    )
     const keys = new Set<string>([
       ...value.category_ids.map((id) => `cat:${id}`),
       ...value.document_ids.map((id) => `doc:${id}`),
@@ -82,7 +93,7 @@ export default function ScopePicker({
       }
     }
     setCheckedKeys([...keys])
-  }, [open, value, documents])
+  }, [open, initialMode, value, documents])
 
   const treeData = useMemo<TreeDataNode[]>(() => {
     const byCategory = new Map<string, DocumentInfo[]>()
@@ -128,7 +139,13 @@ export default function ScopePicker({
   }, [categories, documents])
 
   const handleConfirm = () => {
-    onConfirm(deriveSelection(checkedKeys.map(String), documents))
+    if (mode === 'all') {
+      onConfirm({ category_ids: [], document_ids: [] })
+      return
+    }
+    const selection = deriveSelection(checkedKeys.map(String), documents)
+    if (selection.category_ids.length + selection.document_ids.length === 0) return
+    onConfirm(selection)
   }
 
   const selection = useMemo(
@@ -141,6 +158,7 @@ export default function ScopePicker({
     (document.category_ids ?? []).some((id) => selection.category_ids.includes(id)),
   ).length
   const effectiveDocuments = coveredDocuments + selectedDocuments
+  const canConfirm = mode === 'all' || effectiveDocuments > 0
 
   return (
     <Modal
@@ -152,32 +170,48 @@ export default function ScopePicker({
       cancelText="取消"
       width={560}
       destroyOnHidden
+      okButtonProps={{ disabled: !canConfirm }}
     >
       <Space orientation="vertical" size="small" style={{ width: '100%' }}>
-        <Text type="secondary">
-          勾选类别会连同其下所有文档一起选中（可再单独取消某篇）；只选个别文件时直接展开勾选。
-          什么都不勾 = 使用全部知识库。
-        </Text>
-        {treeData.length === 0 ? (
-          <Text type="secondary">知识库还没有文档，先去「知识库」上传并分类。</Text>
+        <Segmented
+          block
+          value={mode}
+          onChange={(next) => setMode(next as ScopeMode)}
+          options={[
+            { label: '全部知识库', value: 'all' },
+            { label: '指定范围', value: 'selected' },
+          ]}
+        />
+        {mode === 'all' ? (
+          <Text type="secondary">本次任务会检索整个知识库；需要限定资料时切换到「指定范围」。</Text>
         ) : (
-          <Tree
-            checkable
-            selectable={false}
-            defaultExpandAll
-            treeData={treeData}
-            checkedKeys={checkedKeys}
-            onCheck={(keys) => {
-              const list = Array.isArray(keys) ? keys : keys.checked
-              setCheckedKeys(list)
-            }}
-          />
+          <>
+            <Text type="secondary">
+              勾选类别会连同其下所有文档一起选中（可再单独取消某篇）；只选个别文件时直接展开勾选。
+              至少选择 1 个类别或文档才能确定。
+            </Text>
+            {treeData.length === 0 ? (
+              <Text type="secondary">知识库还没有文档，先去「知识库」上传并分类。</Text>
+            ) : (
+              <Tree
+                checkable
+                selectable={false}
+                defaultExpandAll
+                treeData={treeData}
+                checkedKeys={checkedKeys}
+                onCheck={(keys) => {
+                  const list = Array.isArray(keys) ? keys : keys.checked
+                  setCheckedKeys(list)
+                }}
+              />
+            )}
+            <Text type="secondary">
+              已选：{selectedCategories > 0 ? `${selectedCategories} 个类别、` : ''}
+              {selectedDocuments} 篇单独选择的文档
+              {effectiveDocuments > 0 ? `（共涉及 ${effectiveDocuments} 篇）` : ''}
+            </Text>
+          </>
         )}
-        <Text type="secondary">
-          已选：{selectedCategories > 0 ? `${selectedCategories} 个类别、` : ''}
-          {selectedDocuments} 篇单独选择的文档
-          {effectiveDocuments > 0 ? `（共涉及 ${effectiveDocuments} 篇）` : ''}
-        </Text>
       </Space>
     </Modal>
   )

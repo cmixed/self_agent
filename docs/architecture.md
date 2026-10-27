@@ -58,7 +58,7 @@ TaskService ──→ LangGraph 工作流（只负责编排）
 | `task_profile` | 执行深度、目标字数、是否检索等前端选项 |
 | `user_preferences` / `user_memories` | 任务开始时固化的长期偏好与少量相关记忆 |
 | `plan` / `current_step` / `step_results` | 计划与执行进度 |
-| `retrieval_scope` | 冻结后的检索范围（随 checkpoint 持久化） |
+| `retrieval_scope` / `retrieval_mode` | 冻结后的检索范围与模式（all / selected / none） |
 | `retrieved_documents` | 本次可见资料，**覆盖**语义 |
 | `skill_outputs` | 技能产出，追加语义 |
 | `writing_budget` | 由 outline 计算，writer / validator / summarizer 共用 |

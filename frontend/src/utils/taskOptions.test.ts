@@ -57,6 +57,7 @@ describe('normalizeTaskOptions', () => {
     ).toEqual({
       depth: 'longform',
       useSkills: true,
+      retrievalMode: 'selected',
       scope: { category_ids: ['a'], document_ids: ['d'] },
     })
   })
@@ -66,6 +67,7 @@ describe('normalizeTaskOptions', () => {
       clampTaskOptions({
         depth: 'brief',
         useSkills: true,
+        retrievalMode: 'all',
         scope: { category_ids: [], document_ids: [] },
       }).useSkills,
     ).toBe(false)
@@ -74,6 +76,23 @@ describe('normalizeTaskOptions', () => {
   it('深度非法或缺省时返回 null', () => {
     expect(normalizeTaskOptions(null)).toBeNull()
     expect(normalizeTaskOptions({ depth: 'deep' })).toBeNull()
+  })
+
+  it('旧数据没有 retrievalMode 时按范围推断；显式 none 保留', () => {
+    expect(
+      normalizeTaskOptions({
+        depth: 'auto',
+        scope: { category_ids: [], document_ids: ['d1'] },
+      })?.retrievalMode,
+    ).toBe('selected')
+
+    expect(
+      normalizeTaskOptions({
+        depth: 'brief',
+        retrievalMode: 'none',
+        scope: { category_ids: ['c1'], document_ids: [] },
+      })?.retrievalMode,
+    ).toBe('none')
   })
 })
 
@@ -100,6 +119,7 @@ describe('执行选项记忆的读写', () => {
         options: {
           depth: 'brief',
           useSkills: true,
+          retrievalMode: 'selected',
           scope: { category_ids: ['c1'], document_ids: ['d1'] },
         },
       },
@@ -111,6 +131,7 @@ describe('执行选项记忆的读写', () => {
       options: {
         depth: 'brief',
         useSkills: false,
+        retrievalMode: 'selected',
         scope: { category_ids: ['c1'], document_ids: ['d1'] },
       },
     })
@@ -119,7 +140,12 @@ describe('执行选项记忆的读写', () => {
   it('关闭记忆只改开关，已记住的选项仍然保留', () => {
     const storage = fakeStorage()
     saveTaskOptions(
-      { depth: 'longform', useSkills: true, scope: { category_ids: ['c1'], document_ids: [] } },
+      {
+        depth: 'longform',
+        useSkills: true,
+        retrievalMode: 'selected',
+        scope: { category_ids: ['c1'], document_ids: [] },
+      },
       storage,
     )
 
@@ -139,7 +165,12 @@ describe('执行选项记忆的读写', () => {
     setTaskOptionsRemember(true, storage)
 
     const saved = saveTaskOptions(
-      { depth: 'auto', useSkills: false, scope: { category_ids: [], document_ids: ['d2'] } },
+      {
+        depth: 'auto',
+        useSkills: false,
+        retrievalMode: 'all',
+        scope: { category_ids: [], document_ids: ['d2'] },
+      },
       storage,
     )
     expect(saved.remember).toBe(true)

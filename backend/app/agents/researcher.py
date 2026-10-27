@@ -31,6 +31,10 @@ def make_researcher_node(
     """
 
     async def researcher_node(state: AgentState) -> dict:
+        if state.get("retrieval_mode") == "none":
+            # 正常路由不会到这里；防御性地跳过，避免用户明确关闭检索后仍加载模型
+            return {"retrieved_documents": [], "task_status": "writing"}
+
         query = _build_query(state)
 
         try:

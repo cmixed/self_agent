@@ -10,6 +10,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.models.state import RetrievalMode
+
 Role = Literal["system", "user", "assistant"]
 
 
@@ -337,6 +339,12 @@ class TaskRequest(BaseModel):
     user_preferences: dict[str, str] = Field(default_factory=dict)
     # 检索范围（可选）：缺省或为空 = 整个知识库
     scope: TaskScope | None = None
+    # 检索模式：
+    # - all（默认）：整个知识库，按任务需要检索；
+    # - selected：仅检索 scope 指定的类别 / 文档（必须至少有一项）；
+    # - none：本次不检索知识库，只用通用知识。
+    # 缺省时兼容旧客户端：scope 非空按 selected，否则 all。
+    retrieval_mode: RetrievalMode | None = None
     # 执行深度：auto = 由确定性规则选择；brief = 简洁回答；longform = 长文流水线
     depth: TaskDepth = "auto"
     # 技能默认关闭（显式 opt-in），避免简单任务被技能步骤放大
@@ -446,7 +454,9 @@ class TaskResponse(BaseModel):
     # 未通过校验的章节（如 "chapter_3"）
     failed_chapters: list[str] = Field(default_factory=list)
     final_answer: str = ""
-    # 本次检索范围（回显）；None 表示整个知识库
+    # 本次检索模式：all / selected / none
+    retrieval_mode: RetrievalMode | None = None
+    # 本次检索范围（回显）；None 表示整个知识库 / 不检索
     scope: TaskScopeInfo | None = None
     # 本次运行的模型用量；旧记录没有该字段时为 None
     usage: UsageOut | None = None

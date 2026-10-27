@@ -642,6 +642,14 @@ Agent
   researcher 从 state 读取并透传到 `RagTool.search` → `Retriever` →
   `ChromaStore.query(document_ids=...)` → Chroma `where`。
   **空列表代表「范围内没有文档」必须返回空结果**，绝不能退化成不过滤。
+- **检索模式是三态**（`AgentState.retrieval_mode`，API 字段 `retrieval_mode`）：
+  - `all`：不绑定范围，使用整个知识库，是否检索由任务画像 / Planner 决定；
+  - `selected`：必须至少选 1 个类别或文档，解析为空返回 409；显式指定范围时
+    `TaskProfile.needs_retrieval=True`；
+  - `none`：完全不检索知识库，Planner 强制 `needs_retrieval=False` 并移除
+    retrieval 步骤，Researcher 防御性跳过（不得加载 Embedding / 访问 Chroma）。
+  模式随 checkpoint 固化；续跑沿用，重新生成按原记录恢复。
+  旧客户端未传 `retrieval_mode` 时兼容推断：scope 非空 = selected，否则 all。
 - 检索结果必须保留 source metadata。
 - **`retrieved_documents` 是覆盖语义**：每次检索代表「本次计划可见的资料」。
   replan 后 researcher 会重新检索并整体替换，不得追加旧资料
@@ -1044,10 +1052,11 @@ MAX_RETRIES=2
   本地数据清理。工作台只保留「默认值」文字入口跳转设置页，不再放「记住选项」开关。
   工作台上的执行深度 / 允许技能 / 检索范围仍是**本次任务参数**，与长期偏好分层。
 - 记住的执行选项存 localStorage（`agent.taskOptions`），数据模型是「值 + 开关」：
-  工作台提交任务时记录上一次实际使用，开启记忆后表单变化实时写盘；**关闭只关
-  开关、保留已记住的值**，再次开启即恢复。恢复时剔除已删除的类别 / 文档 id，
-  剔除后为空则回退「全部知识库」并提示。不要写进 SQLite `user_preferences` ——
-  那里是长期记忆，混入表单交互状态会污染记忆去重。
+  工作台提交任务时记录上一次实际使用（执行深度、技能、检索模式与范围），开启
+  记忆后表单变化实时写盘；**关闭只关开关、保留已记住的值**，再次开启即恢复。
+  恢复时剔除已删除的类别 / 文档 id，剔除后为空且模式为 selected 则回退
+  「全部知识库」并提示。不要写进 SQLite `user_preferences` ——那里是长期记忆，
+  混入表单交互状态会污染记忆去重。
 - 提醒参数存 localStorage（`agent.pillSettings`），设置页修改后立即通知
   `TaskRunProvider`；主题存 `self-agent.theme`（顶栏按钮把跟随系统切成明确的浅 / 深）。
 - 预设区第一张固定为「上次任务」（最近一次**已结束**任务）：点击沿用原 query /

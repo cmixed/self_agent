@@ -37,7 +37,7 @@ def requested_chars_for_state(state: AgentState, *, fallback: int = DEFAULT_TOTA
     profile = state.get("task_profile") or {}
     try:
         value = int(profile.get("target_chars") or 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         value = 0
     return max(1, value or int(fallback))
 
@@ -48,6 +48,8 @@ def needs_retrieval(state: AgentState) -> bool:
     优先使用 Planner 的计划（真正决定是否执行 researcher），旧 state 没有
     plan 时退回 task_profile 的路由判断。
     """
+    if state.get("retrieval_mode") == "none":
+        return False
     plan = state.get("plan")
     if isinstance(plan, dict) and "needs_retrieval" in plan:
         return bool(plan.get("needs_retrieval"))

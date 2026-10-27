@@ -36,6 +36,7 @@ from app.llm.usage import UsageCollector, UsageTrackingProvider, collect_usage
 from app.memory.repository import TaskRepository
 from app.models.state import (
     AgentState,
+    RetrievalMode,
     RetrievalScope,
     RetrievedDocument,
     UserMemory,
@@ -114,6 +115,8 @@ def task_result(
         "final_answer": state.get("final_answer", ""),
         # 本次运行的用量（token / 缓存命中 / 速度）；由 Provider 装饰器采集
         "usage": usage,
+        # 检索模式：all / selected / none；旧任务可能缺省
+        "retrieval_mode": state.get("retrieval_mode") or "all",
         # 回显本次检索范围（标签 + 解析后的文档数），便于追溯与续跑确认
         "scope": (
             {
@@ -221,7 +224,14 @@ class TaskService:
         """最近一次运行的用量（同步入口用它补齐 API 响应中的 usage）。"""
         return self._last_usage
 
-    def _profile_for(self, query: str, *, depth: str | None, use_skills: bool | None):
+    def _profile_for(
+        self,
+        query: str,
+        *,
+        depth: str | None,
+        use_skills: bool | None,
+        retrieval_mode: RetrievalMode | None = None,
+    ):
         """解析任务画像（0 次 LLM 调用）。"""
         return resolve_profile(
             query,
@@ -229,6 +239,7 @@ class TaskService:
             use_skills=bool(use_skills),
             target_total_chars=self._target_total_chars,
             max_sections=self._max_sections,
+            retrieval_mode=retrieval_mode or "all",
         )
 
     async def run(
@@ -240,6 +251,7 @@ class TaskService:
         task_id: str | None = None,
         user_id: str | None = None,
         retrieval_scope: RetrievalScope | None = None,
+        retrieval_mode: RetrievalMode | None = None,
         depth: str | None = None,
         use_skills: bool | None = None,
     ) -> AgentState:
@@ -254,6 +266,7 @@ class TaskService:
                 task_id=run_id,
                 user_id=user_id,
                 retrieval_scope=retrieval_scope,
+                retrieval_mode=retrieval_mode,
                 depth=depth,
                 use_skills=use_skills,
             )
@@ -272,17 +285,21 @@ class TaskService:
         task_id: str | None = None,
         user_id: str | None = None,
         retrieval_scope: RetrievalScope | None = None,
+        retrieval_mode: RetrievalMode | None = None,
         depth: str | None = None,
         use_skills: bool | None = None,
     ) -> AgentState:
         run_id = task_id or str(uuid4())
-        profile = self._profile_for(query, depth=depth, use_skills=use_skills)
+        profile = self._profile_for(
+            query, depth=depth, use_skills=use_skills, retrieval_mode=retrieval_mode
+        )
         state = initial_state(
             query,
             task_id=run_id,
             user_preferences=user_preferences,
             user_memories=user_memories,
             retrieval_scope=retrieval_scope,
+            retrieval_mode=retrieval_mode,
             task_profile=profile.to_dict(),
         )
 
@@ -377,6 +394,7 @@ class TaskService:
         task_id: str | None = None,
         user_id: str | None = None,
         retrieval_scope: RetrievalScope | None = None,
+        retrieval_mode: RetrievalMode | None = None,
         depth: str | None = None,
         use_skills: bool | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
@@ -391,6 +409,7 @@ class TaskService:
                 task_id=run_id,
                 user_id=user_id,
                 retrieval_scope=retrieval_scope,
+                retrieval_mode=retrieval_mode,
                 depth=depth,
                 use_skills=use_skills,
             ):
@@ -410,6 +429,7 @@ class TaskService:
         task_id: str | None = None,
         user_id: str | None = None,
         retrieval_scope: RetrievalScope | None = None,
+        retrieval_mode: RetrievalMode | None = None,
         depth: str | None = None,
         use_skills: bool | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
@@ -419,13 +439,16 @@ class TaskService:
         能正常结束并给出可读信息。
         """
         run_id = task_id or str(uuid4())
-        profile = self._profile_for(query, depth=depth, use_skills=use_skills)
+        profile = self._profile_for(
+            query, depth=depth, use_skills=use_skills, retrieval_mode=retrieval_mode
+        )
         state = initial_state(
             query,
             task_id=run_id,
             user_preferences=user_preferences,
             user_memories=user_memories,
             retrieval_scope=retrieval_scope,
+            retrieval_mode=retrieval_mode,
             task_profile=profile.to_dict(),
         )
 
@@ -437,6 +460,7 @@ class TaskService:
             message=f"任务已创建（{'长文' if profile.mode == 'longform' else '轻量回答'}模式）",
             mode=profile.mode,
             profile=profile.to_dict(),
+            retrieval_mode=retrieval_mode or "all",
         )
 
         async for event in self._run_graph(run_id, state):
@@ -501,6 +525,7 @@ class TaskService:
             sources=_sources(documents),
             mode=profile.get("mode"),
             profile=profile or None,
+            retrieval_mode=snapshot.get("retrieval_mode") or "all",
         )
 
         # 输入为 None：LangGraph 从该 thread 的最后一个检查点继续

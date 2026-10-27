@@ -64,6 +64,7 @@ def resolve_profile(
     use_skills: bool = False,
     target_total_chars: int = DEFAULT_TOTAL_CHARS,
     max_sections: int = DEFAULT_MAX_SECTIONS,
+    retrieval_mode: str = "all",
 ) -> TaskProfile:
     """根据输入决定任务模式（确定性规则，0 次 LLM 调用）。
 
@@ -85,6 +86,7 @@ def resolve_profile(
             use_skills,
             target_total_chars,
             max_sections,
+            retrieval_mode=retrieval_mode,
             reason="用户显式选择简洁回答",
         )
     if chosen == "longform":
@@ -94,6 +96,7 @@ def resolve_profile(
             use_skills,
             target_total_chars,
             max_sections,
+            retrieval_mode=retrieval_mode,
             reason="用户显式选择长文",
         )
     if chosen == "direct":
@@ -103,6 +106,7 @@ def resolve_profile(
             use_skills,
             target_total_chars,
             max_sections,
+            retrieval_mode=retrieval_mode,
             reason="用户显式选择直接回答",
         )
 
@@ -116,6 +120,7 @@ def resolve_profile(
             use_skills,
             _clamp_explicit_target(explicit),
             max_sections,
+            retrieval_mode=retrieval_mode,
             reason=f"用户要求约 {explicit} 字",
         )
     if explicit is not None and explicit <= 1500 and _is_capped_length(text):
@@ -125,6 +130,7 @@ def resolve_profile(
             use_skills,
             target_total_chars,
             max_sections,
+            retrieval_mode=retrieval_mode,
             reason=f"用户要求不超过约 {explicit} 字",
             target_override=min(BRIEF_TARGET_CHARS, max(120, explicit)),
         )
@@ -136,6 +142,7 @@ def resolve_profile(
             use_skills,
             target_total_chars,
             max_sections,
+            retrieval_mode=retrieval_mode,
             reason="检测到简洁/摘要类要求",
         )
     if _is_longform(text):
@@ -145,6 +152,7 @@ def resolve_profile(
             use_skills,
             target_total_chars,
             max_sections,
+            retrieval_mode=retrieval_mode,
             reason="检测到写作/长文意图",
         )
     if _is_direct(text) and not _has_knowledge_hint(text):
@@ -154,6 +162,7 @@ def resolve_profile(
             use_skills,
             target_total_chars,
             max_sections,
+            retrieval_mode=retrieval_mode,
             reason="检测到单次回答指令",
         )
     if _is_direct(text) and _has_knowledge_hint(text):
@@ -163,6 +172,7 @@ def resolve_profile(
             use_skills,
             target_total_chars,
             max_sections,
+            retrieval_mode=retrieval_mode,
             reason="需要知识库依据，改用简洁检索回答",
         )
     return _profile(
@@ -171,6 +181,7 @@ def resolve_profile(
         use_skills,
         target_total_chars,
         max_sections,
+        retrieval_mode=retrieval_mode,
         reason="未检测到长文意图，默认简洁回答",
     )
 
@@ -192,9 +203,18 @@ def _profile(
     max_sections: int,
     *,
     reason: str,
+    retrieval_mode: str = "all",
     target_override: int | None = None,
 ) -> TaskProfile:
+    # 检索模式是显式约束：
+    # - none：无论 query 是否提到资料，都不得触发 researcher；
+    # - selected：用户明确圈定了资料范围，按「需要检索」处理；
+    # - all：仍由 query 的确定性规则判断，避免「你好」也去查知识库。
     knowledge = _has_knowledge_hint(query)
+    if retrieval_mode == "none":
+        knowledge = False
+    elif retrieval_mode == "selected":
+        knowledge = True
     if mode == "direct":
         target = DIRECT_TARGET_CHARS
         validation: ValidationPolicy = "none"

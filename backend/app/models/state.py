@@ -18,6 +18,8 @@ from app.llm.base import ChatMessage
 StepType = Literal["retrieval", "skill", "outline", "writing", "validation"]
 TaskStatus = Literal["pending", "planning", "writing", "validating", "completed", "failed"]
 SuggestedAction = Literal["continue", "retry_writer", "replan"]
+# 检索模式：全部知识库 / 指定范围 / 不检索
+RetrievalMode = Literal["all", "selected", "none"]
 
 
 class PlanStep(TypedDict):
@@ -161,8 +163,10 @@ class AgentState(TypedDict, total=False):
     current_step: str | None
     step_results: Annotated[list[StepResult], add]
     # --- 检索（Phase 3）---
-    # 本次任务的检索范围；None 表示整个知识库
+    # 本次任务的检索范围；None 表示整个知识库（配合 retrieval_mode 判断）
     retrieval_scope: RetrievalScope | None
+    # 检索模式：all / selected / none；旧 checkpoint 缺失时按 all 处理
+    retrieval_mode: RetrievalMode
     # 覆盖语义：researcher 每次检索都代表「本次计划可见的资料」。
     # 若用追加语义，replan 后重新检索会把旧资料继续堆进 state（同一 chunk 重复出现，
     # 引用编号与预算也会随之失真）。
@@ -198,6 +202,7 @@ def initial_state(
     user_preferences: dict[str, str] | None = None,
     user_memories: list[UserMemory] | None = None,
     retrieval_scope: RetrievalScope | None = None,
+    retrieval_mode: RetrievalMode | None = None,
     task_profile: dict[str, object] | None = None,
 ) -> AgentState:
     """构造一次任务运行的初始状态。
@@ -212,6 +217,7 @@ def initial_state(
         user_query=query,
         user_preferences=user_preferences or {},
         user_memories=user_memories or [],
+        retrieval_mode=retrieval_mode or "all",
         plan=None,
         current_step=None,
         step_results=[],

@@ -8,16 +8,18 @@
  * 开关只决定进入工作台时是否自动套用。因此关闭再打开仍能回到上次的选择。
  */
 
-import type { CategoryInfo, DocumentInfo, TaskDepth, TaskScope } from '../types/api'
+import type { CategoryInfo, DocumentInfo, RetrievalMode, TaskDepth, TaskScope } from '../types/api'
 
 export const TASK_OPTIONS_STORAGE_KEY = 'agent.taskOptions'
 const STORAGE_VERSION = 1
 
 const DEPTHS: readonly TaskDepth[] = ['auto', 'brief', 'longform']
+const RETRIEVAL_MODES: readonly RetrievalMode[] = ['all', 'selected', 'none']
 
 export interface TaskOptions {
   depth: TaskDepth
   useSkills: boolean
+  retrievalMode: RetrievalMode
   scope: TaskScope
 }
 
@@ -30,6 +32,7 @@ export interface TaskOptionsMemory {
 export const DEFAULT_TASK_OPTIONS: TaskOptions = {
   depth: 'auto',
   useSkills: false,
+  retrievalMode: 'all',
   scope: { category_ids: [], document_ids: [] },
 }
 
@@ -63,15 +66,28 @@ function idList(value: unknown): string[] {
   return [...seen]
 }
 
+/** 旧存储没有 retrievalMode：按是否有范围推断（有范围 = 指定范围）。 */
+function normalizeRetrievalMode(value: unknown, scope: TaskScope): RetrievalMode {
+  if (RETRIEVAL_MODES.includes(value as RetrievalMode)) return value as RetrievalMode
+  return scope.category_ids.length + scope.document_ids.length > 0 ? 'selected' : 'all'
+}
+
 /** `brief` 不允许技能（与工作台表单的禁用规则一致）。 */
 export function clampTaskOptions(options: TaskOptions): TaskOptions {
+  const scope = {
+    category_ids: idList(options.scope?.category_ids),
+    document_ids: idList(options.scope?.document_ids),
+  }
+  const retrievalMode = normalizeRetrievalMode(options.retrievalMode, scope)
   return {
     depth: options.depth,
     useSkills: options.depth === 'brief' ? false : options.useSkills,
-    scope: {
-      category_ids: idList(options.scope?.category_ids),
-      document_ids: idList(options.scope?.document_ids),
-    },
+    // 指定范围但没有范围项是无效组合：回退全部，提交前不会卡在空范围
+    retrievalMode:
+      retrievalMode === 'selected' && scope.category_ids.length + scope.document_ids.length === 0
+        ? 'all'
+        : retrievalMode,
+    scope,
   }
 }
 
@@ -84,6 +100,10 @@ export function normalizeTaskOptions(raw: unknown): TaskOptions | null {
   return clampTaskOptions({
     depth: data.depth as TaskDepth,
     useSkills: data.useSkills === true,
+    retrievalMode: normalizeRetrievalMode(data.retrievalMode, {
+      category_ids: idList(scope.category_ids),
+      document_ids: idList(scope.document_ids),
+    }),
     scope: {
       category_ids: idList(scope.category_ids),
       document_ids: idList(scope.document_ids),

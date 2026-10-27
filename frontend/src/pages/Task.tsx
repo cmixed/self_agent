@@ -58,6 +58,7 @@ import type {
   CategoryInfo,
   DocumentInfo,
   PresetInfo,
+  RetrievalMode,
   TaskDepth,
   TaskScope,
   TaskSummary,
@@ -182,6 +183,9 @@ export default function TaskPage() {
   const [recentTasks, setRecentTasks] = useState<TaskSummary[]>([])
   const [categories, setCategories] = useState<CategoryInfo[]>([])
   const [scope, setScope] = useState<TaskScope>({ category_ids: [], document_ids: [] })
+  const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>('all')
+  // 打开范围选择器前的模式：取消时恢复，避免误改「全部 / 不检索」
+  const scopeModeBeforePickerRef = useRef<RetrievalMode>('all')
   const [scopePickerOpen, setScopePickerOpen] = useState(false)
   const [outputTab, setOutputTab] = useState('plan')
   // 「上次任务」固定占预设区第一个槽位，因此可见预设少一条
@@ -224,11 +228,15 @@ export default function TaskPage() {
     const remembered = optionMemory.options
     setDepth(remembered.depth)
     setUseSkills(remembered.useSkills)
+    setRetrievalMode(remembered.retrievalMode)
     const hadScope = remembered.scope.category_ids.length + remembered.scope.document_ids.length > 0
     const { scope: restored, dropped } = sanitizeScope(remembered.scope, categories, documents)
     setScope(restored)
     if (dropped > 0) {
       const empty = restored.category_ids.length + restored.document_ids.length === 0
+      if (hadScope && empty && remembered.retrievalMode === 'selected') {
+        setRetrievalMode('all')
+      }
       message.info(
         hadScope && empty
           ? '上次的检索范围已失效，已改为全部知识库'
@@ -240,8 +248,8 @@ export default function TaskPage() {
   // 开启记忆时随表单变化持久化；关闭时只在提交任务时记录「上一次实际使用」
   useEffect(() => {
     if (!optionMemory.remember || !optionsHydratedRef.current) return
-    saveTaskOptions({ depth, useSkills, scope })
-  }, [depth, optionMemory.remember, scope, useSkills])
+    saveTaskOptions({ depth, useSkills, retrievalMode, scope })
+  }, [depth, optionMemory.remember, retrievalMode, scope, useSkills])
 
   // 最近任务：任务状态变化（tasksVersion）时自动刷新，无需手动刷新页面
   useEffect(() => {
@@ -268,9 +276,17 @@ export default function TaskPage() {
   }, [finalAnswer])
 
   const handleStart = () => {
+    if (
+      retrievalMode === 'selected' &&
+      scope.category_ids.length + scope.document_ids.length === 0
+    ) {
+      message.warning('请先选择检索范围，或改用全部知识库 / 不检索')
+      setScopePickerOpen(true)
+      return
+    }
     // 提交即视为「上一次实际使用」，关闭记忆时也为下次开启留档
-    saveTaskOptions({ depth, useSkills, scope })
-    void startRun(undefined, scope)
+    saveTaskOptions({ depth, useSkills, retrievalMode, scope })
+    void startRun(undefined, scope, retrievalMode)
   }
 
   // 当前选择范围的可读描述（含涉及文档数）
@@ -290,7 +306,10 @@ export default function TaskPage() {
   const handlePresetFill = (preset: PresetInfo) => {
     setQuery(preset.query)
     const bound = presetScope(preset)
-    if (bound) setScope(bound)
+    if (bound) {
+      setScope(bound)
+      setRetrievalMode('selected')
+    }
     document.getElementById('task-query')?.focus()
   }
 
@@ -303,15 +322,28 @@ export default function TaskPage() {
       // 绑定范围当前覆盖 0 篇文档：不发注定 409 的任务，先引导用户修正范围
       if (documents !== null && describeScope(bound, categories, documents).invalid) {
         setScope(bound)
+        scopeModeBeforePickerRef.current = 'all'
+        setRetrievalMode('selected')
         setScopePickerOpen(true)
         message.warning('该预设绑定的范围当前没有文档，请调整检索范围后再运行')
         return
       }
       setScope(bound)
     }
+    if (
+      !bound &&
+      retrievalMode === 'selected' &&
+      scope.category_ids.length + scope.document_ids.length === 0
+    ) {
+      setScopePickerOpen(true)
+      message.warning('当前是「指定范围」但还没有选择资料，请先选择范围')
+      return
+    }
     const effectiveScope = bound ?? scope
-    saveTaskOptions({ depth, useSkills, scope: effectiveScope })
-    void startRun(preset.query, effectiveScope)
+    const effectiveMode: RetrievalMode = bound ? 'selected' : retrievalMode
+    if (bound) setRetrievalMode('selected')
+    saveTaskOptions({ depth, useSkills, retrievalMode: effectiveMode, scope: effectiveScope })
+    void startRun(preset.query, effectiveScope, effectiveMode)
   }
 
   /** 点击预设卡片：绑定了「直接运行」的立即执行，否则只填入待确认。 */
@@ -359,6 +391,36 @@ export default function TaskPage() {
   const handleLastTaskRun = () => {
     if (!lastTask) return
     void rerun(lastTask.task_id, lastTask.query)
+  }
+
+  const handleRetrievalModeChange = (value: RetrievalMode) => {
+    if (value === 'selected') {
+      scopeModeBeforePickerRef.current = retrievalMode
+      setRetrievalMode('selected')
+      setScopePickerOpen(true)
+      return
+    }
+    setRetrievalMode(value)
+  }
+
+  const openScopePicker = () => {
+    scopeModeBeforePickerRef.current = retrievalMode
+    setScopePickerOpen(true)
+  }
+
+  const handleScopeConfirm = (selection: TaskScope) => {
+    setScope(selection)
+    setScopePickerOpen(false)
+    // 选择器里切到「全部知识库」时同步回 all，避免留下无效的 selected
+    if (selection.category_ids.length + selection.document_ids.length === 0) {
+      setRetrievalMode('all')
+    }
+  }
+
+  const handleScopeCancel = () => {
+    setScopePickerOpen(false)
+    // 取消 = 放弃本次模式切换（例如从「全部 / 不检索」点进「指定范围」后又取消）
+    setRetrievalMode(scopeModeBeforePickerRef.current)
   }
 
   // --- 执行主线：与真实拓扑一一对应（撰写 ⇄ 校验为独立节点，重试/重规划以小注回环呈现） ---
@@ -728,20 +790,24 @@ export default function TaskPage() {
           <div className="ws-compose__scope">
             <Space size={8} wrap>
               <Text type="secondary">检索范围：</Text>
-              <Tag color={scopeCount === 0 ? 'default' : 'green'}>{scopeDescription.label}</Tag>
-              <Button size="small" onClick={() => setScopePickerOpen(true)} disabled={running}>
-                选择范围
-              </Button>
-              {scopeCount > 0 ? (
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<CloseCircleOutlined />}
-                  disabled={running}
-                  onClick={() => setScope({ category_ids: [], document_ids: [] })}
-                >
-                  改为全部
-                </Button>
+              <Segmented
+                size="small"
+                value={retrievalMode}
+                disabled={running}
+                onChange={(value) => handleRetrievalModeChange(value as RetrievalMode)}
+                options={[
+                  { label: '全部知识库', value: 'all' },
+                  { label: '指定范围', value: 'selected' },
+                  { label: '不检索', value: 'none' },
+                ]}
+              />
+              {retrievalMode === 'selected' ? (
+                <>
+                  <Tag color={scopeCount === 0 ? 'orange' : 'green'}>{scopeDescription.label}</Tag>
+                  <Button size="small" onClick={openScopePicker} disabled={running}>
+                    编辑范围
+                  </Button>
+                </>
               ) : null}
             </Space>
           </div>
@@ -903,14 +969,12 @@ export default function TaskPage() {
 
         <ScopePicker
           open={scopePickerOpen}
+          initialMode={retrievalMode === 'selected' ? 'selected' : 'all'}
           categories={categories}
           documents={documents ?? []}
           value={scope}
-          onCancel={() => setScopePickerOpen(false)}
-          onConfirm={(selection) => {
-            setScope(selection)
-            setScopePickerOpen(false)
-          }}
+          onCancel={handleScopeCancel}
+          onConfirm={handleScopeConfirm}
         />
 
         <Section title="Agent 执行流程" description="运行时会按此顺序推进，并实时反馈当前阶段" />

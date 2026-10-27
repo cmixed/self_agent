@@ -60,6 +60,12 @@ def _render_planner_input(state: AgentState, *, compact: bool = False) -> str:
     if memories:
         parts.append(memories)
 
+    if state.get("retrieval_mode") == "none":
+        parts.append(
+            "检索限制：本次任务明确不使用知识库。needs_retrieval 必须为 false，"
+            "不要生成 retrieval 步骤，也不要假定能获取任何资料。"
+        )
+
     scope = state.get("retrieval_scope") or {}
     scope_documents = scope.get("document_ids")
     if scope_documents is not None:
@@ -137,13 +143,28 @@ def make_planner_node(
             )
             for step in _validate_skill_steps(plan_model.steps, catalog_meta)
         ]
+        # 「不检索」是硬约束：即使模型忽略了提示，也不允许保留检索步骤
+        if state.get("retrieval_mode") == "none":
+            steps = [step for step in steps if step["type"] != "retrieval"]
+            if not steps:
+                steps = [
+                    PlanStep(
+                        id="write",
+                        type="writing",
+                        description="根据任务要求直接生成内容（本次未使用知识库）",
+                        skill_id=None,
+                    )
+                ]
+        needs_retrieval = (
+            False if state.get("retrieval_mode") == "none" else plan_model.needs_retrieval
+        )
         plan: Plan = Plan(
             goal=plan_model.goal,
-            needs_retrieval=plan_model.needs_retrieval,
+            needs_retrieval=needs_retrieval,
             steps=steps,
         )
 
-        summary = f"生成 {len(steps)} 个步骤，needs_retrieval={plan_model.needs_retrieval}"
+        summary = f"生成 {len(steps)} 个步骤，needs_retrieval={needs_retrieval}"
         logger.info(
             "planner 完成",
             extra={
@@ -184,6 +205,8 @@ def make_route_after_planner(
         plan = state.get("plan")
         if not plan:
             return "end"
+        if state.get("retrieval_mode") == "none":
+            return next_stage
         if retrieval_available and plan.get("needs_retrieval"):
             return "researcher"
         return next_stage

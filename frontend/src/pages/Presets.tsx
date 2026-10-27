@@ -492,6 +492,7 @@ export default function PresetsPage() {
 
       <ScopePicker
         open={scopePickerOpen}
+        initialMode="selected"
         categories={categories}
         documents={documents}
         value={formScope}

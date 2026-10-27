@@ -19,6 +19,7 @@ import {
 } from '../services/api'
 import type {
   Plan,
+  RetrievalMode,
   Source,
   TaskDepth,
   TaskEvent,
@@ -197,7 +198,11 @@ export interface TaskRunValue {
   activeTab: string
   setActiveTab: (key: string) => void
   copied: boolean
-  run: (overrideQuery?: string, scope?: TaskScope | null) => Promise<void>
+  run: (
+    overrideQuery?: string,
+    scope?: TaskScope | null,
+    retrievalMode?: RetrievalMode,
+  ) => Promise<void>
   /** 本次运行实际使用的检索范围标签（来自事件/结果，仅用于展示） */
   scopeLabel: string | null
   /** 从断点继续（同一任务） */
@@ -498,6 +503,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
       if (event.event === 'task_started') {
         if (event.mode) setMode(event.mode)
         if (event.profile) setProfile(event.profile)
+        if (event.retrieval_mode === 'none') setScopeLabel('不使用知识库')
         pushLog('开始', event.message, 'info')
         // 新任务立刻进入顶栏胶囊（不必等下一轮轮询）
         void refreshTasks()
@@ -508,7 +514,10 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         if (event.mode) setMode(event.mode)
         if (event.profile) setProfile(event.profile)
         pushLog('继续', event.message, 'info')
-        if (event.scope?.label) {
+        if (event.retrieval_mode === 'none') {
+          setScopeLabel('不使用知识库')
+          pushLog('范围', '沿用原设置：本次不使用知识库', 'info')
+        } else if (event.scope?.label) {
           setScopeLabel(event.scope.label)
           pushLog('范围', `沿用原检索范围：${event.scope.label}`, 'info')
         }
@@ -580,7 +589,8 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         if (event.result?.outline?.length) setOutline(event.result.outline)
         if (event.result?.validation) setValidation(event.result.validation)
         setReplans(event.result?.retry_count ?? 0)
-        if (event.result?.scope?.label) setScopeLabel(event.result.scope.label)
+        if (event.result?.retrieval_mode === 'none') setScopeLabel('不使用知识库')
+        else if (event.result?.scope?.label) setScopeLabel(event.result.scope.label)
         for (const target of event.result?.failed_chapters ?? []) {
           const n = chapterNumber(target)
           if (n !== null) updateChapter(n, { validation: 'failed' })
@@ -867,7 +877,11 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   )
 
   const run = useCallback(
-    async (overrideQuery?: string, scope?: TaskScope | null) => {
+    async (
+      overrideQuery?: string,
+      scope?: TaskScope | null,
+      retrievalMode: RetrievalMode = 'all',
+    ) => {
       const trimmed = (overrideQuery ?? query).trim()
       if (!trimmed) return
       // 预设任务「直接运行」路径：把预设写入输入框，保持界面与实际执行一致
@@ -875,7 +889,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         setQuery(overrideQuery)
       }
       await runStream((onEvent, signal) =>
-        streamTask(trimmed, onEvent, signal, scope, depth, useSkills),
+        streamTask(trimmed, onEvent, signal, scope, depth, useSkills, retrievalMode),
       )
     },
     [depth, query, runStream, setQuery, useSkills],

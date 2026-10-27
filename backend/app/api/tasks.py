@@ -42,6 +42,7 @@ from app.models.schemas import (
     TaskStateResponse,
     TaskSummaryOut,
 )
+from app.models.state import RetrievalMode
 from app.services.category_service import CategoryService
 from app.services.memory_service import MemoryService
 from app.services.task_service import TaskService, task_result
@@ -49,23 +50,40 @@ from app.services.task_service import TaskService, task_result
 router = APIRouter(prefix="/api", tags=["tasks"])
 
 
-async def _resolve_retrieval_scope(
-    scope: TaskScope | None, categories: CategoryService
-) -> dict[str, object] | None:
-    """把用户选择（类别 ∪ 单文档）解析为**冻结的** document_id 列表。
+async def _resolve_retrieval(
+    scope: TaskScope | None,
+    categories: CategoryService,
+    mode: RetrievalMode | None,
+) -> tuple[RetrievalMode, dict[str, object] | None]:
+    """解析检索模式与范围。
 
-    返回 ``{"document_ids": [...], "label": "..."}``；未选择任何范围时返回 None
-    （表示整个知识库）。选择了解析后为空时返回空 document_ids，
-    由调用方拦截（不允许静默退化成"检索全部"）。
+    - ``none``：不检索，忽略 scope；
+    - ``all``：整个知识库，scope 为 None；
+    - ``selected``：把类别 ∪ 单文档解析为**冻结的** document_id 列表；必须至少
+      覆盖 1 篇文档，否则返回 409，绝不静默退化为「全部」。
+
+    ``mode`` 缺省时兼容旧客户端：scope 非空按 selected，否则 all。
     """
-    if scope is None:
-        return None
-    category_ids = list(dict.fromkeys(scope.category_ids))
-    document_ids = list(dict.fromkeys(scope.document_ids))
-    if not category_ids and not document_ids:
-        return None
+    category_ids = list(dict.fromkeys(scope.category_ids)) if scope else []
+    document_ids = list(dict.fromkeys(scope.document_ids)) if scope else []
+    has_scope = bool(category_ids or document_ids)
+    effective: RetrievalMode = mode or ("selected" if has_scope else "all")
+
+    if effective in {"all", "none"}:
+        return effective, None
+
+    if not has_scope:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="选择「指定范围」时至少需要选择 1 个类别或文档",
+        )
 
     resolved = await categories.resolve_scope(category_ids=category_ids, document_ids=document_ids)
+    if not resolved:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="所选知识库范围里没有任何文档，请重新选择或改用全部知识库",
+        )
     labels: list[str] = []
     if category_ids:
         known = {item.category_id: item.name for item in await categories.list_categories()}
@@ -73,7 +91,7 @@ async def _resolve_retrieval_scope(
         labels.append(f"{len(category_ids)} 个类别")
     if document_ids:
         labels.append(f"{len(document_ids)} 个文档")
-    return {
+    return "selected", {
         "document_ids": resolved,
         "category_ids": category_ids,
         "selected_document_ids": document_ids,
@@ -113,12 +131,9 @@ async def create_task(
     memory_service: MemoryService = Depends(get_memory_service),
     user_id: str = Depends(get_user_id),
 ) -> TaskResponse:
-    retrieval_scope = await _resolve_retrieval_scope(payload.scope, categories)
-    if retrieval_scope is not None and not retrieval_scope.get("document_ids"):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="所选知识库范围里没有任何文档，请重新选择或改用全部知识库",
-        )
+    retrieval_mode, retrieval_scope = await _resolve_retrieval(
+        payload.scope, categories, payload.retrieval_mode
+    )
 
     # 先生成 task_id 并写入 request.state：失败时错误响应也会带上它，
     # 便于前端通过 GET /api/tasks/{id} 查询失败记录。
@@ -137,6 +152,7 @@ async def create_task(
         task_id=task_id,
         user_id=user_id,
         retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
+        retrieval_mode=retrieval_mode,
         depth=payload.depth,
         use_skills=payload.use_skills,
     )
@@ -385,12 +401,9 @@ async def stream_task(
     task_id = str(uuid4())
     request.state.task_id = task_id
 
-    retrieval_scope = await _resolve_retrieval_scope(payload.scope, categories)
-    if retrieval_scope is not None and not retrieval_scope.get("document_ids"):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="所选知识库范围里没有任何文档，请重新选择或改用全部知识库",
-        )
+    retrieval_mode, retrieval_scope = await _resolve_retrieval(
+        payload.scope, categories, payload.retrieval_mode
+    )
 
     stored, memory_records = await memory_service.get_profile(user_id)
     preferences = {**stored, **(payload.user_preferences or {})}
@@ -407,6 +420,7 @@ async def stream_task(
                 task_id=task_id,
                 user_id=user_id,
                 retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
+                retrieval_mode=retrieval_mode,
                 depth=payload.depth,
                 use_skills=payload.use_skills,
             ),
@@ -500,21 +514,33 @@ async def rerun_task(
     stored, memory_records = await memory_service.get_profile(user_id)
     user_memories = select_memories(memory_records, query=record.query)
 
-    # 重跑按原任务的范围**重新解析**：类别里新增的文档会被纳入（新一次运行）
-    previous_scope = (record.result or {}).get("scope") or None
-    rerun_scope = None
-    if previous_scope and (
+    previous = record.result or {}
+    previous_scope = previous.get("scope") or None
+    stored_retrieval_mode = previous.get("retrieval_mode")
+    if stored_retrieval_mode in {"all", "selected", "none"}:
+        rerun_retrieval_mode = stored_retrieval_mode
+    elif previous_scope and (
         previous_scope.get("category_ids") or previous_scope.get("selected_document_ids")
     ):
-        rerun_scope = await _resolve_retrieval_scope(
+        rerun_retrieval_mode = "selected"
+    else:
+        rerun_retrieval_mode = "all"
+    # 旧记录可能标记 selected 却没有范围：安全退回 all，避免重跑直接 409
+    if rerun_retrieval_mode == "selected" and not previous_scope:
+        rerun_retrieval_mode = "all"
+
+    # 重跑按原任务的范围**重新解析**：类别里新增的文档会被纳入（新一次运行）
+    rerun_scope = None
+    if rerun_retrieval_mode == "selected" and previous_scope:
+        _, rerun_scope = await _resolve_retrieval(
             TaskScope(
                 category_ids=list(previous_scope.get("category_ids") or []),
                 document_ids=list(previous_scope.get("selected_document_ids") or []),
             ),
             categories,
+            "selected",
         )
 
-    previous = record.result or {}
     previous_mode = previous.get("mode")
     rerun_depth = previous_mode if previous_mode in {"brief", "longform"} else "auto"
 
@@ -526,6 +552,7 @@ async def rerun_task(
             task_id=new_task_id,
             user_id=user_id,
             retrieval_scope=rerun_scope,  # type: ignore[arg-type]
+            retrieval_mode=rerun_retrieval_mode,
             depth=rerun_depth,
             use_skills=bool((previous.get("profile") or {}).get("allow_skills")),
         ):

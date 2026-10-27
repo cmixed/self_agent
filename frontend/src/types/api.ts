@@ -106,6 +106,9 @@ export interface TaskScope {
   document_ids: string[]
 }
 
+/** 检索模式：全部知识库 / 指定范围 / 不检索。 */
+export type RetrievalMode = 'all' | 'selected' | 'none'
+
 export interface TaskScopeInfo {
   label: string
   document_count: number
@@ -308,7 +311,9 @@ export interface TaskResult {
   /** 未通过校验的章节，如 ["chapter_3"] */
   failed_chapters: string[]
   final_answer: string
-  /** 本次检索范围（回显）；null 表示整个知识库 */
+  /** 本次检索模式：all / selected / none */
+  retrieval_mode?: RetrievalMode | null
+  /** 本次检索范围（回显）；null 表示整个知识库 / 不检索 */
   scope?: TaskScopeInfo | null
   /** 本次运行的 token / 缓存 / 速度；旧记录为 null */
   usage?: TokenUsage | null
@@ -404,6 +409,8 @@ export interface TaskEvent {
   /** task_started / task_completed：本次执行模式与画像 */
   mode?: string | null
   profile?: TaskProfile | null
+  /** task_started / task_resumed：检索模式 */
+  retrieval_mode?: RetrievalMode
   plan?: Plan | null
   writing_budget?: WritingBudget | null
   outline?: string[]

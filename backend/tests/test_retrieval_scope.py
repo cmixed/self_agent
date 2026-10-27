@@ -98,9 +98,7 @@ async def test_retriever_and_tool_pass_scope_through(tmp_path) -> None:
 async def test_task_sources_are_restricted_to_scope(tmp_path) -> None:
     store = _store(tmp_path)
     document_service = _service(store, tmp_path)
-    doc_a = await _ingest(
-        document_service, "a.md", "RAG 使用向量检索增强生成能力，分块影响召回。"
-    )
+    doc_a = await _ingest(document_service, "a.md", "RAG 使用向量检索增强生成能力，分块影响召回。")
     await _ingest(document_service, "b.md", "RAG 使用向量检索增强生成能力，分块影响召回。")
 
     provider = ScriptedProvider([PLAN_JSON, OUTLINE_JSON], default_text="正文内容")
@@ -251,9 +249,7 @@ def test_task_scope_resolution_and_empty_scope_rejection(tmp_path) -> None:
         )
         assert response.status_code == 200
         events = [
-            json.loads(line[6:])
-            for line in response.text.splitlines()
-            if line.startswith("data: ")
+            json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")
         ]
         result = events[-1]["result"]
         assert {item["document_id"] for item in result["sources"]} == {doc_a}
@@ -275,9 +271,56 @@ def test_task_scope_resolution_and_empty_scope_rejection(tmp_path) -> None:
             json={"query": "写综述", "scope": {"document_ids": [doc_b]}},
         )
         single_result = [
-            json.loads(line[6:])
-            for line in single.text.splitlines()
-            if line.startswith("data: ")
+            json.loads(line[6:]) for line in single.text.splitlines() if line.startswith("data: ")
         ][-1]["result"]
         assert {item["document_id"] for item in single_result["sources"]} == {doc_b}
         assert single_result["scope"]["selected_document_ids"] == [doc_b]
+
+
+def test_retrieval_mode_none_skips_kb_and_selected_requires_scope(tmp_path) -> None:
+    """显式「不检索」不碰知识库；「指定范围」为空必须 409，不能退化成全部。"""
+    from fastapi.testclient import TestClient
+
+    app, _ = _api_app(tmp_path)
+    with TestClient(app) as client:
+        # 指定范围但什么都没选 → 409
+        blocked = client.post(
+            "/api/tasks/stream",
+            json={"query": "写综述", "retrieval_mode": "selected"},
+        )
+        assert blocked.status_code == 409
+        assert "至少需要选择" in blocked.json()["detail"]
+
+        # 不检索：即使传了 scope 也忽略，planner 必须被强制为 needs_retrieval=false
+        response = client.post(
+            "/api/tasks/stream",
+            json={
+                "query": "写综述",
+                "retrieval_mode": "none",
+                "scope": {"document_ids": ["should-be-ignored"]},
+            },
+        )
+        assert response.status_code == 200
+        events = [
+            json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")
+        ]
+        planned = next(event for event in events if event["event"] == "planner_completed")
+        assert planned["plan"]["needs_retrieval"] is False
+        result = events[-1]["result"]
+        assert result["retrieval_mode"] == "none"
+        assert result["sources"] == []
+        assert result["scope"] is None
+        assert not any(event["event"].startswith("researcher_") for event in events)
+
+
+def test_task_profile_retrieval_modes() -> None:
+    from app.models.task_profile import resolve_profile
+
+    selected = resolve_profile("总结一下", retrieval_mode="selected")
+    assert selected.needs_retrieval is True
+
+    disabled = resolve_profile("根据我的资料写综述", retrieval_mode="none")
+    assert disabled.needs_retrieval is False
+
+    default = resolve_profile("你好")
+    assert default.needs_retrieval is False
