@@ -338,6 +338,7 @@ html[data-theme='dark'] body {
   border: 0;
   background: transparent;
   color: var(--ant-color-text);
+  font-family: inherit;
   font-size: var(--ws-font-secondary);
   cursor: pointer;
 }
@@ -431,6 +432,8 @@ html[data-theme='dark'] body {
   padding: 0;
   border: 0;
   background: transparent;
+  font: inherit;
+  color: inherit;
   text-align: left;
   cursor: pointer;
 }
