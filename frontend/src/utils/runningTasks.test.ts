@@ -4,19 +4,26 @@ import type { TaskSummary } from '../types/api'
 import {
   ACKNOWLEDGED_STORAGE_KEY,
   collectFinishedTasks,
+  DEFAULT_VISIBLE_CAPSULES,
   elapsedSeconds,
+  groupTaskPills,
   isTerminalStatus,
   loadAcknowledgedTasks,
+  MAX_PENDING_FINISHED,
   MAX_VISIBLE_CAPSULES,
   mergeTaskPills,
   modeLabel,
+  overflowSummary,
+  pillCounts,
   pillStatusLabel,
   runningTaskStage,
   runningTaskTitle,
   saveAcknowledgedTasks,
   sliceRunningTasks,
+  splitPendingFinished,
   stageLabel,
   taskPillState,
+  visibleCapsuleCount,
 } from './runningTasks'
 
 function task(taskId: string, extra: Partial<TaskSummary> = {}): TaskSummary {
@@ -76,7 +83,7 @@ describe('sliceRunningTasks', () => {
   it('不超过上限时全部展示', () => {
     const tasks = [task('a'), task('b')]
     expect(sliceRunningTasks(tasks)).toEqual({ visible: tasks, overflow: [] })
-    expect(MAX_VISIBLE_CAPSULES).toBe(2)
+    expect(MAX_VISIBLE_CAPSULES).toBe(4)
   })
 
   it('没有活动任务时保留最新的若干个', () => {
@@ -135,7 +142,7 @@ describe('任务胶囊状态', () => {
 })
 
 describe('mergeTaskPills', () => {
-  it('运行中在前，完成态按结束时间倒序，且不重复', () => {
+  it('失败待查看优先，其次运行中，最后已完成；且不重复', () => {
     const running = [task('r1'), task('r2')]
     const finished = [
       task('d-old', { status: 'completed', finished_at: '2026-01-01T00:00:00Z' }),
@@ -144,9 +151,9 @@ describe('mergeTaskPills', () => {
     ]
 
     expect(mergeTaskPills(running, finished).map((item) => item.task_id)).toEqual([
+      'd-new',
       'r1',
       'r2',
-      'd-new',
       'd-old',
     ])
   })
@@ -263,5 +270,93 @@ describe('已查看任务的持久化', () => {
 
     storage.setItem(ACKNOWLEDGED_STORAGE_KEY, JSON.stringify([1, '', 'ok']))
     expect([...loadAcknowledgedTasks(storage)]).toEqual(['ok'])
+  })
+})
+
+describe('visibleCapsuleCount', () => {
+  it('宽度未知时回退默认数量', () => {
+    expect(DEFAULT_VISIBLE_CAPSULES).toBe(2)
+    expect(visibleCapsuleCount(6, 0)).toBe(2)
+    expect(visibleCapsuleCount(1, 0)).toBe(1)
+    expect(visibleCapsuleCount(0, 800)).toBe(0)
+  })
+
+  it('全部放得下时展示全部', () => {
+    expect(visibleCapsuleCount(2, 800)).toBe(2)
+  })
+
+  it('放不下时预留 +N 的位置', () => {
+    // 190*2 + 8 + 8 + 60 = 456 <= 600，第三个需要 654 > 600
+    expect(visibleCapsuleCount(6, 600)).toBe(2)
+  })
+
+  it('宽屏最多展示 4 个', () => {
+    expect(visibleCapsuleCount(10, 5000)).toBe(MAX_VISIBLE_CAPSULES)
+  })
+
+  it('极窄宽度也至少展示 1 个（靠 CSS 收缩兜底）', () => {
+    expect(visibleCapsuleCount(6, 100)).toBe(1)
+  })
+
+  it('支持自定义尺寸', () => {
+    expect(visibleCapsuleCount(6, 300, { pillWidth: 100, moreWidth: 40, gap: 4, max: 3 })).toBe(2)
+  })
+})
+
+describe('splitPendingFinished', () => {
+  const ended = (id: string, status = 'completed', secondsAgo = 0) =>
+    task(id, {
+      status,
+      finished_at: new Date(Date.now() - secondsAgo * 1000).toISOString(),
+    })
+
+  it('非失败任务只保留最新 limit 条', () => {
+    const tasks = Array.from({ length: 8 }, (_, index) => ended(`t-${index}`, 'completed', index))
+    const { kept, dropped } = splitPendingFinished(tasks, 5)
+    expect(kept.map((item) => item.task_id)).toEqual(['t-0', 't-1', 't-2', 't-3', 't-4'])
+    expect(dropped.map((item) => item.task_id)).toEqual(['t-5', 't-6', 't-7'])
+  })
+
+  it('失败任务永不自动丢弃（可超过上限）', () => {
+    const tasks = [
+      ended('failed-1', 'failed', 0),
+      ended('failed-2', 'failed', 1),
+      ...Array.from({ length: 8 }, (_, index) => ended(`t-${index}`, 'completed', index + 2)),
+    ]
+    const { kept, dropped } = splitPendingFinished(tasks, MAX_PENDING_FINISHED)
+    expect(kept.filter((item) => item.status === 'failed')).toHaveLength(2)
+    expect(kept).toHaveLength(2 + MAX_PENDING_FINISHED)
+    expect(dropped).toHaveLength(3)
+  })
+})
+
+describe('groupTaskPills / pillCounts', () => {
+  it('按待查看（失败置顶）→ 执行中分组', () => {
+    const groups = groupTaskPills([
+      task('run-1'),
+      task('done-1', { status: 'completed', finished_at: '2026-01-01T00:00:00Z' }),
+      task('fail-1', { status: 'failed', finished_at: '2026-01-01T01:00:00Z' }),
+    ])
+
+    expect(groups.map((group) => group.label)).toEqual(['待查看（2）', '执行中（1）'])
+    expect(groups[0].tasks.map((item) => item.task_id)).toEqual(['fail-1', 'done-1'])
+    expect(groups[1].tasks.map((item) => item.task_id)).toEqual(['run-1'])
+  })
+
+  it('只有一种状态时只有一个分组', () => {
+    expect(groupTaskPills([task('run-1')])).toHaveLength(1)
+    expect(groupTaskPills([])).toEqual([])
+  })
+
+  it('统计构成并生成 +N 说明', () => {
+    const tasks = [
+      task('run-1'),
+      task('done-1', { status: 'completed' }),
+      task('fail-1', { status: 'failed' }),
+    ]
+    expect(pillCounts(tasks)).toEqual({ running: 1, pending: 2, failed: 1 })
+    expect(overflowSummary(tasks)).toBe(
+      '另有 3 个任务未显示：1 个执行中、2 个待查看（含 1 个失败）',
+    )
   })
 })

@@ -36,6 +36,7 @@ import {
   loadAcknowledgedTasks,
   MAX_RESTORED_FINISHED,
   saveAcknowledgedTasks,
+  splitPendingFinished,
 } from '../utils/runningTasks'
 import { useNav } from './nav'
 
@@ -145,6 +146,8 @@ export interface TaskRunValue {
   finishedTasks: TaskSummary[]
   /** 关闭「完成待查看」胶囊（持久化，刷新后不再出现） */
   ackFinished: (taskId: string) => void
+  /** 一次性把所有「完成待查看」胶囊标为已查看（不影响任务记录） */
+  ackAllFinished: () => void
   /** 任务状态变化信号：列表页 / 最近任务据此刷新 */
   tasksVersion: number
   hasStarted: boolean
@@ -313,6 +316,17 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     [acknowledged],
   )
 
+  /** 一次性把所有待查看胶囊标为已查看（批量已读）。 */
+  const acknowledgeAllFinished = useCallback(() => {
+    const ids = acknowledged()
+    const pending = finishedTasksRef.current
+    if (pending.length === 0) return
+    for (const task of pending) ids.add(task.task_id)
+    saveAcknowledgedTasks(ids)
+    finishedTasksRef.current = []
+    setFinishedTasks([])
+  }, [acknowledged])
+
   /** 同一条任务再次运行（续跑）时，允许新的终态重新提醒。 */
   const forgetAcknowledged = useCallback(
     (targetId: string) => {
@@ -347,16 +361,23 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         saveAcknowledgedTasks(ids)
       }
 
-      const nextFinished = collectFinishedTasks({
+      const collected = collectFinishedTasks({
         tasks,
         current: finishedTasksRef.current,
         acknowledged: ids,
         limit: options.restore ? MAX_RESTORED_FINISHED : undefined,
       })
-      finishedTasksRef.current = nextFinished
-      setFinishedTasks(nextFinished)
+      // 会话内兜底：非失败任务最多保留 5 条，更早的自动标为已查看
+      //（失败任务不参与丢弃，红色提醒不能被静默吞掉）。
+      const { kept, dropped } = splitPendingFinished(collected)
+      if (dropped.length > 0) {
+        for (const task of dropped) ids.add(task.task_id)
+        saveAcknowledgedTasks(ids)
+      }
+      finishedTasksRef.current = kept
+      setFinishedTasks(kept)
 
-      const signature = `${taskSignature(running)}|${taskSignature(nextFinished)}`
+      const signature = `${taskSignature(running)}|${taskSignature(kept)}`
       if (signature !== tasksSignatureRef.current) {
         tasksSignatureRef.current = signature
         setTasksVersion((value) => value + 1)
@@ -955,6 +976,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     runningTasks,
     finishedTasks,
     ackFinished: acknowledgeTask,
+    ackAllFinished: acknowledgeAllFinished,
     tasksVersion,
     hasStarted,
     aborted,

@@ -2,8 +2,21 @@
 
 import type { TaskSummary } from '../types/api'
 
-/** 桌面端直接展示的胶囊数量上限，超出部分折叠进「+N」下拉。 */
-export const MAX_VISIBLE_CAPSULES = 2
+/** 桌面端直接展示的胶囊数量绝对上限（实际数量按顶栏可用宽度自适应）。 */
+export const MAX_VISIBLE_CAPSULES = 4
+
+/** 宽度尚未测量时的回退数量。 */
+export const DEFAULT_VISIBLE_CAPSULES = 2
+
+/** 单个胶囊的宽度估算（含标题、状态与内边距）。 */
+export const CAPSULE_WIDTH = 190
+/** 「+N」按钮的宽度估算。 */
+export const MORE_BUTTON_WIDTH = 60
+/** 胶囊之间的间距估算（与 CSS 保持一致）。 */
+export const CAPSULE_GAP = 8
+
+/** 会话内最多同时保留多少条「待查看」胶囊；失败任务不受此限制。 */
+export const MAX_PENDING_FINISHED = 5
 
 /** 终态：任务已结束，胶囊转为「完成待查看」常驻。 */
 const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled'] as const
@@ -50,31 +63,170 @@ function finishTime(task: Pick<TaskSummary, 'finished_at' | 'created_at'>): numb
   return Number.isNaN(parsed) ? 0 : parsed
 }
 
+/** 运行中任务按开始时间排序。 */
+function createdTime(task: Pick<TaskSummary, 'created_at'>): number {
+  const parsed = task.created_at ? Date.parse(task.created_at) : Number.NaN
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
+/**
+ * 可见性排序：失败待查看 > 运行中 > 已完成 / 已终止。
+ *
+ * 优先级只决定「谁先占用有限的位置」，不改变任务本身的执行顺序；
+ * 正在观察的任务仍由 sliceTaskPills 强制放在第一个。
+ */
+function pillRank(task: Pick<TaskSummary, 'status'>): number {
+  if (task.status === 'failed') return 0
+  if (task.status === 'running') return 1
+  return 2
+}
+
 /**
  * 合并「运行中 + 完成待查看」为一条胶囊列表。
  *
- * 运行中排在前（用户正在等待的任务优先），完成态按结束时间倒序；
- * 同一 task_id 只保留一条（切换瞬间可能两边都出现）。
+ * 失败待查看最靠前（红色提醒不能被运行中任务挤掉），其次运行中（按开始时间
+ * 倒序），最后是已完成 / 已终止（按结束时间倒序）；同一 task_id 只保留一条。
  */
 export function mergeTaskPills(
   running: readonly TaskSummary[],
   finished: readonly TaskSummary[],
 ): TaskSummary[] {
   const seen = new Set<string>()
-  const result: TaskSummary[] = []
-  for (const task of running) {
+  const tasks: TaskSummary[] = []
+  for (const task of [...running, ...finished]) {
     if (seen.has(task.task_id)) continue
     seen.add(task.task_id)
-    result.push(task)
+    tasks.push(task)
   }
-  const terminal = finished
-    .filter((task) => {
-      if (seen.has(task.task_id)) return false
-      seen.add(task.task_id)
-      return true
-    })
-    .sort((a, b) => finishTime(b) - finishTime(a))
-  return [...result, ...terminal]
+  return tasks.sort((a, b) => {
+    const rank = pillRank(a) - pillRank(b)
+    if (rank !== 0) return rank
+    if (pillRank(a) === 1) return createdTime(b) - createdTime(a)
+    return finishTime(b) - finishTime(a)
+  })
+}
+
+/**
+ * 按顶栏实际可用宽度计算能直接展示几个胶囊。
+ *
+ * - 全部放得下时返回任务总数（不出现「+N」）；
+ * - 放不下时预留「+N」的位置，最多 `max` 个；
+ * - 宽度未知（首帧 / 不支持测量）时回退到 `fallback`；
+ * - 即使一个都放不下也返回 1，由 CSS 收缩兜底，保证任务可访问。
+ */
+export function visibleCapsuleCount(
+  total: number,
+  availableWidth: number,
+  options: {
+    pillWidth?: number
+    moreWidth?: number
+    gap?: number
+    max?: number
+    fallback?: number
+  } = {},
+): number {
+  if (total <= 0) return 0
+  const pillWidth = options.pillWidth ?? CAPSULE_WIDTH
+  const moreWidth = options.moreWidth ?? MORE_BUTTON_WIDTH
+  const gap = options.gap ?? CAPSULE_GAP
+  const max = Math.max(1, options.max ?? MAX_VISIBLE_CAPSULES)
+  const fallback = Math.max(1, Math.min(total, options.fallback ?? DEFAULT_VISIBLE_CAPSULES))
+  if (!Number.isFinite(availableWidth) || availableWidth <= 0) return fallback
+
+  let best = 0
+  for (let count = 1; count <= Math.min(total, max); count += 1) {
+    const rowWidth = count * pillWidth + (count - 1) * gap
+    const overflow = total - count
+    const needed = rowWidth + (overflow > 0 ? gap + moreWidth : 0)
+    if (needed > availableWidth) break
+    best = count
+  }
+  return best > 0 ? best : 1
+}
+
+/**
+ * 会话内待查看数量兜底（E）：非失败任务只保留最新 `limit` 条。
+ *
+ * 失败任务永不自动丢弃，避免红色提醒被悄悄吞掉；被丢弃的条目由调用方
+ * 标记为已查看（任务本身仍在历史里）。
+ */
+export function splitPendingFinished(
+  tasks: readonly TaskSummary[],
+  limit = MAX_PENDING_FINISHED,
+): { kept: TaskSummary[]; dropped: TaskSummary[] } {
+  const kept: TaskSummary[] = []
+  const dropped: TaskSummary[] = []
+  let others = 0
+  for (const task of tasks) {
+    if (task.status === 'failed') {
+      kept.push(task)
+      continue
+    }
+    if (others < limit) {
+      kept.push(task)
+      others += 1
+    } else {
+      dropped.push(task)
+    }
+  }
+  return { kept, dropped }
+}
+
+export interface TaskPillGroup {
+  key: 'pending' | 'running'
+  label: string
+  tasks: TaskSummary[]
+}
+
+export interface TaskPillCounts {
+  running: number
+  pending: number
+  failed: number
+}
+
+/** 胶囊集合的构成统计（待查看包含失败）。 */
+export function pillCounts(tasks: readonly TaskSummary[]): TaskPillCounts {
+  let running = 0
+  let failed = 0
+  for (const task of tasks) {
+    if (task.status === 'running') running += 1
+    else if (task.status === 'failed') failed += 1
+  }
+  return { running, pending: tasks.length - running, failed }
+}
+
+/** 「+N」的悬停说明：让用户知道被折叠的任务里有多少在跑、多少待查看。 */
+export function overflowSummary(tasks: readonly TaskSummary[]): string {
+  const { running, pending, failed } = pillCounts(tasks)
+  const parts: string[] = []
+  if (running > 0) parts.push(`${running} 个执行中`)
+  if (pending > 0) {
+    parts.push(`${pending} 个待查看${failed > 0 ? `（含 ${failed} 个失败）` : ''}`)
+  }
+  return `另有 ${tasks.length} 个任务未显示：${parts.join('、')}`
+}
+
+/**
+ * 下拉菜单分组：待查看（失败置顶） → 执行中。
+ *
+ * 只在确实有任务被折叠时使用；只有一组时调用方应直接平铺，避免多余标题。
+ */
+export function groupTaskPills(tasks: readonly TaskSummary[]): TaskPillGroup[] {
+  const pending = tasks
+    .filter((task) => task.status !== 'running')
+    .sort((a, b) => pillRank(a) - pillRank(b) || finishTime(b) - finishTime(a))
+  const running = tasks
+    .filter((task) => task.status === 'running')
+    .sort((a, b) => createdTime(b) - createdTime(a))
+
+  const groups: TaskPillGroup[] = []
+  if (pending.length > 0) {
+    groups.push({ key: 'pending', label: `待查看（${pending.length}）`, tasks: pending })
+  }
+  if (running.length > 0) {
+    groups.push({ key: 'running', label: `执行中（${running.length}）`, tasks: running })
+  }
+  return groups
 }
 
 /**

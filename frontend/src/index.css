@@ -287,8 +287,11 @@ html[data-theme='dark'] body {
 
 .app-header-actions {
   margin-left: auto;
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--ws-space-2);
 }
 
@@ -303,20 +306,30 @@ html[data-theme='dark'] body {
 }
 
 /* 顶栏「运行中任务」胶囊（AGENTS.md §17/§19）：
-   任务执行归属后端，胶囊只负责展示与切换观察对象。 */
+   任务执行归属后端，胶囊只负责展示与切换观察对象。
+   槽位撑满顶栏剩余宽度，交给 RunningTasks 按实际宽度决定展示几个。 */
+.run-pills-slot {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .run-pills {
   display: flex;
   align-items: center;
   gap: var(--ws-space-1);
-  max-width: 46vw;
-  overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .run-pill {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 220px;
   padding: 0 2px 0 var(--ws-space-2);
   border: 1px solid var(--ant-color-border);
   border-radius: 999px;
@@ -353,7 +366,7 @@ html[data-theme='dark'] body {
   align-items: center;
   gap: var(--ws-space-1);
   min-width: 0;
-  max-width: 220px;
+  max-width: 100%;
   padding: 2px 4px;
   border: 0;
   background: transparent;

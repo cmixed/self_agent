@@ -1,7 +1,9 @@
 import { CloseOutlined, DownOutlined, StopOutlined } from '@ant-design/icons'
 import { App, Badge, Button, Dropdown, Popconfirm, Tooltip } from 'antd'
+import type { MenuProps } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 
+import { useElementWidth } from '../hooks/useElementWidth'
 import { useIsNarrow } from '../hooks/useIsNarrow'
 import { useNav } from '../state/nav'
 import { useTaskRun } from '../state/taskRun'
@@ -9,16 +11,23 @@ import type { TaskSummary } from '../types/api'
 import { formatDateTime, formatDuration, taskDurationSeconds } from '../utils/format'
 import {
   elapsedSeconds,
+  groupTaskPills,
   mergeTaskPills,
   modeLabel,
+  overflowSummary,
+  pillCounts,
   pillStatusLabel,
   runningTaskStage,
   runningTaskTitle,
   sliceRunningTasks,
   taskPillState,
+  visibleCapsuleCount,
 } from '../utils/runningTasks'
 import type { TaskPillState } from '../utils/runningTasks'
 import { useViewStack } from './ViewStack'
+
+/** 下拉菜单里「全部标为已查看」的伪任务 key。 */
+const ACK_ALL_KEY = '__ack_all__'
 
 /** 每秒刷新一次「已运行时长」（没有运行中任务时不启动定时器）。 */
 function useNow(active: boolean): number {
@@ -141,17 +150,26 @@ function Capsule({ task, now, active, onOpen, onCancel, onDismiss }: CapsuleProp
  * 顶栏任务胶囊（AGENTS.md §17/§19）。
  *
  * - 运行中：点击切换工作台观察对象（不取消任务），右侧按钮终止；
- * - 已完成/失败/已终止：常驻等用户查看，点击打开结果，× 或查看后消失。
+ * - 已完成/失败/已终止：常驻等用户查看，点击打开结果，× 或查看后消失；
+ * - 展示数量按顶栏实际可用宽度自适应，放不下的收进「+N」，并在其中分组。
  *
  * 任务执行归属后端，顶栏只是观察与管理入口，支持同时多个任务。
  */
 export default function RunningTasks() {
-  const { runningTasks, finishedTasks, taskId, selectTask, cancelRunning, ackFinished } =
-    useTaskRun()
+  const {
+    runningTasks,
+    finishedTasks,
+    taskId,
+    selectTask,
+    cancelRunning,
+    ackFinished,
+    ackAllFinished,
+  } = useTaskRun()
   const { navigate } = useNav()
   const { closeAll } = useViewStack()
   const { message } = App.useApp()
   const narrow = useIsNarrow()
+  const [slotRef, slotWidth] = useElementWidth<HTMLDivElement>()
   const tasks = useMemo(
     () => mergeTaskPills(runningTasks, finishedTasks),
     [runningTasks, finishedTasks],
@@ -189,7 +207,7 @@ export default function RunningTasks() {
     return `${pillStatusLabel(state)}${duration === '—' ? '' : ` · 用时 ${duration}`}`
   }
 
-  const menuItems = tasks.map((task) => {
+  const menuItemFor = (task: TaskSummary): NonNullable<MenuProps['items']>[number] => {
     const terminal = taskPillState(task) !== 'running'
     return {
       key: task.task_id,
@@ -226,30 +244,51 @@ export default function RunningTasks() {
         </div>
       ),
     }
-  })
+  }
 
-  const runningCount = runningTasks.length
-  const finishedCount = finishedTasks.length
-  const badgeStatus =
-    runningCount > 0
-      ? 'processing'
-      : finishedTasks.some((task) => task.status === 'failed')
-        ? 'error'
-        : 'success'
+  /** 下拉内容：只有在有任务被折叠、且状态混合时才分组。 */
+  const buildMenu = (list: TaskSummary[]): MenuProps['items'] => {
+    const extra: MenuProps['items'] =
+      finishedTasks.length > 0
+        ? [{ type: 'divider' }, { key: ACK_ALL_KEY, label: '全部标为已查看' }]
+        : []
+    const groups = groupTaskPills(list)
+    if (list.length > 1 && groups.length > 1) {
+      return [
+        ...groups.map((group) => ({
+          type: 'group' as const,
+          key: group.key,
+          label: group.label,
+          children: group.tasks.map(menuItemFor),
+        })),
+        ...extra,
+      ]
+    }
+    return [...list.map(menuItemFor), ...extra]
+  }
+
+  const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
+    if (key === ACK_ALL_KEY) {
+      ackAllFinished()
+      message.success('已全部标为已查看')
+      return
+    }
+    openTask(key)
+  }
+
+  const counts = pillCounts(tasks)
+  const badgeStatus = counts.running > 0 ? 'processing' : counts.failed > 0 ? 'error' : 'success'
   const summary = [
-    runningCount > 0 ? `${runningCount} 个执行中` : '',
-    finishedCount > 0 ? `${finishedCount} 个待查看` : '',
+    counts.running > 0 ? `${counts.running} 个执行中` : '',
+    counts.pending > 0 ? `${counts.pending} 个待查看` : '',
   ]
     .filter(Boolean)
     .join(' · ')
 
-  // 窄屏：折叠成一个入口，避免顶栏被胶囊挤满
+  // 窄屏：折叠成一个入口，避免顶栏被胶囊挤满；下拉里再分组展示全部任务
   if (narrow) {
     return (
-      <Dropdown
-        trigger={['click']}
-        menu={{ items: menuItems, onClick: ({ key }) => openTask(key) }}
-      >
+      <Dropdown trigger={['click']} menu={{ items: buildMenu(tasks), onClick: handleMenuClick }}>
         <Button size="small" type="text" className="run-pills__more" aria-label="任务状态">
           <Badge status={badgeStatus} />
           <span>{summary}</span>
@@ -260,36 +299,38 @@ export default function RunningTasks() {
   }
 
   const { visible, overflow } = sliceRunningTasks(tasks, {
+    limit: visibleCapsuleCount(tasks.length, slotWidth),
     activeTaskId: taskId,
   })
-  const overflowItems = menuItems.filter((item) =>
-    overflow.some((task) => task.task_id === item.key),
-  )
 
   return (
-    <div className="run-pills" aria-label="任务胶囊">
-      {visible.map((task) => (
-        <Capsule
-          key={task.task_id}
-          task={task}
-          now={now}
-          active={task.task_id === taskId}
-          onOpen={openTask}
-          onCancel={cancel}
-          onDismiss={dismiss}
-        />
-      ))}
-      {overflow.length > 0 ? (
-        <Dropdown
-          trigger={['click']}
-          menu={{ items: overflowItems, onClick: ({ key }) => openTask(key) }}
-        >
-          <Button size="small" type="text" className="run-pills__more" aria-label="更多任务">
-            +{overflow.length}
-            <DownOutlined />
-          </Button>
-        </Dropdown>
-      ) : null}
+    <div className="run-pills-slot" ref={slotRef}>
+      <div className="run-pills" aria-label="任务胶囊">
+        {visible.map((task) => (
+          <Capsule
+            key={task.task_id}
+            task={task}
+            now={now}
+            active={task.task_id === taskId}
+            onOpen={openTask}
+            onCancel={cancel}
+            onDismiss={dismiss}
+          />
+        ))}
+        {overflow.length > 0 ? (
+          <Dropdown
+            trigger={['click']}
+            menu={{ items: buildMenu(overflow), onClick: handleMenuClick }}
+          >
+            <Tooltip title={overflowSummary(overflow)} placement="bottomRight">
+              <Button size="small" type="text" className="run-pills__more" aria-label="更多任务">
+                +{overflow.length}
+                <DownOutlined />
+              </Button>
+            </Tooltip>
+          </Dropdown>
+        ) : null}
+      </div>
     </div>
   )
 }

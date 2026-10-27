@@ -631,6 +631,56 @@ describe('完成态胶囊（常驻待查看）', () => {
     expect(result.current.finishedTasks).toHaveLength(0)
   })
 
+  it('会话内待查看超过 5 条时自动标为已查看，失败任务不被丢弃', async () => {
+    mocks.listTasks.mockResolvedValueOnce({ tasks: [] })
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+
+    const finished = [
+      endedTask('fail-1', { finished_at: new Date(Date.now() - 100).toISOString() }, 'failed'),
+      ...Array.from({ length: 7 }, (_, index) =>
+        endedTask(
+          `ok-${index}`,
+          { finished_at: new Date(Date.now() - 1000 * (index + 1)).toISOString() },
+          'completed',
+        ),
+      ),
+    ]
+    mocks.listTasks.mockResolvedValue({ tasks: finished })
+    // 任意一次列表刷新即可触发（这里借用取消接口，它内部会 refreshTasks）
+    await act(async () => {
+      await result.current.cancelRunning('other')
+    })
+
+    const kept = result.current.finishedTasks.map((task) => task.task_id)
+    // 失败任务豁免：1 个失败 + 最新 5 条已完成
+    expect(kept).toHaveLength(6)
+    expect(kept).toContain('fail-1')
+    expect(kept).toEqual(['fail-1', 'ok-0', 'ok-1', 'ok-2', 'ok-3', 'ok-4'])
+    // 被丢弃的条目写入「已查看」，不会再反复弹出
+    const acknowledged = loadAcknowledgedTasks()
+    expect(acknowledged.has('ok-5')).toBe(true)
+    expect(acknowledged.has('ok-6')).toBe(true)
+    expect(acknowledged.has('fail-1')).toBe(false)
+  })
+
+  it('批量标为已查看：清空所有待查看并持久化', async () => {
+    mocks.listTasks.mockResolvedValue({
+      tasks: [endedTask('done-a'), endedTask('done-b', {}, 'failed')],
+    })
+
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+    expect(result.current.finishedTasks).toHaveLength(2)
+
+    act(() => result.current.ackAllFinished())
+    expect(result.current.finishedTasks).toHaveLength(0)
+
+    const acknowledged = loadAcknowledgedTasks()
+    expect(acknowledged.has('done-a')).toBe(true)
+    expect(acknowledged.has('done-b')).toBe(true)
+  })
+
   it('失败与已终止的任务同样常驻，状态来自后端记录', async () => {
     mocks.listTasks.mockResolvedValue({
       tasks: [
