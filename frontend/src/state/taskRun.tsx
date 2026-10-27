@@ -771,7 +771,9 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   const clear = useCallback(() => {
     detach()
     resetDisplay()
-  }, [detach, resetDisplay])
+    // 新建任务时旧任务仍在后台跑：立即刷新一次，让胶囊无需等待下一轮轮询
+    void refreshTasks()
+  }, [detach, refreshTasks, resetDisplay])
 
   /** 订阅一个已有任务：回放缓冲区 + 跟随实时事件。 */
   const attachTask = useCallback(

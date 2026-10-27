@@ -442,6 +442,46 @@ describe('TaskRunProvider 刷新恢复与多任务', () => {
     expect(mocks.cancelTask).not.toHaveBeenCalled()
   })
 
+  it('clear 只断开观察不取消任务，随后可启动并行任务', async () => {
+    const signals: AbortSignal[] = []
+    mocks.streamTask.mockImplementation(
+      async (_query: string, onEvent: (event: TaskEvent) => void, signal?: AbortSignal) => {
+        signals.push(signal as AbortSignal)
+        onEvent(ev('task_started', { task_id: signals.length === 1 ? 'A' : 'B' }))
+        await new Promise(() => {})
+      },
+    )
+
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    await flush()
+    act(() => result.current.setQuery('任务 A'))
+    act(() => {
+      void result.current.run()
+    })
+    await flush()
+    expect(result.current.taskId).toBe('A')
+
+    // 「新建任务」：只断开 A 的观察，A 继续在后台运行
+    const listCallsBeforeClear = mocks.listTasks.mock.calls.length
+    act(() => result.current.clear())
+    expect(result.current.hasStarted).toBe(false)
+    expect(result.current.running).toBe(false)
+    expect(signals[0].aborted).toBe(true)
+    expect(mocks.cancelTask).not.toHaveBeenCalled()
+    // 立即刷新一次任务列表，旧任务能马上出现在胶囊里
+    expect(mocks.listTasks.mock.calls.length).toBeGreaterThan(listCallsBeforeClear)
+
+    act(() => {
+      void result.current.run('任务 B')
+    })
+    await flush()
+
+    expect(mocks.streamTask).toHaveBeenCalledTimes(2)
+    expect(result.current.taskId).toBe('B')
+    expect(result.current.running).toBe(true)
+    expect(signals[1].aborted).toBe(false)
+  })
+
   it('终止任意任务调用取消接口并刷新运行中列表', async () => {
     mocks.listTasks.mockResolvedValue({ tasks: [runningTask('X'), runningTask('Y')] })
     mocks.streamObserve.mockResolvedValue(undefined)

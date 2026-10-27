@@ -10,6 +10,7 @@ import {
   EditOutlined,
   FileTextOutlined,
   LoadingOutlined,
+  PlusOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
@@ -332,10 +333,17 @@ export default function TaskPage() {
     if (preset) handlePresetOpen(preset)
   }
 
-  const handleReset = () => {
+  /**
+   * 新建任务：断开当前任务的观察（不取消后端任务），回到输入区。
+   *
+   * 旧任务会继续在后台执行并留在顶栏胶囊里，用户可以立即提交第二个任务。
+   */
+  const handleNewTask = () => {
     setQuery('')
     clear()
     setOutputTab('plan')
+    // 等 idle 视图挂载后再聚焦输入框，减少一次点击
+    window.setTimeout(() => document.getElementById('task-query')?.focus(), 0)
   }
 
   // --- 执行主线：与真实拓扑一一对应（撰写 ⇄ 校验为独立节点，重试/重规划以小注回环呈现） ---
@@ -945,7 +953,7 @@ export default function TaskPage() {
       title={plan?.goal || query || '任务执行'}
       description={
         running
-          ? 'Agent 正在分步执行，可随时终止；切换到其它页面任务会继续。'
+          ? 'Agent 正在分步执行；可新建并行任务或终止，切换页面任务会继续。'
           : '执行已结束，可在下方查看最终结果与来源。'
       }
     >
@@ -954,15 +962,22 @@ export default function TaskPage() {
         {mode ? <Tag color={isLight ? 'cyan' : 'geekblue'}>{MODE_LABEL[mode] ?? mode}</Tag> : null}
         <span className="ws-run__meta">{metrics.join(' · ')}</span>
         <div className="ws-run__actions">
+          <Tooltip
+            title={
+              running
+                ? '当前任务转入后台继续执行，不会取消；可随时从顶栏胶囊切回'
+                : '清空当前结果，开始一个新任务'
+            }
+          >
+            <Button size="small" icon={<PlusOutlined />} onClick={handleNewTask}>
+              新建任务
+            </Button>
+          </Tooltip>
           {running ? (
             <Button size="small" danger icon={<StopOutlined />} onClick={abort}>
               终止任务
             </Button>
-          ) : (
-            <Button size="small" onClick={handleReset}>
-              新建任务
-            </Button>
-          )}
+          ) : null}
         </div>
       </div>
 
