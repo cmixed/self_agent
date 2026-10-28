@@ -59,6 +59,7 @@ import type {
   SkillInfo,
   SkillResourceInfo,
 } from '../types/api'
+import { downloadBlob } from '../utils/download'
 import { formatDateTime } from '../utils/format'
 
 const { Text, Paragraph } = Typography
@@ -432,12 +433,7 @@ export default function SkillsPage() {
     setError(null)
     try {
       const blob = await exportSkillPackage(skill.skill_id)
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `${skill.skill_id}.zip`
-      anchor.click()
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      downloadBlob(blob, `${skill.skill_id}.zip`)
       message.success(`已导出「${skill.name}」`)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '导出技能包失败')

@@ -1,4 +1,11 @@
-import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import {
+  DeleteOutlined,
+  DownloadOutlined,
+  EditOutlined,
+  ImportOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons'
 import {
   App,
   Button,
@@ -12,24 +19,30 @@ import {
   Space,
   Tag,
   Typography,
+  Upload,
 } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
 import ErrorNotice from '../components/ErrorNotice'
+import ImportPreviewModal from '../components/ImportPreviewModal'
 import PageContainer from '../components/PageContainer'
 import {
   ApiError,
   addMemory,
+  confirmMemoryImport,
   deleteMemory,
   deletePreference,
+  exportMemory,
   getMemory,
+  previewMemoryImport,
   setPreference,
 } from '../services/api'
-import type { MemoryProfile, MemoryRecord } from '../types/api'
+import type { MemoryImportPreview, MemoryProfile, MemoryRecord } from '../types/api'
+import { downloadBlob } from '../utils/download'
 import { formatDateTime } from '../utils/format'
 
-const { Text } = Typography
+const { Text, Paragraph } = Typography
 
 const PAGE_EYEBROW = '长期记忆'
 const PAGE_TITLE = '管理跨任务保留的偏好与信息'
@@ -60,6 +73,11 @@ export default function MemoryPage() {
 
   const [preferenceForm] = Form.useForm<{ key: string; value: string }>()
   const [memoryForm] = Form.useForm<{ kind: string; content: string }>()
+
+  // --- 导入 / 导出 ---
+  const [importing, setImporting] = useState(false)
+  const [importPreview, setImportPreview] = useState<MemoryImportPreview | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -159,6 +177,61 @@ export default function MemoryPage() {
     }
   }
 
+  // --- 导入 / 导出 ---
+
+  const handleImportFile = async (file: File) => {
+    setImporting(true)
+    setImportError(null)
+    setImportPreview(null)
+    try {
+      setImportPreview(await previewMemoryImport(file))
+    } catch (err) {
+      setImportError(err instanceof ApiError ? err.message : '解析记忆文件失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleConfirmImport = async () => {
+    if (!importPreview) return
+    setImporting(true)
+    setImportError(null)
+    try {
+      const result = await confirmMemoryImport(importPreview.token)
+      const skipped =
+        result.skipped_preferences.length +
+        result.skipped_memories.length +
+        importPreview.skipped_preferences.length +
+        importPreview.skipped_memories.length
+      message.success(
+        `已导入 ${result.preferences.length} 条偏好、${result.memories.length} 条记忆` +
+          (skipped > 0 ? `，跳过 ${skipped} 条重复` : ''),
+      )
+      setImportPreview(null)
+      await refresh()
+    } catch (err) {
+      setImportError(err instanceof ApiError ? err.message : '导入记忆失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleExport = async () => {
+    setError(null)
+    try {
+      const { blob, filename } = await exportMemory()
+      downloadBlob(blob, filename)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '导出记忆失败')
+    }
+  }
+
+  const closeImport = () => {
+    if (importing) return
+    setImportPreview(null)
+    setImportError(null)
+  }
+
   const preferences: PreferenceRow[] = Object.entries(profile?.preferences ?? {}).map(
     ([key, value]) => ({ key, value }),
   )
@@ -172,9 +245,30 @@ export default function MemoryPage() {
       description={PAGE_DESCRIPTION}
       maxWidth={PAGE_MAX_WIDTH}
       extra={
-        <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
-          刷新
-        </Button>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
+            刷新
+          </Button>
+          <Upload
+            accept=".json"
+            showUploadList={false}
+            beforeUpload={(file) => {
+              void handleImportFile(file)
+              return false
+            }}
+          >
+            <Button icon={<ImportOutlined />} loading={importing}>
+              导入记忆
+            </Button>
+          </Upload>
+          <Button
+            icon={<DownloadOutlined />}
+            onClick={() => void handleExport()}
+            disabled={preferences.length === 0 && memories.length === 0}
+          >
+            导出记忆
+          </Button>
+        </Space>
       }
     >
       {error ? (
@@ -369,6 +463,62 @@ export default function MemoryPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <ImportPreviewModal
+        open={importing || importPreview !== null || importError !== null}
+        title="导入长期记忆"
+        preview={importPreview}
+        importing={importing}
+        error={importError}
+        confirmDisabled={
+          (importPreview?.memories.length ?? 0) === 0 &&
+          Object.keys(importPreview?.preferences ?? {}).length === 0
+        }
+        onCancel={closeImport}
+        onConfirm={() => void handleConfirmImport()}
+      >
+        {importPreview ? (
+          <>
+            <Text type="secondary">
+              将新增 {Object.keys(importPreview.preferences).length} 条偏好、
+              {importPreview.memories.length} 条记忆
+            </Text>
+            {Object.keys(importPreview.preferences).length > 0 ? (
+              <div>
+                <Text strong>偏好</Text>
+                <div className="kv-grid">
+                  {Object.entries(importPreview.preferences).map(([key, value]) => (
+                    <div className="kv-card" key={key}>
+                      <div className="kv-card__head">
+                        <Tag>{key}</Tag>
+                      </div>
+                      <div className="kv-card__value">{value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {importPreview.memories.length > 0 ? (
+              <div>
+                <Text strong>记忆</Text>
+                {importPreview.memories.map((item, index) => (
+                  <Card size="small" key={`${item.kind}-${index}`}>
+                    <Tag>{item.kind}</Tag>
+                    <Paragraph style={{ marginBottom: 0 }}>{item.content}</Paragraph>
+                  </Card>
+                ))}
+              </div>
+            ) : null}
+            {importPreview.skipped_preferences.length + importPreview.skipped_memories.length >
+            0 ? (
+              <Text type="secondary">
+                已跳过 {importPreview.skipped_preferences.length} 条重复偏好、
+                {importPreview.skipped_memories.length} 条重复记忆（已有内容优先保留）
+              </Text>
+            ) : null}
+          </>
+        ) : null}
+      </ImportPreviewModal>
     </PageContainer>
   )
 }

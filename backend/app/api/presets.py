@@ -2,24 +2,35 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.responses import JSONResponse, Response
 
-from app.api.deps import get_preset_service
+from app.api.deps import get_preset_package_service, get_preset_service
 from app.models.schemas import (
     ErrorResponse,
+    ImportConfirmRequest,
     PresetCreate,
+    PresetImportItem,
+    PresetImportPreview,
+    PresetImportResult,
     PresetInfo,
     PresetListResponse,
     PresetOrderRequest,
     PresetUpdate,
     TaskScope,
 )
+from app.services.preset_package_service import MAX_PACKAGE_BYTES, PresetPackageService
 from app.services.preset_service import (
     PresetNotFoundError,
     PresetOrderError,
     PresetService,
 )
+from app.transfer.errors import (
+    ImportPackageError,
+    ImportPackageTooLargeError,
+    ImportPreviewExpiredError,
+)
+from app.transfer.package import export_filename
 
 router = APIRouter(prefix="/api/presets", tags=["presets"])
 
@@ -59,11 +70,82 @@ def _order_conflict(exc: PresetOrderError) -> JSONResponse:
     return JSONResponse(status_code=409, content=body.model_dump())
 
 
+def _error(status: int, error_type: str, detail: str) -> JSONResponse:
+    body = ErrorResponse(error=error_type, error_type=error_type, detail=detail)
+    return JSONResponse(status_code=status, content=body.model_dump())
+
+
+def _package_item(item) -> PresetImportItem:
+    return PresetImportItem(
+        title=item.title,
+        description=item.description,
+        query=item.query,
+        auto_run=item.auto_run,
+        scope=(
+            TaskScope(category_ids=list(item.category_ids), document_ids=list(item.document_ids))
+            if item.category_ids or item.document_ids
+            else None
+        ),
+    )
+
+
 @router.get("", response_model=PresetListResponse)
 async def list_presets(
     service: PresetService = Depends(get_preset_service),
 ) -> PresetListResponse:
     return PresetListResponse(presets=[_info(record) for record in await service.list_presets()])
+
+
+@router.get("/export", response_model=None)
+async def export_presets(
+    service: PresetPackageService = Depends(get_preset_package_service),
+) -> Response:
+    """导出全部预设（JSON；顺序即工作台展示顺序）。"""
+    data = await service.export_all()
+    filename = export_filename("presets", "json")
+    return Response(
+        content=data,
+        media_type="application/json; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/import/preview", response_model=PresetImportPreview)
+async def preview_preset_import(
+    file: UploadFile = File(...),
+    service: PresetPackageService = Depends(get_preset_package_service),
+) -> PresetImportPreview | JSONResponse:
+    data = await file.read(MAX_PACKAGE_BYTES + 1)
+    try:
+        token, preview = await service.preview(data, filename=file.filename)
+    except ImportPackageTooLargeError as exc:
+        return _error(413, exc.error_type, exc.message)
+    except ImportPackageError as exc:
+        return _error(422, exc.error_type, exc.message)
+
+    return PresetImportPreview(
+        token=token,
+        presets=[_package_item(item) for item in preview.items],
+        skipped_duplicates=preview.skipped,
+        warnings=preview.warnings,
+        source_filename=preview.source_filename,
+        expires_in=int(service.ttl_seconds),
+    )
+
+
+@router.post("/import", response_model=PresetImportResult)
+async def confirm_preset_import(
+    payload: ImportConfirmRequest,
+    service: PresetPackageService = Depends(get_preset_package_service),
+) -> PresetImportResult | JSONResponse:
+    try:
+        imported, skipped = await service.confirm(payload.token)
+    except ImportPreviewExpiredError as exc:
+        return _error(409, exc.error_type, exc.message)
+    return PresetImportResult(
+        imported=[_info(record) for record in imported],
+        skipped=skipped,
+    )
 
 
 @router.post("", response_model=PresetInfo)

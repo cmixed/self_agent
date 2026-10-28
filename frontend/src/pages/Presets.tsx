@@ -1,7 +1,9 @@
 import {
   DeleteOutlined,
+  DownloadOutlined,
   EditOutlined,
   HolderOutlined,
+  ImportOutlined,
   PlusOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
@@ -19,6 +21,7 @@ import {
   Switch,
   Tag,
   Typography,
+  Upload,
 } from 'antd'
 import {
   closestCenter,
@@ -40,21 +43,32 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
 import ErrorNotice from '../components/ErrorNotice'
+import ImportPreviewModal from '../components/ImportPreviewModal'
 import PageContainer from '../components/PageContainer'
 import ScopePicker from '../components/ScopePicker'
 import { setCachedPresets } from '../hooks/usePresets'
 import {
   ApiError,
+  confirmPresetImport,
   createPreset,
   deletePreset,
+  exportPresets,
   listCategories,
   listDocuments,
   listPresets,
+  previewPresetImport,
   reorderPresets,
   updatePreset,
 } from '../services/api'
-import type { CategoryInfo, DocumentInfo, PresetInfo, TaskScope } from '../types/api'
+import type {
+  CategoryInfo,
+  DocumentInfo,
+  PresetImportPreview,
+  PresetInfo,
+  TaskScope,
+} from '../types/api'
 import { formatDateTime } from '../utils/format'
+import { downloadBlob } from '../utils/download'
 import { movePreset } from '../utils/presets'
 import { describeScope } from '../utils/scope'
 
@@ -194,6 +208,11 @@ export default function PresetsPage() {
   const [scopePickerOpen, setScopePickerOpen] = useState(false)
   const [form] = Form.useForm<PresetFormValues>()
 
+  // --- 导入 / 导出 ---
+  const [importing, setImporting] = useState(false)
+  const [importPreview, setImportPreview] = useState<PresetImportPreview | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+
   const refresh = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -329,6 +348,56 @@ export default function PresetsPage() {
     }
   }
 
+  // --- 导入 / 导出 ---
+
+  const handleImportFile = async (file: File) => {
+    setImporting(true)
+    setImportError(null)
+    setImportPreview(null)
+    try {
+      setImportPreview(await previewPresetImport(file))
+    } catch (err) {
+      setImportError(err instanceof ApiError ? err.message : '解析预设文件失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleConfirmImport = async () => {
+    if (!importPreview) return
+    setImporting(true)
+    setImportError(null)
+    try {
+      const result = await confirmPresetImport(importPreview.token)
+      const skipped = new Set([...importPreview.skipped_duplicates, ...result.skipped]).size
+      message.success(
+        `已导入 ${result.imported.length} 条预设${skipped > 0 ? `，跳过 ${skipped} 条重复` : ''}`,
+      )
+      setImportPreview(null)
+      await refresh()
+    } catch (err) {
+      setImportError(err instanceof ApiError ? err.message : '导入预设失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleExport = async () => {
+    setError(null)
+    try {
+      const { blob, filename } = await exportPresets()
+      downloadBlob(blob, filename)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '导出预设失败')
+    }
+  }
+
+  const closeImport = () => {
+    if (importing) return
+    setImportPreview(null)
+    setImportError(null)
+  }
+
   const firstLoad = loading && presets.length === 0
   const formScopeInfo = describeScope(formScope, categories, documents)
 
@@ -342,6 +411,25 @@ export default function PresetsPage() {
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
             刷新
+          </Button>
+          <Upload
+            accept=".json"
+            showUploadList={false}
+            beforeUpload={(file) => {
+              void handleImportFile(file)
+              return false
+            }}
+          >
+            <Button icon={<ImportOutlined />} loading={importing}>
+              导入预设
+            </Button>
+          </Upload>
+          <Button
+            icon={<DownloadOutlined />}
+            onClick={() => void handleExport()}
+            disabled={presets.length === 0}
+          >
+            导出预设
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             新增预设
@@ -502,6 +590,55 @@ export default function PresetsPage() {
           setScopePickerOpen(false)
         }}
       />
+
+      <ImportPreviewModal
+        open={importing || importPreview !== null || importError !== null}
+        title="导入预设"
+        preview={importPreview}
+        importing={importing}
+        error={importError}
+        confirmDisabled={(importPreview?.presets.length ?? 0) === 0}
+        onCancel={closeImport}
+        onConfirm={() => void handleConfirmImport()}
+      >
+        {importPreview ? (
+          <>
+            <Text type="secondary">
+              将导入 {importPreview.presets.length} 条预设
+              {importPreview.skipped_duplicates.length > 0
+                ? `，跳过 ${importPreview.skipped_duplicates.length} 条重复`
+                : ''}
+            </Text>
+            {importPreview.presets.map((item, index) => {
+              const scopeInfo = describeScope(item.scope, categories, documents)
+              return (
+                <Card size="small" key={`${item.title}-${index}`}>
+                  <Space size={8} wrap>
+                    <Text strong>{item.title}</Text>
+                    {item.auto_run ? <Tag color="green">直接运行</Tag> : null}
+                    <Tag>{scopeInfo.bound ? `范围：${scopeInfo.label}` : '全部知识库'}</Tag>
+                  </Space>
+                  <Paragraph
+                    type="secondary"
+                    ellipsis={{ rows: 2, tooltip: item.description }}
+                    style={{ marginBottom: 4 }}
+                  >
+                    {item.description}
+                  </Paragraph>
+                  <Text code ellipsis={{ tooltip: item.query }}>
+                    {item.query}
+                  </Text>
+                </Card>
+              )
+            })}
+            {importPreview.skipped_duplicates.length > 0 ? (
+              <Text type="secondary">
+                已存在相同标题与内容的预设：{importPreview.skipped_duplicates.join('、')}
+              </Text>
+            ) : null}
+          </>
+        ) : null}
+      </ImportPreviewModal>
     </PageContainer>
   )
 }

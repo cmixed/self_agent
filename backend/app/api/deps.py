@@ -27,7 +27,10 @@ from app.rag.tools import RagTool
 from app.services.category_service import CategoryService
 from app.services.document_service import DocumentService
 from app.services.email_service import EmailService
+from app.services.knowledge_package_service import KnowledgePackageService
+from app.services.memory_package_service import MemoryPackageService
 from app.services.memory_service import MemoryService
+from app.services.preset_package_service import PresetPackageService
 from app.services.preset_service import PresetService
 from app.services.provider_service import ProviderService
 from app.services.skill_generation_service import SkillGenerationService
@@ -44,6 +47,9 @@ _skill_package_service: SkillPackageService | None = None
 _database: SqliteDatabase | None = None
 _checkpoint_store: CheckpointStore | None = None
 _email_service: EmailService | None = None
+_preset_package_service: PresetPackageService | None = None
+_memory_package_service: MemoryPackageService | None = None
+_knowledge_package_service: KnowledgePackageService | None = None
 
 
 def build_chroma_store() -> ChromaStore:
@@ -278,6 +284,46 @@ def get_email_service() -> EmailService:
     return build_email_service()
 
 
+def build_preset_package_service() -> PresetPackageService:
+    """进程级缓存：导入预览 token 需要跨请求保留。"""
+    global _preset_package_service
+    if _preset_package_service is None:
+        _preset_package_service = PresetPackageService(
+            build_preset_service(),
+            build_category_service(),
+            build_document_service(),
+        )
+    return _preset_package_service
+
+
+def get_preset_package_service() -> PresetPackageService:
+    return build_preset_package_service()
+
+
+def build_memory_package_service() -> MemoryPackageService:
+    global _memory_package_service
+    if _memory_package_service is None:
+        _memory_package_service = MemoryPackageService(MemoryService(build_memory_repository()))
+    return _memory_package_service
+
+
+def get_memory_package_service() -> MemoryPackageService:
+    return build_memory_package_service()
+
+
+def build_knowledge_package_service() -> KnowledgePackageService:
+    global _knowledge_package_service
+    if _knowledge_package_service is None:
+        _knowledge_package_service = KnowledgePackageService(
+            build_document_service(), build_category_service()
+        )
+    return _knowledge_package_service
+
+
+def get_knowledge_package_service() -> KnowledgePackageService:
+    return build_knowledge_package_service()
+
+
 def get_memory_service(
     provider: LLMProvider = Depends(get_llm_provider),
 ) -> MemoryService:
@@ -288,6 +334,7 @@ def reset_caches() -> None:
     """仅用于测试：清空进程级缓存的向量集合与持久化句柄。"""
     global _store, _task_repository, _memory_repository
     global _skill_store, _skill_package_service, _database, _email_service
+    global _preset_package_service, _memory_package_service, _knowledge_package_service
     _store = None
     _task_repository = None
     _memory_repository = None
@@ -295,3 +342,6 @@ def reset_caches() -> None:
     _skill_package_service = None
     _database = None
     _email_service = None
+    _preset_package_service = None
+    _memory_package_service = None
+    _knowledge_package_service = None

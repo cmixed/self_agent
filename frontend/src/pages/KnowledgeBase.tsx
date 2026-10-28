@@ -1,11 +1,13 @@
 import {
   DeleteOutlined,
+  DownloadOutlined,
   EditOutlined,
   FileMarkdownOutlined,
   FilePdfOutlined,
   FileTextOutlined,
   FileUnknownOutlined,
   FolderOpenOutlined,
+  ImportOutlined,
   InboxOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -13,6 +15,7 @@ import {
   TagsOutlined,
 } from '@ant-design/icons'
 import {
+  Alert,
   App,
   Badge,
   Button,
@@ -37,20 +40,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useViewStack } from '../components/ViewStack'
 import EmptyState from '../components/EmptyState'
 import ErrorNotice from '../components/ErrorNotice'
+import ImportPreviewModal from '../components/ImportPreviewModal'
 import PageContainer from '../components/PageContainer'
 import StatStrip from '../components/StatStrip'
 import {
   ApiError,
+  confirmKnowledgeImport,
   createCategory,
   deleteCategory,
   deleteDocument,
+  exportKnowledgeBase,
   listCategories,
   listDocuments,
+  previewKnowledgeImport,
   setDocumentCategories,
   updateCategory,
   uploadDocument,
 } from '../services/api'
-import type { CategoryInfo, DocumentInfo } from '../types/api'
+import type { CategoryInfo, DocumentInfo, KnowledgeImportPreview } from '../types/api'
+import { downloadBlob } from '../utils/download'
 import { documentKind } from '../utils/format'
 
 const { Text, Paragraph } = Typography
@@ -101,6 +109,11 @@ export default function KnowledgeBasePage() {
   const [categoryForm] = Form.useForm<CategoryFormValues>()
   // 上传串行化：后一个文件等前一个「解析 + 建索引」完成，避免同时触发 Embedding
   const uploadQueue = useRef<Promise<void>>(Promise.resolve())
+
+  // --- 导入 / 导出 ---
+  const [importing, setImporting] = useState(false)
+  const [importPreview, setImportPreview] = useState<KnowledgeImportPreview | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -215,6 +228,58 @@ export default function KnowledgeBasePage() {
     if (removed > 0) message.success(`已删除 ${removed} 个文档及其向量`)
     setSelectedIds([])
     await refresh()
+  }
+
+  // --- 导入 / 导出 ---
+
+  const handleImportFile = async (file: File) => {
+    setImporting(true)
+    setImportError(null)
+    setImportPreview(null)
+    try {
+      setImportPreview(await previewKnowledgeImport(file))
+    } catch (err) {
+      setImportError(err instanceof ApiError ? err.message : '解析知识库包失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleConfirmImport = async () => {
+    if (!importPreview) return
+    setImporting(true)
+    setImportError(null)
+    try {
+      const result = await confirmKnowledgeImport(importPreview.token)
+      const failedText = result.failed.length > 0 ? `，${result.failed.length} 篇失败` : ''
+      const skippedText = result.skipped.length > 0 ? `，跳过 ${result.skipped.length} 篇重复` : ''
+      if (result.failed.length > 0) {
+        setError(result.failed.map((item) => `《${item.filename}》：${item.message}`).join('；'))
+      }
+      message.success(`已导入 ${result.imported.length} 篇文档${skippedText}${failedText}`)
+      setImportPreview(null)
+      await refresh()
+    } catch (err) {
+      setImportError(err instanceof ApiError ? err.message : '导入知识库失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleExport = async () => {
+    setError(null)
+    try {
+      const { blob, filename } = await exportKnowledgeBase()
+      downloadBlob(blob, filename)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '导出知识库失败')
+    }
+  }
+
+  const closeImport = () => {
+    if (importing) return
+    setImportPreview(null)
+    setImportError(null)
   }
 
   // --- 类别管理 ---
@@ -350,6 +415,25 @@ export default function KnowledgeBasePage() {
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
             刷新
+          </Button>
+          <Upload
+            accept=".zip"
+            showUploadList={false}
+            beforeUpload={(file) => {
+              void handleImportFile(file)
+              return false
+            }}
+          >
+            <Button icon={<ImportOutlined />} loading={importing}>
+              导入知识库
+            </Button>
+          </Upload>
+          <Button
+            icon={<DownloadOutlined />}
+            onClick={() => void handleExport()}
+            disabled={documents.length === 0 && categories.length === 0}
+          >
+            导出知识库
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreateCategory}>
             新建类别
@@ -706,6 +790,64 @@ export default function KnowledgeBasePage() {
           </>
         )}
       </Modal>
+
+      <ImportPreviewModal
+        open={importing || importPreview !== null || importError !== null}
+        title="导入知识库"
+        preview={importPreview}
+        importing={importing}
+        error={importError}
+        confirmDisabled={(importPreview?.documents.length ?? 0) === 0}
+        onCancel={closeImport}
+        onConfirm={() => void handleConfirmImport()}
+      >
+        {importPreview ? (
+          <>
+            <Alert
+              type="info"
+              showIcon
+              message="确认后会重新解析、分块并建立向量索引"
+              description="导入不会复用源机器的 Chroma 数据；文档较多时需要一些时间，请不要关闭页面。"
+            />
+            <Text type="secondary">
+              将导入 {importPreview.documents.length} 篇文档
+              {importPreview.categories.length > 0
+                ? `，${importPreview.categories.length} 个类别`
+                : ''}
+              {importPreview.skipped.length > 0
+                ? `，跳过 ${importPreview.skipped.length} 篇重复`
+                : ''}
+            </Text>
+            {importPreview.categories.length > 0 ? (
+              <div>
+                <Text strong>类别</Text>
+                <Space size={[6, 6]} wrap>
+                  {importPreview.categories.map((name) => (
+                    <Tag key={name}>{name}</Tag>
+                  ))}
+                </Space>
+              </div>
+            ) : null}
+            <div>
+              <Text strong>文档</Text>
+              {importPreview.documents.map((item) => (
+                <Card size="small" key={item.filename}>
+                  <Space size={8} wrap>
+                    <Text strong>{item.filename}</Text>
+                    <Text type="secondary">{Math.max(1, Math.round(item.size / 1024))} KB</Text>
+                    {item.category_ids.length > 0 ? (
+                      <Tag>{item.category_ids.length} 个类别</Tag>
+                    ) : null}
+                  </Space>
+                </Card>
+              ))}
+            </div>
+            {importPreview.skipped.length > 0 ? (
+              <Text type="secondary">内容已存在，将跳过：{importPreview.skipped.join('、')}</Text>
+            ) : null}
+          </>
+        ) : null}
+      </ImportPreviewModal>
     </PageContainer>
   )
 }

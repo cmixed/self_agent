@@ -543,6 +543,37 @@ class MemoryProfileResponse(BaseModel):
     memories: list[MemoryOut] = Field(default_factory=list)
 
 
+class MemoryPackageItemOut(BaseModel):
+    kind: str
+    content: str
+
+
+class MemoryImportPreview(BaseModel):
+    """长期记忆导入预览（只列出真正会新增的项）。"""
+
+    token: str
+    preferences: dict[str, str] = Field(default_factory=dict)
+    memories: list[MemoryPackageItemOut] = Field(default_factory=list)
+    skipped_preferences: list[str] = Field(default_factory=list)
+    skipped_memories: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    source_filename: str | None = None
+    expires_in: int
+
+
+class MemoryImportResultOut(BaseModel):
+    preferences: list[str] = Field(default_factory=list)
+    memories: list[str] = Field(default_factory=list)
+    skipped_preferences: list[str] = Field(default_factory=list)
+    skipped_memories: list[str] = Field(default_factory=list)
+
+
+class ImportConfirmRequest(BaseModel):
+    """通用「确认导入」请求：消费预览 token。"""
+
+    token: str = Field(min_length=1, max_length=64)
+
+
 class SetPreferenceRequest(BaseModel):
     value: str = Field(min_length=1, max_length=200)
 
@@ -555,6 +586,36 @@ class AddMemoryRequest(BaseModel):
 
 class DocumentListResponse(BaseModel):
     documents: list[DocumentInfo] = Field(default_factory=list)
+
+
+class KnowledgeImportDocumentOut(BaseModel):
+    filename: str
+    size: int
+    category_ids: list[str] = Field(default_factory=list)
+
+
+class KnowledgeImportPreview(BaseModel):
+    """知识库导入预览（确认后会重新解析、切分并建立向量索引）。"""
+
+    token: str
+    documents: list[KnowledgeImportDocumentOut] = Field(default_factory=list)
+    categories: list[str] = Field(default_factory=list)
+    skipped: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    source_filename: str | None = None
+    expires_in: int
+
+
+class KnowledgeImportFailureOut(BaseModel):
+    filename: str
+    message: str
+
+
+class KnowledgeImportResultOut(BaseModel):
+    imported: list[DocumentInfo] = Field(default_factory=list)
+    skipped: list[str] = Field(default_factory=list)
+    failed: list[KnowledgeImportFailureOut] = Field(default_factory=list)
+    categories_created: list[str] = Field(default_factory=list)
 
 
 class TaskAttemptOut(BaseModel):
@@ -641,3 +702,27 @@ class PresetUpdate(BaseModel):
     # 注意：scope 用 model_fields_set 判「是否提供」——`null` 是合法值（清除绑定）
     scope: TaskScope | None = None
     auto_run: bool | None = None
+
+
+class PresetImportItem(BaseModel):
+    title: str
+    description: str
+    query: str
+    auto_run: bool = False
+    scope: TaskScope | None = None
+
+
+class PresetImportPreview(BaseModel):
+    """预设导入预览（只列出真正会新增的项）。"""
+
+    token: str
+    presets: list[PresetImportItem] = Field(default_factory=list)
+    skipped_duplicates: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    source_filename: str | None = None
+    expires_in: int
+
+
+class PresetImportResult(BaseModel):
+    imported: list[PresetInfo] = Field(default_factory=list)
+    skipped: list[str] = Field(default_factory=list)

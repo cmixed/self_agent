@@ -6,8 +6,14 @@ import type {
   ChatResponse,
   DocumentInfo,
   HealthResponse,
+  KnowledgeImportPreview,
+  KnowledgeImportResult,
+  MemoryImportPreview,
+  MemoryImportResult,
   MemoryProfile,
   MemoryRecord,
+  PresetImportPreview,
+  PresetImportResult,
   PresetInfo,
   PresetListResponse,
   ModelListResponse,
@@ -66,6 +72,32 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw await toApiError(response)
   }
   return (await response.json()) as T
+}
+
+/** 统一导入流程：上传文件并解析预览（不落库）。 */
+async function uploadForPreview<T>(path: string, file: File): Promise<T> {
+  const body = new FormData()
+  body.append('file', file)
+  // 不要手动设置 Content-Type：浏览器需要自己生成 multipart boundary
+  const response = await fetch(`${API_BASE}${path}`, { method: 'POST', body })
+  if (!response.ok) {
+    throw await toApiError(response)
+  }
+  return (await response.json()) as T
+}
+
+/** 统一导出流程：下载后端打包好的文件，并保留响应中的文件名。 */
+async function downloadPackage(path: string): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(`${API_BASE}${path}`)
+  if (!response.ok) {
+    throw await toApiError(response)
+  }
+  const disposition = response.headers.get('Content-Disposition') ?? ''
+  const match = /filename="?([^";]+)"?/.exec(disposition)
+  return {
+    blob: await response.blob(),
+    filename: match?.[1] ?? 'export.bin',
+  }
 }
 
 export function getHealth(): Promise<HealthResponse> {
@@ -321,6 +353,23 @@ export function documentFileUrl(documentId: string, download = false): string {
   return `${API_BASE}/documents/${documentId}/content${download ? '?download=true' : ''}`
 }
 
+// --- 知识库导入 / 导出 ---
+
+export function exportKnowledgeBase(): Promise<{ blob: Blob; filename: string }> {
+  return downloadPackage('/documents/export')
+}
+
+export function previewKnowledgeImport(file: File): Promise<KnowledgeImportPreview> {
+  return uploadForPreview<KnowledgeImportPreview>('/documents/import/preview', file)
+}
+
+export function confirmKnowledgeImport(token: string): Promise<KnowledgeImportResult> {
+  return request<KnowledgeImportResult>('/documents/import', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  })
+}
+
 // --- 技能 ---
 
 export function listSkills(): Promise<SkillListResponse> {
@@ -480,6 +529,23 @@ export async function deletePreset(presetId: string): Promise<void> {
   }
 }
 
+// --- 预设导入 / 导出 ---
+
+export function exportPresets(): Promise<{ blob: Blob; filename: string }> {
+  return downloadPackage('/presets/export')
+}
+
+export function previewPresetImport(file: File): Promise<PresetImportPreview> {
+  return uploadForPreview<PresetImportPreview>('/presets/import/preview', file)
+}
+
+export function confirmPresetImport(token: string): Promise<PresetImportResult> {
+  return request<PresetImportResult>('/presets/import', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  })
+}
+
 // --- 模型服务（自定义 Provider）---
 
 export function listProviders(): Promise<ProviderListResponse> {
@@ -634,4 +700,21 @@ export async function deleteMemory(memoryId: number): Promise<void> {
   if (!response.ok) {
     throw await toApiError(response)
   }
+}
+
+// --- 长期记忆导入 / 导出 ---
+
+export function exportMemory(): Promise<{ blob: Blob; filename: string }> {
+  return downloadPackage('/memory/export')
+}
+
+export function previewMemoryImport(file: File): Promise<MemoryImportPreview> {
+  return uploadForPreview<MemoryImportPreview>('/memory/import/preview', file)
+}
+
+export function confirmMemoryImport(token: string): Promise<MemoryImportResult> {
+  return request<MemoryImportResult>('/memory/import', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  })
 }

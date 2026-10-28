@@ -20,11 +20,15 @@ export function safeFileName(input: string, fallback = 'agent-result'): string {
 /** 以 Markdown 形式下载到本地 */
 export function downloadMarkdown(content: string, baseName: string): void {
   const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
+  downloadBlob(blob, `${safeFileName(baseName)}.md`)
+}
 
+/** 通用 Blob 下载（导出包 / 备份文件统一走这里）。 */
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `${safeFileName(baseName)}.md`
+  link.download = filename
   link.rel = 'noopener'
   link.style.display = 'none'
 

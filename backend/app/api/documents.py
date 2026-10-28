@@ -6,18 +6,38 @@ import mimetypes
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
-from app.api.deps import get_category_service, get_document_service
+from app.api.deps import (
+    get_category_service,
+    get_document_service,
+    get_knowledge_package_service,
+)
 from app.core.logging import get_logger
 from app.models.schemas import (
     DeleteDocumentResponse,
     DocumentCategoriesUpdate,
     DocumentInfo,
     DocumentListResponse,
+    ErrorResponse,
+    ImportConfirmRequest,
+    KnowledgeImportDocumentOut,
+    KnowledgeImportFailureOut,
+    KnowledgeImportPreview,
+    KnowledgeImportResultOut,
 )
 from app.services.category_service import CategoryNotFoundError, CategoryService
 from app.services.document_service import DocumentService
+from app.services.knowledge_package_service import (
+    MAX_PACKAGE_BYTES,
+    KnowledgePackageService,
+)
+from app.transfer.errors import (
+    ImportPackageError,
+    ImportPackageTooLargeError,
+    ImportPreviewExpiredError,
+)
+from app.transfer.package import export_filename
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 logger = get_logger(__name__)
@@ -55,6 +75,77 @@ async def list_documents(
     for document in documents:
         document.category_ids = mapping.get(document.document_id, [])
     return DocumentListResponse(documents=documents)
+
+
+def _import_error(status_code: int, error_type: str, detail: str) -> JSONResponse:
+    body = ErrorResponse(error=error_type, error_type=error_type, detail=detail)
+    return JSONResponse(status_code=status_code, content=body.model_dump())
+
+
+@router.get("/export", response_model=None)
+async def export_knowledge_base(
+    service: KnowledgePackageService = Depends(get_knowledge_package_service),
+) -> Response:
+    """导出知识库（zip：文档原文件 + 类别 + 文档分类映射）。"""
+    data = await service.export_all()
+    filename = export_filename("knowledge-base", "zip")
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/import/preview", response_model=KnowledgeImportPreview)
+async def preview_knowledge_import(
+    file: UploadFile = File(...),
+    service: KnowledgePackageService = Depends(get_knowledge_package_service),
+) -> KnowledgeImportPreview | JSONResponse:
+    data = await file.read(MAX_PACKAGE_BYTES + 1)
+    try:
+        token, preview = await service.preview(data, filename=file.filename)
+    except ImportPackageTooLargeError as exc:
+        return _import_error(413, exc.error_type, exc.message)
+    except ImportPackageError as exc:
+        return _import_error(422, exc.error_type, exc.message)
+
+    return KnowledgeImportPreview(
+        token=token,
+        documents=[
+            KnowledgeImportDocumentOut(
+                filename=item.filename,
+                size=item.size,
+                category_ids=item.category_ids,
+            )
+            for item in preview.documents
+        ],
+        categories=[item.name for item in preview.categories],
+        skipped=preview.skipped,
+        warnings=preview.warnings,
+        source_filename=preview.source_filename,
+        expires_in=int(service.ttl_seconds),
+    )
+
+
+@router.post("/import", response_model=KnowledgeImportResultOut)
+async def confirm_knowledge_import(
+    payload: ImportConfirmRequest,
+    service: KnowledgePackageService = Depends(get_knowledge_package_service),
+) -> KnowledgeImportResultOut | JSONResponse:
+    """确认导入；文档会重新解析、切分并建立向量索引，可能耗时较长。"""
+    try:
+        result = await service.confirm(payload.token)
+    except ImportPreviewExpiredError as exc:
+        return _import_error(409, exc.error_type, exc.message)
+    return KnowledgeImportResultOut(
+        imported=result.imported,
+        skipped=result.skipped,
+        failed=[
+            KnowledgeImportFailureOut(filename=item.filename, message=item.message)
+            for item in result.failed
+        ],
+        categories_created=result.categories_created,
+    )
 
 
 @router.get("/{document_id}/content")
@@ -105,9 +196,7 @@ async def set_document_categories(
     if await service.document_file(document_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
     try:
-        category_ids = await categories.set_document_categories(
-            document_id, payload.category_ids
-        )
+        category_ids = await categories.set_document_categories(document_id, payload.category_ids)
     except CategoryNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return {"document_id": document_id, "category_ids": category_ids}

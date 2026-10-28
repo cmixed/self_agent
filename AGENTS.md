@@ -290,6 +290,11 @@ project-root/
 │       │   ├── sqlite.py
 │       │   └── repository.py
 │       │
+│       ├── transfer/                 # 统一导入导出（预览 token / 包校验 / 公共错误）
+│       │   ├── errors.py
+│       │   ├── package.py
+│       │   └── preview.py
+│       │
 │       ├── skills/
 │       │   ├── store.py              # SkillFileStore（文件即数据源）
 │       │   ├── package.py            # zip 技能包导入/导出
@@ -1098,6 +1103,18 @@ POST /api/tasks/{id}/resume
 POST /api/tasks/{id}/rerun
 POST /api/tasks/{id}/email     # 把已完成任务的正文发送到邮箱
 
+GET  /api/presets/export
+POST /api/presets/import/preview
+POST /api/presets/import
+
+GET  /api/memory/export
+POST /api/memory/import/preview
+POST /api/memory/import
+
+GET  /api/documents/export
+POST /api/documents/import/preview
+POST /api/documents/import
+
 GET  /api/settings
 PUT  /api/settings/llm-provider
 
@@ -1117,6 +1134,33 @@ GET  /api/health
 - Agent 长任务使用 Streaming/SSE。
 - 前端通过 task_id 观察任务状态。
 - 不要让 HTTP 请求永久阻塞等待非常长的 Agent 任务。
+
+### 统一导入导出
+
+知识库、预设、长期记忆、技能遵循同一套模式：
+
+```text
+GET  /api/{domain}/export          下载导出包
+POST /api/{domain}/import/preview  上传并解析预览（不落盘）
+POST /api/{domain}/import          用预览 token 确认写入（一次性）
+```
+
+- 预览保存在进程内存（TTL 10 分钟），取消 / 过期不写入任何数据；进程重启丢失。
+- 格式：预设 / 长期记忆为 JSON；知识库为 zip（`manifest.json` + 原文件）；
+  技能为 zip（`SKILL.md` + 附件，既有行为）。
+- 重复策略必须是确定性的：预设按标题 + query、记忆按 `memory/dedupe.py`、
+  知识库按文件内容 SHA-256；重复项跳过而不是覆盖。
+- 预设范围导出时同时写 id 与类别名 / 文件名；导入先按 id，再按名称 / 文件名
+  重映射，便于跨环境迁移（知识库导入后 id 会变化）。
+- 长期记忆导入**不覆盖已有偏好**；`kind=preference` 必须降级为 `fact`，
+  避免同一信息同时落进偏好与记忆两张表。
+- 知识库导入必须重新解析、切分并建立向量索引，不得复用源环境的 Chroma 数据；
+  类别按名称复用或新建。
+- 导入文件必须做 zip 路径穿越 / 符号链接 / 大小 / 数量校验；
+  错误统一为 `import_package_invalid`（422）、`import_package_too_large`（413）、
+  `import_preview_expired`（409）。
+- 前端统一使用 `ImportPreviewModal` 与 `downloadBlob`，不要在页面各写一套
+  预览弹窗 / 下载逻辑。
 
 ---
 

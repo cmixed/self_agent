@@ -206,6 +206,34 @@ export interface PresetListResponse {
   presets: PresetInfo[]
 }
 
+// --- 统一导入导出 ---
+
+export interface ImportConfirmPayload {
+  token: string
+}
+
+export interface PresetImportItem {
+  title: string
+  description: string
+  query: string
+  auto_run: boolean
+  scope?: TaskScope | null
+}
+
+export interface PresetImportPreview {
+  token: string
+  presets: PresetImportItem[]
+  skipped_duplicates: string[]
+  warnings: string[]
+  source_filename?: string | null
+  expires_in: number
+}
+
+export interface PresetImportResult {
+  imported: PresetInfo[]
+  skipped: string[]
+}
+
 export interface ApiErrorBody {
   error: string
   error_type: string
@@ -393,6 +421,34 @@ export interface DocumentInfo {
   category_ids: string[]
 }
 
+export interface KnowledgeImportDocument {
+  filename: string
+  size: number
+  category_ids: string[]
+}
+
+export interface KnowledgeImportPreview {
+  token: string
+  documents: KnowledgeImportDocument[]
+  categories: string[]
+  skipped: string[]
+  warnings: string[]
+  source_filename?: string | null
+  expires_in: number
+}
+
+export interface KnowledgeImportFailure {
+  filename: string
+  message: string
+}
+
+export interface KnowledgeImportResult {
+  imported: DocumentInfo[]
+  skipped: string[]
+  failed: KnowledgeImportFailure[]
+  categories_created: string[]
+}
+
 export interface MemoryRecord {
   memory_id: number
   kind: string
@@ -405,6 +461,29 @@ export interface MemoryProfile {
   user_id: string
   preferences: Record<string, string>
   memories: MemoryRecord[]
+}
+
+export interface MemoryPackageItem {
+  kind: string
+  content: string
+}
+
+export interface MemoryImportPreview {
+  token: string
+  preferences: Record<string, string>
+  memories: MemoryPackageItem[]
+  skipped_preferences: string[]
+  skipped_memories: string[]
+  warnings: string[]
+  source_filename?: string | null
+  expires_in: number
+}
+
+export interface MemoryImportResult {
+  preferences: string[]
+  memories: string[]
+  skipped_preferences: string[]
+  skipped_memories: string[]
 }
 
 /** 后端 SSE 推送的进度事件（见 AGENTS.md §19）。 */
