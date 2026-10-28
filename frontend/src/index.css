@@ -1448,6 +1448,9 @@ html[data-theme='dark'] body {
 }
 
 .ws-preset {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   cursor: pointer;
   transition: border-color 0.2s;
 }
@@ -1478,6 +1481,7 @@ html[data-theme='dark'] body {
 
 .ws-preset .ant-card-body {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: var(--ws-space-2);
   padding: var(--ws-space-3) var(--ws-space-4);
@@ -1546,6 +1550,7 @@ html[data-theme='dark'] body {
 .ws-preset__actions {
   display: flex;
   justify-content: flex-end;
+  margin-top: auto;
 }
 
 /* 预设详情浮窗 */
