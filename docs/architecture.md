@@ -207,7 +207,9 @@ Agent Graph 只依赖 `get_llm()`。Provider 由 `ProviderConfig` 描述，工�
 
 - 预览 token 存进程内存（TTL 10 分钟），确认后立即消费；取消不落盘。
 - 预设 / 记忆用 JSON；知识库用 zip（`manifest.json` + 原文件）；
-  技能用标准 `SKILL.md` zip。
+  技能用标准 `SKILL.md` zip；设置页支持一键完整备份（把各域包再打成一个 zip）。
+- 全局恢复顺序固定为知识库 → 技能 → 预设 → 记忆，保证预设范围能按名称 /
+  文件名映射到刚恢复的文档。
 - 去重规则是确定性的（预设标题+query、记忆 dedupe、知识库内容 SHA-256），
   重复项跳过而不是覆盖。
 - 知识库导入不复用源 Chroma 向量，必须在当前环境重新解析与索引；

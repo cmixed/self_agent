@@ -63,6 +63,7 @@ from app.skills.errors import (
 )
 from app.skills.models import SkillRecord, SkillResourceRecord
 from app.skills.package import MAX_PACKAGE_BYTES, SkillPackageService
+from app.transfer.package import export_filename
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
 
@@ -197,6 +198,22 @@ async def confirm_skill_import(
     except SkillImportExpiredError as exc:
         return _error(409, exc.error_type, str(exc))
     return _info(record)
+
+
+@router.get("/export", response_model=None)
+async def export_all_skills(
+    skill_service: SkillService = Depends(get_skill_service),
+    service: SkillPackageService = Depends(get_skill_package_service),
+) -> Response:
+    """导出全部技能（zip：每项为标准 SKILL.md 目录 + manifest）。"""
+    skills = await skill_service.list_skills()
+    data = await service.export_collection(skills)
+    filename = export_filename("skills", "zip")
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{skill_id}/export", response_model=None)

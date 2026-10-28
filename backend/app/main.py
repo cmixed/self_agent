@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api import (
+    backup,
     categories,
     chat,
     documents,
@@ -135,6 +136,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router)
     app.include_router(tasks.router)
     app.include_router(email.router)
+    app.include_router(backup.router)
     app.include_router(documents.router)
     app.include_router(memory.router)
     register_exception_handlers(app)

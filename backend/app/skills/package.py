@@ -10,6 +10,7 @@ import stat
 import time
 import zipfile
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from uuid import uuid4
 
@@ -28,6 +29,7 @@ from app.skills.store import (
     SkillFileStore,
     normalize_resource_name,
 )
+from app.transfer.package import encode_json
 
 logger = get_logger(__name__)
 
@@ -187,6 +189,34 @@ def parse_skill_package(data: bytes, *, filename: str | None = None) -> SkillPac
         )
 
 
+def _build_skill_collection(items: list[tuple[SkillRecord, bytes]]) -> bytes:
+    """把多个技能包展开到同一个 zip（`<skill_id>/SKILL.md` + 附件）。"""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        manifest_skills: list[dict[str, object]] = []
+        for skill, package in items:
+            with zipfile.ZipFile(io.BytesIO(package)) as nested:
+                for info in nested.infolist():
+                    if info.is_dir():
+                        continue
+                    archive.writestr(info.filename, nested.read(info))
+            manifest_skills.append(
+                {
+                    "skill_id": skill.skill_id,
+                    "name": skill.name,
+                    "builtin": skill.builtin,
+                }
+            )
+        manifest = {
+            "format": "self-agent-skills",
+            "version": 1,
+            "exported_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "skills": manifest_skills,
+        }
+        archive.writestr("manifest.json", encode_json(manifest))
+    return buffer.getvalue()
+
+
 class SkillPackageService:
     """导入预览（内存暂存）与导出。"""
 
@@ -228,6 +258,13 @@ class SkillPackageService:
 
     async def export(self, skill_id: str) -> bytes:
         return await self._store.export_package(skill_id)
+
+    async def export_collection(self, skills: list[SkillRecord]) -> bytes:
+        """导出全部技能为一个 zip（每项保持标准 SKILL.md 目录结构）。"""
+        items: list[tuple[SkillRecord, bytes]] = []
+        for skill in skills:
+            items.append((skill, await self.export(skill.skill_id)))
+        return await asyncio.to_thread(_build_skill_collection, items)
 
     def _cleanup_expired(self) -> None:
         now = time.monotonic()

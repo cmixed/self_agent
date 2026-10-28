@@ -234,6 +234,33 @@ export interface PresetImportResult {
   skipped: string[]
 }
 
+export interface BackupSectionPreview {
+  key: string
+  label: string
+  summary: string
+  warnings: string[]
+}
+
+export interface BackupImportPreview {
+  token: string
+  sections: BackupSectionPreview[]
+  warnings: string[]
+  source_filename?: string | null
+  expires_in: number
+}
+
+export interface BackupSectionResult {
+  key: string
+  label: string
+  summary: string
+  failed: string[]
+}
+
+export interface BackupImportResult {
+  sections: BackupSectionResult[]
+  warnings: string[]
+}
+
 export interface ApiErrorBody {
   error: string
   error_type: string

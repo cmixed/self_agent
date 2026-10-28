@@ -574,6 +574,35 @@ class ImportConfirmRequest(BaseModel):
     token: str = Field(min_length=1, max_length=64)
 
 
+class BackupSectionPreviewOut(BaseModel):
+    key: str
+    label: str
+    summary: str
+    warnings: list[str] = Field(default_factory=list)
+
+
+class BackupImportPreview(BaseModel):
+    """系统级备份导入预览（知识库 / 技能 / 预设 / 长期记忆）。"""
+
+    token: str
+    sections: list[BackupSectionPreviewOut] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    source_filename: str | None = None
+    expires_in: int
+
+
+class BackupSectionResultOut(BaseModel):
+    key: str
+    label: str
+    summary: str
+    failed: list[str] = Field(default_factory=list)
+
+
+class BackupImportResult(BaseModel):
+    sections: list[BackupSectionResultOut] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class SetPreferenceRequest(BaseModel):
     value: str = Field(min_length=1, max_length=200)
 

@@ -24,6 +24,7 @@ from app.memory.sqlite import SqliteDatabase
 from app.rag.retriever import Retriever
 from app.rag.store import ChromaStore
 from app.rag.tools import RagTool
+from app.services.backup_service import BackupService
 from app.services.category_service import CategoryService
 from app.services.document_service import DocumentService
 from app.services.email_service import EmailService
@@ -50,6 +51,7 @@ _email_service: EmailService | None = None
 _preset_package_service: PresetPackageService | None = None
 _memory_package_service: MemoryPackageService | None = None
 _knowledge_package_service: KnowledgePackageService | None = None
+_backup_service: BackupService | None = None
 
 
 def build_chroma_store() -> ChromaStore:
@@ -324,6 +326,24 @@ def get_knowledge_package_service() -> KnowledgePackageService:
     return build_knowledge_package_service()
 
 
+def build_backup_service() -> BackupService:
+    """进程级缓存：全局导入预览 token 需要跨请求保留。"""
+    global _backup_service
+    if _backup_service is None:
+        _backup_service = BackupService(
+            build_preset_package_service(),
+            build_memory_package_service(),
+            build_knowledge_package_service(),
+            build_skill_package_service(),
+            build_skill_service(),
+        )
+    return _backup_service
+
+
+def get_backup_service() -> BackupService:
+    return build_backup_service()
+
+
 def get_memory_service(
     provider: LLMProvider = Depends(get_llm_provider),
 ) -> MemoryService:
@@ -335,6 +355,7 @@ def reset_caches() -> None:
     global _store, _task_repository, _memory_repository
     global _skill_store, _skill_package_service, _database, _email_service
     global _preset_package_service, _memory_package_service, _knowledge_package_service
+    global _backup_service
     _store = None
     _task_repository = None
     _memory_repository = None
@@ -345,3 +366,4 @@ def reset_caches() -> None:
     _preset_package_service = None
     _memory_package_service = None
     _knowledge_package_service = None
+    _backup_service = None

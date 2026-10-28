@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import zipfile
 from pathlib import Path
 
@@ -196,6 +197,33 @@ async def test_export_round_trip(tmp_path: Path) -> None:
         "references/note.md",
         "scripts/run.py",
     ]
+
+
+async def test_export_collection(tmp_path: Path) -> None:
+    store = SkillFileStore(tmp_path / "skills")
+    packages = SkillPackageService(store)
+    await store.create_skill(
+        name="技能 A",
+        description="A 的适用场景",
+        content="A 的指令",
+        skill_id="skill-a",
+    )
+    await store.create_skill(
+        name="技能 B",
+        description="B 的适用场景",
+        content="B 的指令",
+        skill_id="skill-b",
+    )
+    records = await store.list_skills()
+
+    blob = await packages.export_collection(records)
+
+    with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+        names = set(archive.namelist())
+        manifest = json.loads(archive.read("manifest.json"))
+    assert {"skill-a/SKILL.md", "skill-b/SKILL.md", "manifest.json"} <= names
+    assert manifest["format"] == "self-agent-skills"
+    assert {item["skill_id"] for item in manifest["skills"]} == {"skill-a", "skill-b"}
 
 
 async def test_export_missing_skill(tmp_path: Path) -> None:

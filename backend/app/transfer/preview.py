@@ -56,6 +56,11 @@ class PreviewStore[T]:
             raise ImportPreviewExpiredError(expired_message)
         return preview.payload
 
+    async def discard(self, token: str) -> None:
+        """丢弃一个预览（例如全局导入时重新生成更精确的预览）。"""
+        async with self._lock:
+            self._pending.pop(token, None)
+
     def _cleanup_expired(self) -> None:
         now = time.monotonic()
         expired = [token for token, item in self._pending.items() if item.expires_at <= now]

@@ -1115,6 +1115,11 @@ GET  /api/documents/export
 POST /api/documents/import/preview
 POST /api/documents/import
 
+GET  /api/skills/export
+GET  /api/backup/export
+POST /api/backup/import/preview
+POST /api/backup/import
+
 GET  /api/settings
 PUT  /api/settings/llm-provider
 
@@ -1147,7 +1152,10 @@ POST /api/{domain}/import          用预览 token 确认写入（一次性）
 
 - 预览保存在进程内存（TTL 10 分钟），取消 / 过期不写入任何数据；进程重启丢失。
 - 格式：预设 / 长期记忆为 JSON；知识库为 zip（`manifest.json` + 原文件）；
-  技能为 zip（`SKILL.md` + 附件，既有行为）。
+  技能为 zip（`SKILL.md` + 附件，既有行为）；设置页另有一键完整备份
+  （知识库 + 预设 + 记忆 + 自定义技能，不包含任务历史与密钥）。
+- 一键恢复顺序固定为**知识库 → 技能 → 预设 → 记忆**：先恢复知识库，
+  预设范围才能按类别名 / 文件名重新映射。
 - 重复策略必须是确定性的：预设按标题 + query、记忆按 `memory/dedupe.py`、
   知识库按文件内容 SHA-256；重复项跳过而不是覆盖。
 - 预设范围导出时同时写 id 与类别名 / 文件名；导入先按 id，再按名称 / 文件名

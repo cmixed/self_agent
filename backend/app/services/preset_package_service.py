@@ -341,6 +341,10 @@ class PresetPackageService:
         pending = await self._previews.put(preview)
         return pending.token, preview
 
+    async def cancel(self, token: str) -> None:
+        """丢弃预览（全局导入会在知识库落盘后重新生成预设预览）。"""
+        await self._previews.discard(token)
+
     async def confirm(self, token: str) -> tuple[list[PresetRecord], list[str]]:
         preview = await self._previews.pop(
             token, expired_message="导入预览已过期，请重新上传预设文件"

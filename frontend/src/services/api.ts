@@ -12,6 +12,8 @@ import type {
   MemoryImportResult,
   MemoryProfile,
   MemoryRecord,
+  BackupImportPreview,
+  BackupImportResult,
   PresetImportPreview,
   PresetImportResult,
   PresetInfo,
@@ -481,6 +483,11 @@ export async function exportSkillPackage(skillId: string): Promise<Blob> {
   return await response.blob()
 }
 
+/** 导出全部技能（zip 集合：每项为标准 SKILL.md 目录）。 */
+export function exportSkillsCollection(): Promise<{ blob: Blob; filename: string }> {
+  return downloadPackage('/skills/export')
+}
+
 // --- 预设任务 ---
 
 export function listPresets(): Promise<PresetListResponse> {
@@ -714,6 +721,23 @@ export function previewMemoryImport(file: File): Promise<MemoryImportPreview> {
 
 export function confirmMemoryImport(token: string): Promise<MemoryImportResult> {
   return request<MemoryImportResult>('/memory/import', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  })
+}
+
+// --- 系统级一键备份 / 恢复 ---
+
+export function exportBackup(): Promise<{ blob: Blob; filename: string }> {
+  return downloadPackage('/backup/export')
+}
+
+export function previewBackupImport(file: File): Promise<BackupImportPreview> {
+  return uploadForPreview<BackupImportPreview>('/backup/import/preview', file)
+}
+
+export function confirmBackupImport(token: string): Promise<BackupImportResult> {
+  return request<BackupImportResult>('/backup/import', {
     method: 'POST',
     body: JSON.stringify({ token }),
   })

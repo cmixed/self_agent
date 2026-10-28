@@ -43,6 +43,7 @@ import {
   deleteSkill,
   deleteSkillResource,
   exportSkillPackage,
+  exportSkillsCollection,
   generateSkill,
   listDocuments,
   listSkillResources,
@@ -440,6 +441,17 @@ export default function SkillsPage() {
     }
   }
 
+  const handleExportAll = async () => {
+    setError(null)
+    try {
+      const { blob, filename } = await exportSkillsCollection()
+      downloadBlob(blob, filename)
+      message.success(`已导出全部 ${skills.length} 个技能`)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '导出全部技能失败')
+    }
+  }
+
   const firstLoad = loading && skills.length === 0
   const enabledCount = skills.filter((skill) => skill.enabled).length
   const disabledCount = skills.length - enabledCount
@@ -464,6 +476,15 @@ export default function SkillsPage() {
           <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
             刷新
           </Button>
+          <Tooltip title="导出全部技能（zip 集合，便于分享 / 归档；恢复请用单个技能包或设置页完整备份）">
+            <Button
+              icon={<DownloadOutlined />}
+              onClick={() => void handleExportAll()}
+              disabled={skills.length === 0 || loading}
+            >
+              导出全部技能
+            </Button>
+          </Tooltip>
           <Upload
             accept=".zip"
             showUploadList={false}
@@ -641,7 +662,9 @@ export default function SkillsPage() {
                           icon={<DownloadOutlined />}
                           aria-label="导出技能包"
                           onClick={() => void handleExport(skill)}
-                        />
+                        >
+                          导出
+                        </Button>
                       </Tooltip>
                       {skill.builtin ? (
                         <Tooltip title="内置技能不可删除，可编辑或停用">

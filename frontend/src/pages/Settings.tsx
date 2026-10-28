@@ -1,5 +1,13 @@
-import { ClearOutlined, DeleteOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons'
 import {
+  ClearOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
+  ImportOutlined,
+  ReloadOutlined,
+  SettingOutlined,
+} from '@ant-design/icons'
+import {
+  Alert,
   App,
   Button,
   Card,
@@ -10,15 +18,27 @@ import {
   Switch,
   Tag,
   Typography,
+  Upload,
 } from 'antd'
 import type { ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import ImportPreviewModal from '../components/ImportPreviewModal'
 import PageContainer from '../components/PageContainer'
-import { listCategories, listDocuments } from '../services/api'
+import { setCachedPresets } from '../hooks/usePresets'
+import {
+  ApiError,
+  confirmBackupImport,
+  exportBackup,
+  listCategories,
+  listDocuments,
+  listPresets,
+  previewBackupImport,
+} from '../services/api'
 import { useTaskRun } from '../state/taskRun'
 import type { ThemeMode } from '../theme/config'
-import type { CategoryInfo, DocumentInfo, TaskDepth } from '../types/api'
+import type { BackupImportPreview, CategoryInfo, DocumentInfo, TaskDepth } from '../types/api'
+import { downloadBlob } from '../utils/download'
 import { DEFAULT_PILL_SETTINGS, PILL_SETTING_RANGES } from '../utils/pillSettings'
 import { describeScope } from '../utils/scope'
 import {
@@ -72,30 +92,33 @@ interface SettingsPageProps {
  * 所有数据只写 localStorage，不写入 SQLite `user_preferences`（那里是长期记忆）。
  */
 export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
-  const { message } = App.useApp()
+  const { message, modal } = App.useApp()
   const { pillSettings, updatePillSettings, clearAcknowledged } = useTaskRun()
 
   const [memory, setMemory] = useState<TaskOptionsMemory>(readTaskOptionsMemory)
   const [categories, setCategories] = useState<CategoryInfo[]>([])
   const [documents, setDocuments] = useState<DocumentInfo[]>([])
 
-  // 只为把记住的检索范围翻译成可读文案；失败时保留 id 兜底，不打扰用户。
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const [categoryData, documentData] = await Promise.all([listCategories(), listDocuments()])
-        if (cancelled) return
-        setCategories(categoryData.categories)
-        setDocuments(documentData.documents)
-      } catch {
-        // 忽略：范围摘要退化为 id 数量，不影响设置本身
-      }
-    })()
-    return () => {
-      cancelled = true
+  // --- 一键备份 / 恢复 ---
+  const [exporting, setExporting] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importPreview, setImportPreview] = useState<BackupImportPreview | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+
+  const refreshLibrary = useCallback(async () => {
+    try {
+      const [categoryData, documentData] = await Promise.all([listCategories(), listDocuments()])
+      setCategories(categoryData.categories)
+      setDocuments(documentData.documents)
+    } catch {
+      // 忽略：范围摘要退化为 id 数量，不影响设置本身
     }
   }, [])
+
+  // 只为把记住的检索范围翻译成可读文案；失败时保留 id 兜底，不打扰用户。
+  useEffect(() => {
+    void refreshLibrary()
+  }, [refreshLibrary])
 
   const handleRememberChange = useCallback(
     (checked: boolean) => {
@@ -126,6 +149,76 @@ export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
     setMode('system')
     message.success('已恢复默认设置（主题改为跟随系统）')
   }, [clearAcknowledged, message, setMode, updatePillSettings])
+
+  const handleExportAll = async () => {
+    setExporting(true)
+    try {
+      const { blob, filename } = await exportBackup()
+      downloadBlob(blob, filename)
+      message.success('已导出完整备份')
+    } catch (err) {
+      message.error(err instanceof ApiError ? err.message : '导出备份失败')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleImportAllFile = async (file: File) => {
+    setImporting(true)
+    setImportError(null)
+    setImportPreview(null)
+    try {
+      setImportPreview(await previewBackupImport(file))
+    } catch (err) {
+      setImportError(err instanceof ApiError ? err.message : '解析备份文件失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleConfirmImportAll = async () => {
+    if (!importPreview) return
+    setImporting(true)
+    setImportError(null)
+    try {
+      const result = await confirmBackupImport(importPreview.token)
+      const failed = result.sections.flatMap((section) =>
+        section.failed.map((item) => `${section.label}：${item}`),
+      )
+      if (failed.length > 0) {
+        modal.warning({
+          title: '备份已恢复，但部分内容失败',
+          content: (
+            <ul className="plain-list">
+              {failed.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          ),
+        })
+      } else {
+        message.success('已恢复全部备份')
+      }
+      setImportPreview(null)
+      await refreshLibrary()
+      try {
+        const presetData = await listPresets()
+        setCachedPresets(presetData.presets)
+      } catch {
+        // 缓存刷新失败不影响导入结果；工作台下次进入时会重新拉取
+      }
+    } catch (err) {
+      setImportError(err instanceof ApiError ? err.message : '恢复备份失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const closeImportAll = () => {
+    if (importing) return
+    setImportPreview(null)
+    setImportError(null)
+  }
 
   const scopeSummary = useMemo(() => {
     const { scope, dropped } = sanitizeScope(memory.options.scope, categories, documents)
@@ -315,6 +408,46 @@ export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
         </div>
       </Card>
 
+      <Card title="数据备份">
+        <SettingsRow
+          title="一键全部导出"
+          description="把知识库、预设、长期记忆与自定义技能打包为一个 zip 备份文件。"
+          control={
+            <Button
+              icon={<DownloadOutlined />}
+              loading={exporting}
+              onClick={() => void handleExportAll()}
+            >
+              导出完整备份
+            </Button>
+          }
+        />
+        <SettingsRow
+          title="一键全部导入"
+          description="上传完整备份；会先预览各部分的导入数量与重复项，确认后才写入。"
+          control={
+            <Upload
+              accept=".zip"
+              showUploadList={false}
+              beforeUpload={(file) => {
+                void handleImportAllFile(file)
+                return false
+              }}
+            >
+              <Button icon={<ImportOutlined />} loading={importing} disabled={importing}>
+                选择备份文件
+              </Button>
+            </Upload>
+          }
+        />
+        <div className="settings-actions">
+          <Text type="secondary">
+            包含：知识库、预设、长期记忆、自定义技能。不包含：内置技能、任务历史、LLM
+            密钥与浏览器本地设置。导入知识库会重新建立向量索引，可能需要一些时间。
+          </Text>
+        </div>
+      </Card>
+
       <Card title="本地数据">
         <SettingsRow
           title="清除「已查看」记录"
@@ -352,6 +485,36 @@ export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
       <Space size={4} wrap>
         <Text type="secondary">提示：顶栏的主题按钮会直接把主题切为固定的浅色 / 深色。</Text>
       </Space>
+
+      <ImportPreviewModal
+        open={importing || importPreview !== null || importError !== null}
+        title="恢复全部备份"
+        preview={importPreview}
+        importing={importing}
+        error={importError}
+        confirmDisabled={(importPreview?.sections.length ?? 0) === 0}
+        onCancel={closeImportAll}
+        onConfirm={() => void handleConfirmImportAll()}
+      >
+        {importPreview ? (
+          <>
+            <Alert
+              type="warning"
+              showIcon
+              message="恢复会写入知识库、技能、预设与长期记忆"
+              description="已有数据不会删除，重复项会跳过；知识库文档会重新解析并建立向量索引，可能需要一些时间。"
+            />
+            {importPreview.sections.map((section) => (
+              <Card size="small" key={section.key}>
+                <Space size={8} wrap>
+                  <Text strong>{section.label}</Text>
+                  <Text type="secondary">{section.summary}</Text>
+                </Space>
+              </Card>
+            ))}
+          </>
+        ) : null}
+      </ImportPreviewModal>
     </PageContainer>
   )
 }
