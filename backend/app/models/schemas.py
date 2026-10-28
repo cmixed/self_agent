@@ -462,6 +462,22 @@ class TaskResponse(BaseModel):
     usage: UsageOut | None = None
 
 
+class TaskEmailRequest(BaseModel):
+    """把任务正文发送到指定邮箱。"""
+
+    # 具体格式由服务层校验：非法地址返回 400，而不是 FastAPI 的 422 结构
+    to: str = Field(default="")
+
+
+class TaskEmailResponse(BaseModel):
+    """邮件发送结果（收件人已脱敏，绝不回传完整地址）。"""
+
+    status: str = "sent"
+    task_id: str
+    to: str
+    subject: str
+
+
 class DocumentInfo(BaseModel):
     document_id: str
     filename: str

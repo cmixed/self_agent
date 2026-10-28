@@ -18,6 +18,7 @@ from app.api import (
     categories,
     chat,
     documents,
+    email,
     health,
     memory,
     presets,
@@ -133,6 +134,7 @@ def create_app() -> FastAPI:
     app.include_router(providers_crud.router)
     app.include_router(chat.router)
     app.include_router(tasks.router)
+    app.include_router(email.router)
     app.include_router(documents.router)
     app.include_router(memory.router)
     register_exception_handlers(app)

@@ -25,6 +25,7 @@ import type {
   TaskScope,
   TaskDepth,
   TaskDetail,
+  TaskEmailResponse,
   TaskEvent,
   TaskListResponse,
   TaskState,
@@ -107,6 +108,14 @@ export function getTask(taskId: string): Promise<TaskDetail> {
 
 export function getTaskState(taskId: string): Promise<TaskState> {
   return request<TaskState>(`/tasks/${taskId}/state`)
+}
+
+/** 把已完成任务的正文发送到邮箱（纯文本正文 + Markdown 附件）。 */
+export function sendTaskEmail(taskId: string, to: string): Promise<TaskEmailResponse> {
+  return request<TaskEmailResponse>(`/tasks/${encodeURIComponent(taskId)}/email`, {
+    method: 'POST',
+    body: JSON.stringify({ to }),
+  })
 }
 
 /** 取消正在运行的任务（后端会中断进行中的模型调用并把运行标记为 cancelled）。 */

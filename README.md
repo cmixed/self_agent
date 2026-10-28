@@ -333,7 +333,7 @@ vp build             # 内含 tsc --noEmit
 
 | 页面 | 内容 |
 | --- | --- |
-| 工作台 | 提交任务、SSE 实时进度（宏观 5 阶段 + 逐章迭代 + 结构化执行日志）、**可随时终止 / 新建并行任务**、结果 Tabs（概览/正文/章节/计划/校验/来源）、**Markdown 渲染**（可复制 / 下载 .md） |
+| 工作台 | 提交任务、SSE 实时进度（宏观 5 阶段 + 逐章迭代 + 结构化执行日志）、**可随时终止 / 新建并行任务**、结果 Tabs（概览/正文/章节/计划/校验/来源）、**Markdown 渲染**（可复制 / 下载 .md / 发送到邮箱） |
 | 知识库 | 拖拽上传 PDF/TXT/MD（带传输进度、同名提醒）、文件名/标题搜索、文档预览、类别管理与**批量分类 / 批量删除** |
 | 技能 | L1/L2/L3 三段式详情、启停、附件目录管理、zip 技能包导入预览与导出；列表直接显示附件数 / 脚本数 |
 | 预设任务 | 常用任务模板的新增、编辑、删除、拖拽排序与一键填入工作台；工作台展示前 6 条，其余进入「更多」下拉 |
@@ -497,6 +497,34 @@ uv run python -m app.evaluation.run --suite compare --real --top-k 5 \
   「指定范围」解析为空时返回 409（不会静默检索全部），「不检索」不访问知识库。
 - 任务详情会显示本次「检索范围」。
 
+## 把生成结果发送到邮箱
+
+- **入口**：工作台「生成结果」卡片与任务详情页右上角都有「发送到邮箱」按钮。
+- **内容**：纯文本正文 + Markdown 附件（`.md`），附件名为任务标题。
+- **范围**：只允许发送**已完成且有正文**的任务；任务未完成返回 409。
+- **服务端发信**：前端只填写收件人，SMTP 账号与密码只保存在 `backend/.env`，
+  不会返回前端，也不会写入日志（日志只记录脱敏地址）。
+- **错误提示**：未配置 SMTP 返回 503，认证失败 / 网络异常返回 502，
+  收件人格式错误返回 400；同一任务 + 同一收件人 30 秒内重复发送返回 429。
+
+配置示例（详见 `backend/.env.example`）：
+
+```env
+# QQ 邮箱：密码填「授权码」，不是登录密码
+SMTP_HOST=smtp.qq.com
+SMTP_PORT=465
+SMTP_SECURITY=ssl
+SMTP_USERNAME=your@qq.com
+SMTP_PASSWORD=你的授权码
+SMTP_FROM=your@qq.com
+SMTP_FROM_NAME=个人知识库 Agent
+```
+
+- Gmail：`SMTP_HOST=smtp.gmail.com`、`SMTP_PORT=587`、`SMTP_SECURITY=starttls`，
+  使用应用专用密码。
+- 本地中继：`SMTP_SECURITY=none`（仅限可信内网）。
+- 修改 SMTP 配置后需**重启后端**才会生效。
+
 ## 任务中断后怎么办
 
 额度不足、密钥失效、手动取消都会让任务中断。此时**不需要删除重建**，任务详情页提供两个动作：
@@ -628,6 +656,7 @@ L1 目录：Planner 只看 skill_id / name / description（不看正文）
 | `DELETE` | `/api/skills/{id}/resources/{resource_id:path}` | 删除附件 |
 | `POST` | `/api/tasks/{id}/resume` | **继续生成**：从断点续跑（SSE；无检查点返回 409） |
 | `POST` | `/api/tasks/{id}/rerun` | **重新生成**：同 query 新建一次运行（SSE，原任务记录保留） |
+| `POST` | `/api/tasks/{id}/email` | **发送到邮箱**：正文（纯文本 + `.md` 附件）通过 SMTP 发送；未配置返回 503 |
 
 `POST /api/tasks` 请求示例：
 

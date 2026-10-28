@@ -1,6 +1,7 @@
 import {
   CopyOutlined,
   DownloadOutlined,
+  MailOutlined,
   ReloadOutlined,
   RightCircleOutlined,
 } from '@ant-design/icons'
@@ -38,6 +39,7 @@ import { isTerminalStatus } from '../utils/runningTasks'
 import EmptyState from './EmptyState'
 import ErrorNotice from './ErrorNotice'
 import MarkdownReader from './MarkdownReader'
+import SendEmailModal from './SendEmailModal'
 import StatStrip from './StatStrip'
 import StatusTag from './StatusTag'
 import ViewHeader from './ViewHeader'
@@ -105,6 +107,7 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [state, setState] = useState<TaskState | null>(null)
   const [stateError, setStateError] = useState<string | null>(null)
+  const [emailOpen, setEmailOpen] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -216,6 +219,13 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
                 >
                   下载 .md
                 </Button>
+              ) : null}
+              {detail.final_answer && !detail.running && detail.status === 'completed' ? (
+                <Tooltip title="把正文与 Markdown 附件发送到邮箱">
+                  <Button size="small" icon={<MailOutlined />} onClick={() => setEmailOpen(true)}>
+                    发送到邮箱
+                  </Button>
+                </Tooltip>
               ) : null}
               {detail.resumable && !detail.running ? (
                 <Tooltip title="从断点继续，已完成的章节不会重跑">
@@ -454,6 +464,12 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
           </Space>
         ) : null}
       </div>
+      <SendEmailModal
+        open={emailOpen}
+        taskId={taskId}
+        title={detail?.query}
+        onClose={() => setEmailOpen(false)}
+      />
     </div>
   )
 }

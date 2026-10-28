@@ -11,6 +11,7 @@ import {
   FileTextOutlined,
   HistoryOutlined,
   LoadingOutlined,
+  MailOutlined,
   PlusOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
@@ -47,6 +48,7 @@ import MarkdownReader from '../components/MarkdownReader'
 import PageContainer from '../components/PageContainer'
 import ScopePicker from '../components/ScopePicker'
 import Section from '../components/Section'
+import SendEmailModal from '../components/SendEmailModal'
 import SourceList from '../components/SourceList'
 import StatStrip from '../components/StatStrip'
 import StatusTag from '../components/StatusTag'
@@ -187,6 +189,7 @@ export default function TaskPage() {
   // 打开范围选择器前的模式：取消时恢复，避免误改「全部 / 不检索」
   const scopeModeBeforePickerRef = useRef<RetrievalMode>('all')
   const [scopePickerOpen, setScopePickerOpen] = useState(false)
+  const [emailOpen, setEmailOpen] = useState(false)
   const [outputTab, setOutputTab] = useState('plan')
   // 「上次任务」固定占预设区第一个槽位，因此可见预设少一条
   const lastTask = useMemo(() => pickLastTask(recentTasks), [recentTasks])
@@ -977,6 +980,13 @@ export default function TaskPage() {
           onConfirm={handleScopeConfirm}
         />
 
+        <SendEmailModal
+          open={emailOpen}
+          taskId={taskId}
+          title={plan?.goal || query}
+          onClose={() => setEmailOpen(false)}
+        />
+
         <Section title="Agent 执行流程" description="运行时会按此顺序推进，并实时反馈当前阶段" />
 
         <div className="ws-pipeline">
@@ -1194,6 +1204,16 @@ export default function TaskPage() {
                 <Tooltip title="下载 Markdown 文件到本地">
                   <Button size="small" icon={<DownloadOutlined />} onClick={download}>
                     下载
+                  </Button>
+                </Tooltip>
+                <Tooltip title="把正文与 Markdown 附件发送到邮箱">
+                  <Button
+                    size="small"
+                    icon={<MailOutlined />}
+                    disabled={running || !taskId}
+                    onClick={() => setEmailOpen(true)}
+                  >
+                    发送到邮箱
                   </Button>
                 </Tooltip>
                 <Tooltip title="打印 / 导出 PDF">

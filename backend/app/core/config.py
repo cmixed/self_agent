@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -110,6 +111,20 @@ class Settings(BaseSettings):
     # --- 运行时设置（前端切换 LLM Provider 的持久化，§18 /api/settings）---
     settings_path: Path = _REPO_ROOT / "data" / "settings.json"
 
+    # --- 邮件发送（把生成结果发送到邮箱）---
+    # SMTP 密码只来自环境变量 / backend/.env，禁止返回前端或写入日志。
+    smtp_host: str = ""
+    smtp_port: int = 465
+    # ssl（465，常见于 QQ / 163）/ starttls（587，常见于 Gmail）/ none（仅本地中继）
+    smtp_security: Literal["ssl", "starttls", "none"] = "ssl"
+    smtp_username: str = ""
+    smtp_password: SecretStr | None = None
+    smtp_from: str = ""
+    smtp_from_name: str = "个人知识库 Agent"
+    smtp_timeout_seconds: float = 15.0
+    # 同一用户 + 同一任务 + 同一收件人的发送冷却（秒）；0 = 不限制
+    email_cooldown_seconds: float = 30.0
+
     # --- Agent ---
     # 单个节点的最大重试次数（Validator 重试见 Phase 4，§16）
     max_retries: int = 2
@@ -194,6 +209,22 @@ class Settings(BaseSettings):
             return False
         value = key.get_secret_value().strip()
         return bool(value) and not _is_placeholder(value)
+
+    @property
+    def effective_smtp_from(self) -> str:
+        """发件人地址：未显式配置时回退到登录账号。"""
+        return (self.smtp_from or self.smtp_username).strip()
+
+    @property
+    def smtp_configured(self) -> bool:
+        """SMTP 是否具备发信条件（不校验服务器可用性）。"""
+        if not self.smtp_host.strip() or not self.effective_smtp_from:
+            return False
+        if not self.smtp_username.strip():
+            # 本地中继可能不需要认证；仍要求显式配置发件人
+            return True
+        password = self.smtp_password.get_secret_value().strip() if self.smtp_password else ""
+        return bool(password) and not _is_placeholder(password)
 
     @property
     def effective_max_sections(self) -> int:

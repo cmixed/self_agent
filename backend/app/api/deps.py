@@ -26,6 +26,7 @@ from app.rag.store import ChromaStore
 from app.rag.tools import RagTool
 from app.services.category_service import CategoryService
 from app.services.document_service import DocumentService
+from app.services.email_service import EmailService
 from app.services.memory_service import MemoryService
 from app.services.preset_service import PresetService
 from app.services.provider_service import ProviderService
@@ -42,6 +43,7 @@ _skill_store: SkillFileStore | None = None
 _skill_package_service: SkillPackageService | None = None
 _database: SqliteDatabase | None = None
 _checkpoint_store: CheckpointStore | None = None
+_email_service: EmailService | None = None
 
 
 def build_chroma_store() -> ChromaStore:
@@ -264,6 +266,18 @@ def get_provider_service() -> ProviderService:
     return build_provider_service()
 
 
+def build_email_service() -> EmailService:
+    """进程级缓存：发送冷却需要跨请求保留状态。"""
+    global _email_service
+    if _email_service is None:
+        _email_service = EmailService(get_settings())
+    return _email_service
+
+
+def get_email_service() -> EmailService:
+    return build_email_service()
+
+
 def get_memory_service(
     provider: LLMProvider = Depends(get_llm_provider),
 ) -> MemoryService:
@@ -273,10 +287,11 @@ def get_memory_service(
 def reset_caches() -> None:
     """仅用于测试：清空进程级缓存的向量集合与持久化句柄。"""
     global _store, _task_repository, _memory_repository
-    global _skill_store, _skill_package_service, _database
+    global _skill_store, _skill_package_service, _database, _email_service
     _store = None
     _task_repository = None
     _memory_repository = None
     _skill_store = None
     _skill_package_service = None
     _database = None
+    _email_service = None

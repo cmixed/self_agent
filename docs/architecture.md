@@ -47,6 +47,9 @@ TaskService ──→ LangGraph 工作流（只负责编排）
 7. `writer` 逐章生成，`validator` 做章级校验；失败按路由决定重写本章、
    写下一章、整篇校验或 replan。
 8. `summarizer` 汇总最终 Markdown（含来源与未通过项标注），写入任务记录。
+9. 任务完成后可调用 `POST /api/tasks/{id}/email` 把正文（纯文本 + `.md` 附件）
+   通过 SMTP 发到用户邮箱；这是**任务后的副作用**，不进入 Agent Graph，
+   也不修改 AgentState。
 
 ## 3. AgentState
 

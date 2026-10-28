@@ -342,6 +342,14 @@ export interface TaskDetail extends TaskResult {
   attempts?: TaskAttempt[]
 }
 
+/** 把任务正文发送到邮箱的结果（收件人已脱敏）。 */
+export interface TaskEmailResponse {
+  status: string
+  task_id: string
+  to: string
+  subject: string
+}
+
 /** 任务列表项（不含正文）。 */
 export interface TaskSummary {
   task_id: string

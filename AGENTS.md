@@ -543,6 +543,10 @@ GLM_MODEL=glm-5.3-flash
 - 日志中不得打印 API Key。
 - 不要把完整密钥返回给前端。
 - 运行时切换 Provider 时，未配置密钥的服务商必须拒绝切换（不允许自动降级）。
+- **邮件发送**：SMTP 主机 / 账号 / 密码只来自环境变量或 `backend/.env`
+  （`SMTP_PASSWORD` 用 `SecretStr`），同样禁止提交、禁止返回前端、禁止写日志；
+  邮件是任务完成后的副作用，不进入 AgentState / LangGraph 拓扑。只允许发送
+  当前用户自己的、已完成且有正文的任务；同一任务 + 收件人需有发送冷却。
 
 当前默认模型固定为：
 
@@ -1092,6 +1096,7 @@ GET  /api/tasks/{id}/stream
 POST /api/tasks/{id}/cancel
 POST /api/tasks/{id}/resume
 POST /api/tasks/{id}/rerun
+POST /api/tasks/{id}/email     # 把已完成任务的正文发送到邮箱
 
 GET  /api/settings
 PUT  /api/settings/llm-provider
