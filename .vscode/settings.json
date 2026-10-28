@@ -6,5 +6,7 @@
     "Ollama",
     "pyproject",
     "Qwen"
-  ]
+  ],
+  "vitest.rootConfig": "frontend/vite.config.ts",
+  "vitest.vitestPackagePath": "frontend/node_modules/vitest/package.json"
 }
