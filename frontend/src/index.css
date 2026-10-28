@@ -1391,7 +1391,27 @@ html[data-theme='dark'] body {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-width: 280px;
+  max-width: 320px;
+}
+
+.ws-preset-more__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ws-space-2);
+}
+
+.ws-preset-more__title {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-preset-more__run {
+  height: auto;
+  padding: 0;
+  font-size: var(--ws-font-secondary);
 }
 
 .ws-preset-more__desc {
@@ -1487,9 +1507,34 @@ html[data-theme='dark'] body {
 }
 
 .ws-preset__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ws-space-1);
   font-size: var(--ws-font-card-title);
   font-weight: 600;
   color: var(--ant-color-text);
+}
+
+.ws-preset__title-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-preset__detail {
+  flex: none;
+  height: auto;
+  padding: 0 var(--ws-space-1);
+  font-size: var(--ws-font-caption);
+  font-weight: 400;
+  color: var(--ant-color-text-tertiary);
+}
+
+.ws-preset__detail:hover {
+  color: var(--ant-color-primary) !important;
 }
 
 .ws-preset__desc {
@@ -1503,10 +1548,48 @@ html[data-theme='dark'] body {
   justify-content: flex-end;
 }
 
-/* 「直接运行」预设计号：提示点击即执行 */
-.ws-preset__auto {
-  margin-left: var(--ws-space-1);
-  color: var(--ant-color-primary);
+/* 预设详情浮窗 */
+.preset-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-3);
+}
+
+.preset-detail__title {
+  font-size: var(--ws-font-card-title);
+}
+
+.preset-detail__desc {
+  margin: 0;
+}
+
+.preset-detail__row {
+  display: flex;
+  align-items: center;
+  gap: var(--ws-space-2);
+  flex-wrap: wrap;
+}
+
+.preset-detail__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-1);
+}
+
+.preset-detail__query {
+  max-height: 240px;
+  padding: var(--ws-space-2) var(--ws-space-3);
+  overflow: auto;
+  font-size: var(--ws-font-secondary);
+  line-height: var(--ws-lh-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--ant-color-border);
+  border-radius: var(--ws-radius-sm);
+  background: var(--ant-color-fill-quaternary);
+}
+
+.preset-detail__meta {
   font-size: var(--ws-font-caption);
 }
 

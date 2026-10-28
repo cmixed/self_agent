@@ -194,7 +194,7 @@ export interface PresetInfo {
   query: string
   /** 绑定的检索范围；null/缺省 = 未绑定（运行时用工作台当前选择）。 */
   scope?: TaskScope | null
-  /** 工作台点击卡片是否直接执行（默认 false = 仅填入输入框待确认）。 */
+  /** 已废弃：工作台统一为「点击卡片填入、按钮直接运行」，该字段仅保留兼容。 */
   auto_run: boolean
   /** 工作台展示顺序（越小越靠前；新建预设追加到末尾）。 */
   sort_order: number
@@ -216,6 +216,7 @@ export interface PresetImportItem {
   title: string
   description: string
   query: string
+  /** 已废弃，导入时忽略。 */
   auto_run: boolean
   scope?: TaskScope | null
 }

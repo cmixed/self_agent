@@ -10,6 +10,7 @@ import {
   EditOutlined,
   FileTextOutlined,
   HistoryOutlined,
+  InfoCircleOutlined,
   LoadingOutlined,
   MailOutlined,
   PlusOutlined,
@@ -46,6 +47,7 @@ import type { MacroStage } from '../components/AgentProgress'
 import EmptyState from '../components/EmptyState'
 import MarkdownReader from '../components/MarkdownReader'
 import PageContainer from '../components/PageContainer'
+import PresetDetailModal from '../components/PresetDetailModal'
 import ScopePicker from '../components/ScopePicker'
 import Section from '../components/Section'
 import SendEmailModal from '../components/SendEmailModal'
@@ -189,6 +191,7 @@ export default function TaskPage() {
   // 打开范围选择器前的模式：取消时恢复，避免误改「全部 / 不检索」
   const scopeModeBeforePickerRef = useRef<RetrievalMode>('all')
   const [scopePickerOpen, setScopePickerOpen] = useState(false)
+  const [detailPreset, setDetailPreset] = useState<PresetInfo | null>(null)
   const [emailOpen, setEmailOpen] = useState(false)
   const [outputTab, setOutputTab] = useState('plan')
   // 「上次任务」固定占预设区第一个槽位，因此可见预设少一条
@@ -349,24 +352,42 @@ export default function TaskPage() {
     void startRun(preset.query, effectiveScope, effectiveMode)
   }
 
-  /** 点击预设卡片：绑定了「直接运行」的立即执行，否则只填入待确认。 */
+  /** 点击预设卡片：只填入输入框（不执行），是否运行交给「直接运行」按钮 / 详情浮窗。 */
   const handlePresetOpen = (preset: PresetInfo) => {
-    if (preset.auto_run) {
-      handlePresetRun(preset)
-      return
-    }
     handlePresetFill(preset)
   }
 
-  // 前 6 条之外的预设：通过「更多」下拉仍然可执行，不能只留在管理页
+  /** 详情浮窗里的动作：先关闭浮窗，再填入或运行。 */
+  const handleDetailFill = (preset: PresetInfo) => {
+    setDetailPreset(null)
+    handlePresetFill(preset)
+  }
+
+  const handleDetailRun = (preset: PresetInfo) => {
+    setDetailPreset(null)
+    handlePresetRun(preset)
+  }
+
+  // 前 6 条之外的预设：点击填入，「直接运行」按钮立即执行，不能只留在管理页
   const hiddenPresetItems: MenuProps['items'] = hiddenPresets.map((preset) => ({
     key: preset.preset_id,
     label: (
       <div className="ws-preset-more">
-        <Space size={6}>
-          <span>{preset.title}</span>
-          {preset.auto_run ? <ThunderboltOutlined /> : null}
-        </Space>
+        <div className="ws-preset-more__head">
+          <span className="ws-preset-more__title">{preset.title}</span>
+          <Button
+            type="link"
+            size="small"
+            className="ws-preset-more__run"
+            disabled={running}
+            onClick={(event) => {
+              event.stopPropagation()
+              handlePresetRun(preset)
+            }}
+          >
+            直接运行
+          </Button>
+        </div>
         <span className="ws-preset-more__desc">{preset.description}</span>
       </div>
     ),
@@ -837,7 +858,7 @@ export default function TaskPage() {
 
         <Section
           title="预设任务"
-          description="点击卡片填入输入框；标记「直接运行」的预设与「上次任务」点击即执行"
+          description="点击卡片填入输入框；点卡片上的「直接运行」立即执行，点右上角「详情」查看完整任务与检索范围"
           extra={
             <Space size={4}>
               {hiddenPresets.length > 0 ? (
@@ -914,38 +935,53 @@ export default function TaskPage() {
               const bound = presetScope(preset)
               const scopeInfo = bound ? describeScope(bound, categories, documents ?? []) : null
               return (
-                <Tooltip
+                <Card
                   key={preset.preset_id}
-                  title={preset.auto_run ? `${preset.query}（点击直接运行）` : preset.query}
-                  placement="top"
+                  size="small"
+                  className="ws-preset"
+                  hoverable
+                  onClick={() => handlePresetOpen(preset)}
                 >
-                  <Card
-                    size="small"
-                    className="ws-preset"
-                    hoverable
-                    onClick={() => handlePresetOpen(preset)}
-                  >
-                    <div className="ws-preset__body">
-                      <div className="ws-preset__title">
-                        {preset.title}
-                        {preset.auto_run ? (
-                          <ThunderboltOutlined
-                            className="ws-preset__auto"
-                            aria-label="点击直接运行"
-                          />
-                        ) : null}
-                      </div>
-                      <div className="ws-preset__desc">{preset.description}</div>
-                      {scopeInfo ? (
-                        <Tag
-                          className="ws-preset__scope"
-                          color={scopeInfo.invalid ? 'orange' : 'default'}
+                  <div className="ws-preset__body">
+                    <div className="ws-preset__title">
+                      <span className="ws-preset__title-text">{preset.title}</span>
+                      <Tooltip title="查看完整任务与检索范围">
+                        <Button
+                          type="text"
+                          size="small"
+                          className="ws-preset__detail"
+                          icon={<InfoCircleOutlined />}
+                          aria-label="预设详情"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setDetailPreset(preset)
+                          }}
                         >
-                          范围：{scopeInfo.label}
-                        </Tag>
-                      ) : null}
+                          详情
+                        </Button>
+                      </Tooltip>
                     </div>
-                    <div className="ws-preset__actions">
+                    <div className="ws-preset__desc">{preset.description}</div>
+                    {scopeInfo ? (
+                      <Tag
+                        className="ws-preset__scope"
+                        color={scopeInfo.invalid ? 'orange' : 'default'}
+                      >
+                        范围：{scopeInfo.label}
+                      </Tag>
+                    ) : null}
+                  </div>
+                  <div className="ws-preset__actions">
+                    <Space size={4}>
+                      <Button
+                        size="small"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handlePresetFill(preset)
+                        }}
+                      >
+                        填入
+                      </Button>
                       <Button
                         size="small"
                         type="primary"
@@ -953,18 +989,14 @@ export default function TaskPage() {
                         disabled={running}
                         onClick={(event) => {
                           event.stopPropagation()
-                          if (preset.auto_run) {
-                            handlePresetFill(preset)
-                          } else {
-                            handlePresetRun(preset)
-                          }
+                          handlePresetRun(preset)
                         }}
                       >
-                        {preset.auto_run ? '填入' : '直接运行'}
+                        直接运行
                       </Button>
-                    </div>
-                  </Card>
-                </Tooltip>
+                    </Space>
+                  </div>
+                </Card>
               )
             })}
           </div>
@@ -978,6 +1010,16 @@ export default function TaskPage() {
           value={scope}
           onCancel={handleScopeCancel}
           onConfirm={handleScopeConfirm}
+        />
+
+        <PresetDetailModal
+          preset={detailPreset}
+          categories={categories}
+          documents={documents ?? []}
+          running={running}
+          onClose={() => setDetailPreset(null)}
+          onFill={handleDetailFill}
+          onRun={handleDetailRun}
         />
 
         <SendEmailModal

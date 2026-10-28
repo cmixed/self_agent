@@ -18,7 +18,6 @@ import {
   Segmented,
   Skeleton,
   Space,
-  Switch,
   Tag,
   Typography,
   Upload,
@@ -77,7 +76,7 @@ const { Text, Paragraph } = Typography
 const PAGE_EYEBROW = '预设任务'
 const PAGE_TITLE = '管理工作台的快捷任务'
 const PAGE_DESCRIPTION =
-  '预设会显示在工作台，点击即可填入输入框或一键直接运行；这里可以自由新增、编辑与删除。'
+  '预设会显示在工作台：点击卡片只填入输入框，点卡片上的「直接运行」才立即执行，右上角「详情」查看完整任务与检索范围。'
 const PAGE_MAX_WIDTH = 1200
 
 const EMPTY_SCOPE: TaskScope = { category_ids: [], document_ids: [] }
@@ -88,7 +87,6 @@ interface PresetFormValues {
   title: string
   description: string
   query: string
-  auto_run: boolean
 }
 
 /** 范围两者皆空 = 未绑定。 */
@@ -174,7 +172,6 @@ function SortablePresetCard({
       </Paragraph>
 
       <div className="entity-card__badges">
-        {preset.auto_run ? <Tag color="green">直接运行</Tag> : null}
         {scopeInfo.bound ? (
           <Tag color={scopeInfo.invalid ? 'orange' : 'default'}>范围：{scopeInfo.label}</Tag>
         ) : (
@@ -291,7 +288,6 @@ export default function PresetsPage() {
   const openCreate = () => {
     setEditing(null)
     form.resetFields()
-    form.setFieldsValue({ auto_run: false })
     setFormScope(EMPTY_SCOPE)
     setModalOpen(true)
   }
@@ -302,7 +298,6 @@ export default function PresetsPage() {
       title: preset.title,
       description: preset.description,
       query: preset.query,
-      auto_run: preset.auto_run,
     })
     setFormScope(preset.scope ?? EMPTY_SCOPE)
     setModalOpen(true)
@@ -320,12 +315,14 @@ export default function PresetsPage() {
     setError(null)
     // 未绑定范围时显式传 null（清空），绑定则传原始选择（类别保持动态）
     const scope = isBound(formScope) ? formScope : null
+    // 「直接运行」开关已下线：统一为「卡片点击填入、按钮点击运行」，显式写 false 归一化旧数据
+    const payload = { ...values, scope, auto_run: false }
     try {
       if (editing) {
-        await updatePreset(editing.preset_id, { ...values, scope })
+        await updatePreset(editing.preset_id, payload)
         message.success(`已更新预设「${values.title}」`)
       } else {
-        await createPreset({ ...values, scope })
+        await createPreset(payload)
         message.success(`已新增预设「${values.title}」`)
       }
       closeModal()
@@ -529,7 +526,7 @@ export default function PresetsPage() {
             name="query"
             label="任务内容"
             rules={[{ required: true, message: '请输入任务内容' }, { max: 2000 }]}
-            extra="点击预设时提交给 Agent 的完整任务描述"
+            extra="点「直接运行」时提交给 Agent 的完整任务描述"
           >
             <Input.TextArea
               autoSize={{ minRows: 4, maxRows: 10 }}
@@ -539,7 +536,7 @@ export default function PresetsPage() {
 
           <Form.Item
             label="检索范围"
-            extra="绑定后，在工作台点击该预设会自动套用此范围（仍可临时修改）；不绑定 = 使用工作台当前选择"
+            extra="绑定后，在工作台点击卡片或直接运行都会套用此范围（仍可临时修改）；不绑定 = 使用工作台当前选择"
           >
             <Space orientation="vertical" size="small" style={{ width: '100%' }}>
               <Space size={8} wrap>
@@ -565,15 +562,6 @@ export default function PresetsPage() {
                 </Text>
               ) : null}
             </Space>
-          </Form.Item>
-
-          <Form.Item
-            name="auto_run"
-            valuePropName="checked"
-            label="直接运行"
-            extra="开启后，在工作台点击该卡片会立即执行（跳过填入与回车）；默认关闭，点击只填入输入框待确认"
-          >
-            <Switch />
           </Form.Item>
         </Form>
       </Modal>
@@ -615,7 +603,6 @@ export default function PresetsPage() {
                 <Card size="small" key={`${item.title}-${index}`}>
                   <Space size={8} wrap>
                     <Text strong>{item.title}</Text>
-                    {item.auto_run ? <Tag color="green">直接运行</Tag> : null}
                     <Tag>{scopeInfo.bound ? `范围：${scopeInfo.label}` : '全部知识库'}</Tag>
                   </Space>
                   <Paragraph
