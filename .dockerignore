@@ -1,0 +1,38 @@
+# 构建上下文是仓库根目录，尽量只发送真正需要的文件。
+.git
+.gitignore
+.vscode
+.idea
+
+# 密钥绝不进入镜像
+**/.env
+**/.env.*
+!**/.env.example
+
+# Python 本地环境 / 缓存
+**/.venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.uv
+
+# Node 本地依赖与构建产物（前端镜像内部重新构建）
+**/node_modules
+frontend/dist
+frontend/.vite
+**/*.tsbuildinfo
+
+# 运行时数据与日志（由 compose bind mount 提供）
+data
+logs
+*.db
+*.sqlite
+*.sqlite3
+
+# 文档与开发脚本不参与构建
+docs
+AGENTS.md
+README.md
+run.sh

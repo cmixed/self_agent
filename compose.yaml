@@ -1,0 +1,50 @@
+# 容器运行：前端 nginx（:8080）→ 后端 FastAPI（容器网络内 :8000）
+#
+# 本地开发仍然用 ./run.sh（Vite dev server + uvicorn），两者互不替代。
+# Podman / Docker 共用这一份文件：
+#   podman-compose up -d --build
+#   docker compose up -d --build
+#
+# 刻意不使用 Podman 专属字段（如 userns_mode: keep-id）和
+# depends_on.condition，保证基础配置在两边都能解析。
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    image: self-agent-backend:latest
+    # 密钥只从这里注入；backend/.env 不进入镜像，也不提交仓库。
+    env_file:
+      - backend/.env
+    environment:
+      # Embedding 模型缓存落到 bind mount 里，重建容器不用重新下载。
+      HF_HOME: /app/data/hf-cache
+      APP_ENV: production
+      # 容器对外只暴露 8080（经 nginx）；同源部署下 CORS 仅作兜底。
+      CORS_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+    volumes:
+      # 与本地开发共用 data/（SQLite / Chroma / 文档 / 技能 / 模型缓存）。
+      # 注意：不要同时运行 ./run.sh 和容器，避免 SQLite / Chroma 并发写。
+      - ./data:/app/data
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      # 首次启动要初始化 SQLite / Chroma，给足冷启动时间。
+      start_period: 60s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    image: self-agent-frontend:latest
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

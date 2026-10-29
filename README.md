@@ -52,7 +52,9 @@
 │   ├── src/pages/         # 页面：工作台 / 知识库 / 技能 / 预设任务 /
 │   │                      #   任务历史 / 长期记忆 / 模型服务 / 设置
 │   └── src/types/         # 类型定义
-├── docs/                  # 架构说明与评估报告
+├── docker/                # 容器镜像与 nginx 配置（本地开发不使用）
+├── compose.yaml           # 容器运行：nginx 前端 + FastAPI 后端
+├── docs/                  # 架构说明、评估报告与容器使用说明
 └── data/                  # 运行时数据（Chroma / SQLite / 文档 / 技能目录）
 ```
 
@@ -190,6 +192,7 @@ Ollama 的 OpenAI 兼容层（/v1）不接受 think 字段，Qwen3 的 /no_think
 | `data/sqlite/checkpoints.db` | LangGraph Checkpoint（短期记忆） |
 | `data/skills/` | 技能目录（`<skill_id>/SKILL.md` + 附件，文件是唯一内容源） |
 | `data/settings.json` | 运行时 LLM Provider 选择（前端切换结果） |
+| `data/hf-cache/` | 容器运行时的 Embedding 模型缓存（本地开发默认在 `~/.cache/huggingface`） |
 
 > ⚠️ **删除 `data/` 等于清空知识库与全部任务记录。**
 > `git clean -xfd` 也会删除它（因为它在 `.gitignore` 中）。
@@ -292,6 +295,35 @@ vp -C frontend check   # check / lint / fmt 是 workspace 级命令，需指定�
 > 带参数后会走 workspace 解析，报 `Package not found in workspace: <仓库根>`。
 > 需要传参数（如 `--port`、`--strictPort`）就 `cd frontend` 后再运行 —— `./run.sh`
 > 正是这么做的。
+
+## 容器运行（Podman / Docker）
+
+本地开发继续用上面的 `./run.sh`（Vite dev server + uvicorn）。容器运行是另一条路径：
+**前端用 nginx 托管构建产物并反代 `/api`，后端只在容器网络内暴露 8000**，
+宿主机只开放 `8080`。
+
+```bash
+cp backend/.env.example backend/.env   # 填入 DEEPSEEK_API_KEY
+mkdir -p data
+
+# Podman
+podman-compose up -d --build
+# 或 Docker
+# docker compose up -d --build
+```
+
+打开 <http://localhost:8080>。`./data` 通过 bind mount 与本地开发共用，
+SQLite / Chroma / 文档 / 技能都保留在宿主机；`data/hf-cache/` 缓存 Embedding 模型。
+**不要同时运行 `./run.sh` 和容器**，避免共用 `data/` 时并发写 SQLite / Chroma。
+
+- 前端镜像构建时执行 `npm run build`，运行时不带 Node / Vite；
+- `docker/nginx.conf` 已处理 SSE 不缓冲、长超时、300MB 上传上限、gzip 与 SPA fallback；
+- 代码改动后需要 `podman-compose up -d --build` 重新构建镜像；
+- 容器访问宿主机 Ollama 用 `http://host.containers.internal:11434/v1`（Docker 为
+  `host.docker.internal`）。
+
+完整说明（数据目录、Ollama、端口、排错、rootless Podman 权限）见
+[`docs/containers.md`](./docs/containers.md)。
 
 ## 测试与检查
 

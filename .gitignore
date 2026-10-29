@@ -28,6 +28,7 @@ data/chroma/
 data/sqlite/
 data/skills/
 data/settings.json
+data/hf-cache/
 logs/
 
 # --- Databases ---
