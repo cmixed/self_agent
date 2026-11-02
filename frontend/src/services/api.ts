@@ -131,9 +131,14 @@ export function sendChat(messages: ChatMessage[], signal?: AbortSignal): Promise
 
 // --- 任务 ---
 
-export function listTasks(limit = 20, status?: string): Promise<TaskListResponse> {
+export function listTasks(
+  limit = 20,
+  status?: string,
+  outputMode?: OutputMode,
+): Promise<TaskListResponse> {
   const params = new URLSearchParams({ limit: String(limit) })
   if (status) params.set('status', status)
+  if (outputMode) params.set('output_mode', outputMode)
   return request<TaskListResponse>(`/tasks?${params.toString()}`)
 }
 
@@ -498,24 +503,29 @@ export function exportSkillsCollection(): Promise<{ blob: Blob; filename: string
 
 // --- 预设任务 ---
 
-export function listPresets(): Promise<PresetListResponse> {
-  return request<PresetListResponse>('/presets')
+export function listPresets(outputMode?: OutputMode): Promise<PresetListResponse> {
+  const query = outputMode ? `?output_mode=${outputMode}` : ''
+  return request<PresetListResponse>(`/presets${query}`)
 }
 
 export function createPreset(payload: {
   title: string
   description: string
   query: string
+  output_mode?: OutputMode
   scope?: TaskScope | null
   auto_run?: boolean
 }): Promise<PresetInfo> {
   return request<PresetInfo>('/presets', { method: 'POST', body: JSON.stringify(payload) })
 }
 
-export function reorderPresets(presetIds: string[]): Promise<PresetListResponse> {
+export function reorderPresets(
+  presetIds: string[],
+  outputMode: OutputMode = 'generate',
+): Promise<PresetListResponse> {
   return request<PresetListResponse>('/presets/order', {
     method: 'PUT',
-    body: JSON.stringify({ preset_ids: presetIds }),
+    body: JSON.stringify({ preset_ids: presetIds, output_mode: outputMode }),
   })
 }
 
@@ -525,6 +535,7 @@ export function updatePreset(
     title: string
     description: string
     query: string
+    output_mode: OutputMode
     scope: TaskScope | null
     auto_run: boolean
   }>,

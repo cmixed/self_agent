@@ -740,6 +740,8 @@ class PresetInfo(BaseModel):
     title: str
     description: str
     query: str
+    # 输出方式：generate / verbatim；两种模式的预设相互独立
+    output_mode: OutputMode = "generate"
     # 绑定的检索范围（None = 未绑定：运行时用工作台当前选择；全部/部分由该字段体现）
     scope: TaskScope | None = None
     # 工作台点击卡片是否直接执行（默认 False = 仅填入输入框待确认）
@@ -755,15 +757,17 @@ class PresetListResponse(BaseModel):
 
 
 class PresetOrderRequest(BaseModel):
-    """按完整列表重排预设；必须包含当前全部 preset_id。"""
+    """按同一输出方式内的完整列表重排预设；必须包含该组全部 preset_id。"""
 
     preset_ids: list[str] = Field(min_length=1)
+    output_mode: OutputMode = "generate"
 
 
 class PresetCreate(BaseModel):
     title: str = Field(min_length=1, max_length=40)
     description: str = Field(min_length=1, max_length=120)
     query: str = Field(min_length=1, max_length=2000)
+    output_mode: OutputMode = "generate"
     # 可选绑定范围：缺省/空 = 不绑定（运行时沿用当前选择）
     scope: TaskScope | None = None
     auto_run: bool = False
@@ -773,6 +777,7 @@ class PresetUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=40)
     description: str | None = Field(default=None, min_length=1, max_length=120)
     query: str | None = Field(default=None, min_length=1, max_length=2000)
+    output_mode: OutputMode | None = None
     # 注意：scope 用 model_fields_set 判「是否提供」——`null` 是合法值（清除绑定）
     scope: TaskScope | None = None
     auto_run: bool | None = None
@@ -782,6 +787,7 @@ class PresetImportItem(BaseModel):
     title: str
     description: str
     query: str
+    output_mode: OutputMode = "generate"
     auto_run: bool = False
     scope: TaskScope | None = None
 

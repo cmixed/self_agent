@@ -60,6 +60,7 @@ def _preset_payload() -> bytes:
                     "title": "导入的预设",
                     "description": "来自备份",
                     "query": "根据资料写一篇综述",
+                    "output_mode": "verbatim",
                     "auto_run": True,
                 }
             ],
@@ -87,20 +88,25 @@ def test_preset_import_export_api(tmp_path) -> None:
         assert preview.status_code == 200
         body = preview.json()
         assert body["presets"][0]["title"] == "导入的预设"
+        assert body["presets"][0]["output_mode"] == "verbatim"
         token = body["token"]
 
         confirmed = client.post("/api/presets/import", json={"token": token})
         assert confirmed.status_code == 200
         assert [item["title"] for item in confirmed.json()["imported"]] == ["导入的预设"]
+        assert confirmed.json()["imported"][0]["output_mode"] == "verbatim"
 
         listed = client.get("/api/presets").json()["presets"]
-        assert listed[-1]["title"] == "导入的预设"
+        listed_item = next(item for item in listed if item["title"] == "导入的预设")
+        assert listed_item["output_mode"] == "verbatim"
 
         exported = client.get("/api/presets/export")
         assert exported.status_code == 200
         assert exported.headers["content-type"].startswith("application/json")
         payload = json.loads(exported.content)
         assert any(item["title"] == "导入的预设" for item in payload["presets"])
+        exported_item = next(item for item in payload["presets"] if item["title"] == "导入的预设")
+        assert exported_item["output_mode"] == "verbatim"
 
         # 重复预览：没有可导入项
         duplicate = client.post(

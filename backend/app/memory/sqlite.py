@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     user_id    TEXT NOT NULL,
     query      TEXT NOT NULL,
     status     TEXT NOT NULL,
+    -- 输出方式：generate = 正常生成内容；verbatim = 直接输出知识库原文
+    output_mode TEXT NOT NULL DEFAULT 'generate',
     created_at TEXT NOT NULL
 );
 
@@ -73,6 +75,8 @@ CREATE TABLE IF NOT EXISTS presets (
     title       TEXT NOT NULL,
     description TEXT NOT NULL,
     query       TEXT NOT NULL,
+    -- 输出方式：generate / verbatim；两种模式的工作台预设相互独立
+    output_mode TEXT NOT NULL DEFAULT 'generate',
     -- 绑定的检索范围（JSON：{category_ids, document_ids}；NULL = 未绑定，运行时用当前选择）
     scope_json  TEXT,
     -- 工作台点击卡片是否直接执行（1 = 跳过「填入 → 回车」；默认 0 = 只填入输入框）
@@ -165,6 +169,16 @@ MIGRATIONS: tuple[tuple[str, str, str], ...] = (
         "presets",
         "sort_order",
         "ALTER TABLE presets ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0",
+    ),
+    (
+        "presets",
+        "output_mode",
+        "ALTER TABLE presets ADD COLUMN output_mode TEXT NOT NULL DEFAULT 'generate'",
+    ),
+    (
+        "tasks",
+        "output_mode",
+        "ALTER TABLE tasks ADD COLUMN output_mode TEXT NOT NULL DEFAULT 'generate'",
     ),
 )
 

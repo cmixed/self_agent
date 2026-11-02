@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import JSONResponse, Response
 
 from app.api.deps import get_preset_package_service, get_preset_service
 from app.models.schemas import (
     ErrorResponse,
     ImportConfirmRequest,
+    OutputMode,
     PresetCreate,
     PresetImportItem,
     PresetImportPreview,
@@ -48,6 +49,7 @@ def _info(record) -> PresetInfo:
         title=record.title,
         description=record.description,
         query=record.query,
+        output_mode=record.output_mode,  # type: ignore[arg-type]
         scope=_scope_of(record),
         auto_run=record.auto_run,
         sort_order=record.sort_order,
@@ -80,6 +82,7 @@ def _package_item(item) -> PresetImportItem:
         title=item.title,
         description=item.description,
         query=item.query,
+        output_mode=item.output_mode,  # type: ignore[arg-type]
         auto_run=item.auto_run,
         scope=(
             TaskScope(category_ids=list(item.category_ids), document_ids=list(item.document_ids))
@@ -91,9 +94,13 @@ def _package_item(item) -> PresetImportItem:
 
 @router.get("", response_model=PresetListResponse)
 async def list_presets(
+    output_mode: OutputMode | None = Query(default=None),
     service: PresetService = Depends(get_preset_service),
 ) -> PresetListResponse:
-    return PresetListResponse(presets=[_info(record) for record in await service.list_presets()])
+    """列出预设；``output_mode`` 为空时返回两种模式的全部预设。"""
+    return PresetListResponse(
+        presets=[_info(record) for record in await service.list_presets(output_mode)]
+    )
 
 
 @router.get("/export", response_model=None)
@@ -156,6 +163,7 @@ async def create_preset(
         title=payload.title,
         description=payload.description,
         query=payload.query,
+        output_mode=payload.output_mode,
         category_ids=list(payload.scope.category_ids) if payload.scope else None,
         document_ids=list(payload.scope.document_ids) if payload.scope else None,
         auto_run=payload.auto_run,
@@ -167,9 +175,11 @@ async def create_preset(
 async def reorder_presets(
     payload: PresetOrderRequest, service: PresetService = Depends(get_preset_service)
 ) -> PresetListResponse | JSONResponse:
-    """按完整 id 列表重排工作台预设。"""
+    """按同一输出方式内的完整 id 列表重排工作台预设。"""
     try:
-        presets = await service.reorder_presets(list(payload.preset_ids))
+        presets = await service.reorder_presets(
+            list(payload.preset_ids), output_mode=payload.output_mode
+        )
     except PresetOrderError as exc:
         return _order_conflict(exc)
     return PresetListResponse(presets=[_info(record) for record in presets])
@@ -200,6 +210,7 @@ async def update_preset(
                 else None
             ),
             auto_run=payload.auto_run,
+            output_mode=payload.output_mode,
         )
     except PresetNotFoundError as exc:
         return _not_found(exc)

@@ -424,7 +424,7 @@ class TaskService:
                 retrieval_scope=retrieval_scope,
                 retrieval_mode=retrieval_mode,
             )
-            await self._start_run(run_id, query, user_id)
+            await self._start_run(run_id, query, user_id, output_mode="verbatim")
             self._last_usage = None
             try:
                 with collect_usage() as usage:
@@ -505,7 +505,7 @@ class TaskService:
             retrieval_scope=retrieval_scope,
             retrieval_mode=retrieval_mode,
         )
-        await self._start_run(run_id, query, user_id)
+        await self._start_run(run_id, query, user_id, output_mode="verbatim")
         yield _event(
             run_id,
             "task_started",
@@ -596,11 +596,21 @@ class TaskService:
 
     # --- 持久化辅助（未配置仓储时全部为 no-op）---
 
-    async def _start_run(self, run_id: str, query: str, user_id: str | None) -> None:
+    async def _start_run(
+        self,
+        run_id: str,
+        query: str,
+        user_id: str | None,
+        *,
+        output_mode: str = "generate",
+    ) -> None:
         if self._repository is None:
             return
         await self._repository.start_run(
-            task_id=run_id, user_id=user_id or "local-user", query=query
+            task_id=run_id,
+            user_id=user_id or "local-user",
+            query=query,
+            output_mode=output_mode,
         )
 
     async def _finish_run(

@@ -87,6 +87,30 @@ async def test_list_tasks_filters_by_user_and_orders(repository: TaskRepository)
     assert await repository.list_tasks(user_id="nobody") == []
 
 
+async def test_list_tasks_filters_by_output_mode(repository: TaskRepository) -> None:
+    await repository.start_run(task_id="gen", user_id="u1", query="写综述", output_mode="generate")
+    await repository.finish_run(
+        task_id="gen", result={"status": "completed", "output_mode": "generate"}
+    )
+    await repository.start_run(
+        task_id="verbatim", user_id="u1", query="输出原文", output_mode="verbatim"
+    )
+    await repository.finish_run(
+        task_id="verbatim", result={"status": "completed", "output_mode": "verbatim"}
+    )
+
+    generated = await repository.list_tasks(user_id="u1", output_mode="generate")
+    verbatim = await repository.list_tasks(user_id="u1", output_mode="verbatim")
+
+    assert [task.task_id for task in generated] == ["gen"]
+    assert [task.task_id for task in verbatim] == ["verbatim"]
+    # 不传 output_mode 时两种模式都返回（顶栏胶囊需要看到全部运行中任务）
+    assert [task.task_id for task in await repository.list_tasks(user_id="u1")] == [
+        "verbatim",
+        "gen",
+    ]
+
+
 async def test_users_row_is_created(repository: TaskRepository) -> None:
     await repository.start_run(task_id="t3", user_id="new-user", query="q")
 

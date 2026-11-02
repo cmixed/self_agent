@@ -54,6 +54,7 @@ class PresetPackageItem:
     title: str
     description: str
     query: str
+    output_mode: str = "generate"
     auto_run: bool = False
     category_ids: list[str] = field(default_factory=list)
     document_ids: list[str] = field(default_factory=list)
@@ -182,11 +183,18 @@ def parse_preset_package(data: bytes, *, filename: str | None = None) -> PresetP
         category_ids, document_ids, category_names, document_filenames = _parse_scope(
             raw.get("scope"), index=index, warnings=warnings
         )
+        raw_mode = raw.get("output_mode")
+        if raw_mode in (None, "generate", "verbatim"):
+            output_mode = raw_mode or "generate"
+        else:
+            output_mode = "generate"
+            warnings.append(f"第 {index} 条预设的输出方式无效，已按「生成内容」导入")
         items.append(
             PresetPackageItem(
                 title=title,
                 description=description,
                 query=query,
+                output_mode=output_mode,
                 auto_run=raw.get("auto_run") is True,
                 category_ids=category_ids,
                 document_ids=document_ids,
@@ -237,6 +245,7 @@ def dump_preset_package(
                 "title": record.title,
                 "description": record.description,
                 "query": record.query,
+                "output_mode": record.output_mode,
                 "auto_run": record.auto_run,
                 "scope": scope,
             }
@@ -251,8 +260,12 @@ def dump_preset_package(
     return encode_json(payload)
 
 
-def _dedupe_key(title: str, query: str) -> tuple[str, str]:
-    return ("".join(title.split()).casefold(), "".join(query.split()).casefold())
+def _dedupe_key(title: str, query: str, output_mode: str = "generate") -> tuple[str, str, str]:
+    return (
+        output_mode,
+        "".join(title.split()).casefold(),
+        "".join(query.split()).casefold(),
+    )
 
 
 def _title_key(title: str) -> str:
@@ -307,9 +320,9 @@ class PresetPackageService:
             for item in document_records:
                 document_by_filename.setdefault(item.filename.strip().casefold(), item.document_id)
 
-        existing_keys = {_dedupe_key(item.title, item.query) for item in existing}
+        existing_keys = {_dedupe_key(item.title, item.query, item.output_mode) for item in existing}
         existing_title_keys = {_title_key(item.title) for item in existing}
-        seen_keys: set[tuple[str, str]] = set()
+        seen_keys: set[tuple[str, str, str]] = set()
         selected: list[PresetPackageItem] = []
         skipped: list[str] = []
 
@@ -323,7 +336,7 @@ class PresetPackageService:
                 document_by_filename=document_by_filename,
                 warnings=warnings,
             )
-            key = _dedupe_key(item.title, item.query)
+            key = _dedupe_key(item.title, item.query, item.output_mode)
             if key in existing_keys or key in seen_keys:
                 skipped.append(item.title)
                 continue
@@ -352,11 +365,11 @@ class PresetPackageService:
 
         # 预览到确认之间可能新增了预设：再次去重，避免重复写入
         existing = await self._presets.list_presets()
-        existing_keys = {_dedupe_key(item.title, item.query) for item in existing}
+        existing_keys = {_dedupe_key(item.title, item.query, item.output_mode) for item in existing}
         imported: list[PresetRecord] = []
         skipped = list(preview.skipped)
         for item in preview.items:
-            key = _dedupe_key(item.title, item.query)
+            key = _dedupe_key(item.title, item.query, item.output_mode)
             if key in existing_keys:
                 skipped.append(item.title)
                 continue
@@ -364,6 +377,7 @@ class PresetPackageService:
                 title=item.title,
                 description=item.description,
                 query=item.query,
+                output_mode=item.output_mode,
                 category_ids=item.category_ids,
                 document_ids=item.document_ids,
                 auto_run=item.auto_run,
@@ -451,9 +465,7 @@ class PresetPackageService:
         item.category_ids = resolved_categories
         item.document_ids = resolved_documents
         if missing:
-            warnings.append(
-                f"第 {index} 条范围中有 {missing} 项在当前知识库中不存在，已自动移除"
-            )
+            warnings.append(f"第 {index} 条范围中有 {missing} 项在当前知识库中不存在，已自动移除")
         if not item.category_ids and not item.document_ids:
             warnings.append(f"第 {index} 条的范围已失效，将改为未绑定范围")
 

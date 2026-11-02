@@ -64,8 +64,10 @@ class TaskRepository:
     def __init__(self, database: SqliteDatabase) -> None:
         self._database = database
 
-    async def start_run(self, *, task_id: str, user_id: str, query: str) -> None:
-        await asyncio.to_thread(self._start_run, task_id, user_id, query)
+    async def start_run(
+        self, *, task_id: str, user_id: str, query: str, output_mode: str = "generate"
+    ) -> None:
+        await asyncio.to_thread(self._start_run, task_id, user_id, query, output_mode)
 
     async def finish_run(self, *, task_id: str, result: dict[str, Any]) -> None:
         await asyncio.to_thread(self._finish_run, task_id, result)
@@ -100,13 +102,18 @@ class TaskRepository:
         return await asyncio.to_thread(self._get_task, task_id)
 
     async def list_tasks(
-        self, *, user_id: str, limit: int = 20, status: str | None = None
+        self,
+        *,
+        user_id: str,
+        limit: int = 20,
+        status: str | None = None,
+        output_mode: str | None = None,
     ) -> list[TaskRecord]:
-        return await asyncio.to_thread(self._list_tasks, user_id, limit, status)
+        return await asyncio.to_thread(self._list_tasks, user_id, limit, status, output_mode)
 
     # --- 同步实现（在线程中执行）---
 
-    def _start_run(self, task_id: str, user_id: str, query: str) -> None:
+    def _start_run(self, task_id: str, user_id: str, query: str, output_mode: str) -> None:
         now = utc_now()
         with self._database.connect() as connection:
             connection.execute(
@@ -115,11 +122,11 @@ class TaskRepository:
             )
             connection.execute(
                 """
-                INSERT INTO tasks(task_id, user_id, query, status, created_at)
-                VALUES (?, ?, ?, 'running', ?)
+                INSERT INTO tasks(task_id, user_id, query, status, output_mode, created_at)
+                VALUES (?, ?, ?, 'running', ?, ?)
                 ON CONFLICT(task_id) DO UPDATE SET status = 'running'
                 """,
-                (task_id, user_id, query, now),
+                (task_id, user_id, query, output_mode, now),
             )
             self._insert_attempt(connection, task_id, now)
             connection.commit()
@@ -144,9 +151,13 @@ class TaskRepository:
     def _finish_run(self, task_id: str, result: dict[str, Any]) -> None:
         now = utc_now()
         status = str(result.get("status", "completed"))
+        output_mode = str(result.get("output_mode") or "generate")
         failed_chapters = result.get("failed_chapters") or []
         with self._database.connect() as connection:
-            connection.execute("UPDATE tasks SET status = ? WHERE task_id = ?", (status, task_id))
+            connection.execute(
+                "UPDATE tasks SET status = ?, output_mode = ? WHERE task_id = ?",
+                (status, output_mode, task_id),
+            )
             connection.execute(
                 f"""
                 UPDATE task_runs
@@ -267,9 +278,15 @@ class TaskRepository:
             ).fetchone()
         return _row_to_record(row)
 
-    def _list_tasks(self, user_id: str, limit: int, status: str | None = None) -> list[TaskRecord]:
+    def _list_tasks(
+        self,
+        user_id: str,
+        limit: int,
+        status: str | None = None,
+        output_mode: str | None = None,
+    ) -> list[TaskRecord]:
         query = """
-            SELECT t.task_id, t.user_id, t.query, t.status, t.created_at,
+            SELECT t.task_id, t.user_id, t.query, t.status, t.output_mode, t.created_at,
                    r.finished_at, r.error_type, r.result_json
               FROM tasks t
               LEFT JOIN task_runs r ON r.run_id = (
@@ -281,6 +298,9 @@ class TaskRepository:
         if status:
             query += " AND t.status = ?"
             params.append(status)
+        if output_mode:
+            query += " AND t.output_mode = ?"
+            params.append(output_mode)
         query += " ORDER BY t.created_at DESC, t.rowid DESC LIMIT ?"
         params.append(max(1, limit))
         with self._database.connect() as connection:
@@ -490,6 +510,8 @@ class PresetRecord:
     query: str
     created_at: str
     updated_at: str
+    # 输出方式：generate / verbatim（两种模式的预设相互独立）
+    output_mode: str = "generate"
     # 绑定的检索范围（与 TaskScope 同构；两者皆空 = 未绑定）
     category_ids: list[str] = field(default_factory=list)
     document_ids: list[str] = field(default_factory=list)
@@ -896,7 +918,7 @@ class PresetRepository:
 
     _PRESETS_KEY = "presets_seeded"
     _SELECT = """
-        SELECT preset_id, title, description, query, scope_json, auto_run,
+        SELECT preset_id, title, description, query, output_mode, scope_json, auto_run,
                sort_order, created_at, updated_at
           FROM presets
     """
@@ -904,8 +926,8 @@ class PresetRepository:
     def __init__(self, database: SqliteDatabase) -> None:
         self._database = database
 
-    async def list_presets(self) -> list[PresetRecord]:
-        return await asyncio.to_thread(self._list_presets)
+    async def list_presets(self, output_mode: str | None = None) -> list[PresetRecord]:
+        return await asyncio.to_thread(self._list_presets, output_mode)
 
     async def get_preset(self, preset_id: str) -> PresetRecord | None:
         return await asyncio.to_thread(self._get_preset, preset_id)
@@ -919,6 +941,7 @@ class PresetRepository:
         category_ids: list[str] | None = None,
         document_ids: list[str] | None = None,
         auto_run: bool = False,
+        output_mode: str = "generate",
     ) -> PresetRecord:
         return await asyncio.to_thread(
             self._create_preset,
@@ -928,6 +951,7 @@ class PresetRepository:
             list(category_ids or []),
             list(document_ids or []),
             auto_run,
+            output_mode,
         )
 
     async def update_preset(
@@ -940,6 +964,7 @@ class PresetRepository:
         category_ids: list[str] | None = None,
         document_ids: list[str] | None = None,
         auto_run: bool | None = None,
+        output_mode: str | None = None,
     ) -> PresetRecord | None:
         """更新预设。``category_ids=None`` 表示**不修改**范围；传列表（含空列表）则整组替换。"""
         return await asyncio.to_thread(
@@ -951,14 +976,17 @@ class PresetRepository:
             category_ids,
             document_ids,
             auto_run,
+            output_mode,
         )
 
     async def delete_preset(self, preset_id: str) -> bool:
         return await asyncio.to_thread(self._delete_preset, preset_id)
 
-    async def reorder_presets(self, preset_ids: list[str]) -> list[PresetRecord]:
+    async def reorder_presets(
+        self, preset_ids: list[str], *, output_mode: str | None = None
+    ) -> list[PresetRecord]:
         """按给定顺序写入 ``sort_order``（调用方负责校验 id 集合）。"""
-        return await asyncio.to_thread(self._reorder_presets, list(preset_ids))
+        return await asyncio.to_thread(self._reorder_presets, list(preset_ids), output_mode)
 
     async def seed_once(self, seeds: list[dict[str, str]]) -> bool:
         """仅在「从未写入过默认预设」时写入；返回是否真的写入了。
@@ -978,6 +1006,7 @@ class PresetRepository:
             title=row["title"],
             description=row["description"],
             query=row["query"],
+            output_mode=str(row["output_mode"] or "generate"),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             category_ids=category_ids,
@@ -986,11 +1015,15 @@ class PresetRepository:
             sort_order=int(row["sort_order"]),
         )
 
-    def _list_presets(self) -> list[PresetRecord]:
+    def _list_presets(self, output_mode: str | None = None) -> list[PresetRecord]:
+        query = self._SELECT
+        params: list[Any] = []
+        if output_mode:
+            query += " WHERE output_mode = ?"
+            params.append(output_mode)
+        query += " ORDER BY sort_order, created_at, rowid"
         with self._database.connect() as connection:
-            rows = connection.execute(
-                self._SELECT + " ORDER BY sort_order, created_at, rowid"
-            ).fetchall()
+            rows = connection.execute(query, params).fetchall()
         return [self._record(row) for row in rows]
 
     def _get_preset(self, preset_id: str) -> PresetRecord | None:
@@ -1006,26 +1039,30 @@ class PresetRepository:
         category_ids: list[str],
         document_ids: list[str],
         auto_run: bool,
+        output_mode: str,
     ) -> PresetRecord:
         now = utc_now()
         preset_id = str(uuid4())
         scope_json = _encode_scope(category_ids, document_ids)
         with self._database.connect() as connection:
             row = connection.execute(
-                "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM presets"
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order "
+                "FROM presets WHERE output_mode = ?",
+                (output_mode,),
             ).fetchone()
             sort_order = int(row["next_order"])
             connection.execute(
                 """
-                INSERT INTO presets(preset_id, title, description, query, scope_json,
-                                    auto_run, sort_order, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO presets(preset_id, title, description, query, output_mode,
+                                    scope_json, auto_run, sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     preset_id,
                     title,
                     description,
                     query,
+                    output_mode,
                     scope_json,
                     int(auto_run),
                     sort_order,
@@ -1039,6 +1076,7 @@ class PresetRepository:
             title=title,
             description=description,
             query=query,
+            output_mode=output_mode,
             created_at=now,
             updated_at=now,
             category_ids=list(category_ids),
@@ -1056,6 +1094,7 @@ class PresetRepository:
         category_ids: list[str] | None,
         document_ids: list[str] | None,
         auto_run: bool | None,
+        output_mode: str | None,
     ) -> PresetRecord | None:
         assignments: list[str] = []
         params: list[Any] = []
@@ -1070,11 +1109,28 @@ class PresetRepository:
         if auto_run is not None:
             assignments.append("auto_run = ?")
             params.append(int(auto_run))
-        if not assignments:
+        if not assignments and output_mode is None:
             return self._get_preset(preset_id)
 
         now = utc_now()
         with self._database.connect() as connection:
+            if output_mode is not None:
+                current = connection.execute(
+                    "SELECT output_mode FROM presets WHERE preset_id = ?", (preset_id,)
+                ).fetchone()
+                if current is None:
+                    return None
+                if str(current["output_mode"] or "generate") != output_mode:
+                    # 切换输出方式 = 进入另一组列表的末尾，避免与目标组原有顺序冲突
+                    row = connection.execute(
+                        "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order "
+                        "FROM presets WHERE output_mode = ?",
+                        (output_mode,),
+                    ).fetchone()
+                    assignments.extend(["output_mode = ?", "sort_order = ?"])
+                    params.extend([output_mode, int(row["next_order"])])
+            if not assignments:
+                return self._get_preset(preset_id)
             cursor = connection.execute(
                 f"UPDATE presets SET {', '.join(assignments)}, updated_at = ? WHERE preset_id = ?",
                 (*params, now, preset_id),
@@ -1091,7 +1147,9 @@ class PresetRepository:
             connection.commit()
         return cursor.rowcount > 0
 
-    def _reorder_presets(self, preset_ids: list[str]) -> list[PresetRecord]:
+    def _reorder_presets(
+        self, preset_ids: list[str], output_mode: str | None = None
+    ) -> list[PresetRecord]:
         with self._database.connect() as connection:
             for index, preset_id in enumerate(preset_ids):
                 connection.execute(
@@ -1099,7 +1157,7 @@ class PresetRepository:
                     (index, preset_id),
                 )
             connection.commit()
-        return self._list_presets()
+        return self._list_presets(output_mode)
 
     def _seed_once(self, seeds: list[dict[str, str]]) -> bool:
         now = utc_now()
@@ -1113,8 +1171,8 @@ class PresetRepository:
                 connection.execute(
                     """
                     INSERT OR IGNORE INTO presets(preset_id, title, description, query,
-                                                  sort_order, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                                  output_mode, sort_order, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 'generate', ?, ?, ?)
                     """,
                     (
                         seed["preset_id"],

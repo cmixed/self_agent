@@ -35,6 +35,7 @@ from app.memory.selection import select_memories
 from app.memory.signals import memory_signal
 from app.models.schemas import (
     CancelTaskResponse,
+    OutputMode,
     TaskDetailResponse,
     TaskListResponse,
     TaskRequest,
@@ -317,12 +318,19 @@ def _to_summary(record: Any, *, registry: TaskRegistry | None = None) -> TaskSum
 async def list_tasks(
     limit: int = Query(default=20, ge=1, le=100),
     status: str | None = Query(default=None),
+    output_mode: OutputMode | None = Query(default=None),
     registry: TaskRegistry = Depends(get_task_registry),
     repository: TaskRepository = Depends(get_task_repository),
     user_id: str = Depends(get_user_id),
 ) -> TaskListResponse:
-    """按用户列出任务记录（最新在前），供前端任务历史页 / 运行中胶囊使用。"""
-    records = await repository.list_tasks(user_id=user_id, limit=limit, status=status)
+    """按用户列出任务记录（最新在前），供前端任务历史页 / 运行中胶囊使用。
+
+    ``output_mode`` 用于把「生成内容」与「直接输出原文」的历史分开；不传则
+    返回两种模式（顶栏胶囊需要看到所有运行中任务）。
+    """
+    records = await repository.list_tasks(
+        user_id=user_id, limit=limit, status=status, output_mode=output_mode
+    )
     return TaskListResponse(tasks=[_to_summary(record, registry=registry) for record in records])
 
 
@@ -501,8 +509,10 @@ async def _drive_task(
         )
     finally:
         try:
-            if completed and on_complete is not None and (
-                should_complete is None or should_complete(completed)
+            if (
+                completed
+                and on_complete is not None
+                and (should_complete is None or should_complete(completed))
             ):
                 await registry.publish(
                     task_id,

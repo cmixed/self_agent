@@ -192,6 +192,8 @@ export interface PresetInfo {
   title: string
   description: string
   query: string
+  /** 输出方式：generate / verbatim；两种模式的预设相互独立 */
+  output_mode: OutputMode
   /** 绑定的检索范围；null/缺省 = 未绑定（运行时用工作台当前选择）。 */
   scope?: TaskScope | null
   /** 已废弃：工作台统一为「点击卡片填入、按钮直接运行」，该字段仅保留兼容。 */
@@ -216,6 +218,7 @@ export interface PresetImportItem {
   title: string
   description: string
   query: string
+  output_mode?: OutputMode
   /** 已废弃，导入时忽略。 */
   auto_run: boolean
   scope?: TaskScope | null

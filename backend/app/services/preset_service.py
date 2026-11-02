@@ -68,8 +68,8 @@ class PresetService:
         """首次启动写入默认预设（幂等，且删空后不会复活）。"""
         await self._repository.seed_once(DEFAULT_PRESETS)
 
-    async def list_presets(self) -> list[PresetRecord]:
-        return await self._repository.list_presets()
+    async def list_presets(self, output_mode: str | None = None) -> list[PresetRecord]:
+        return await self._repository.list_presets(output_mode)
 
     async def create_preset(
         self,
@@ -80,6 +80,7 @@ class PresetService:
         category_ids: list[str] | None = None,
         document_ids: list[str] | None = None,
         auto_run: bool = False,
+        output_mode: str = "generate",
     ) -> PresetRecord:
         return await self._repository.create_preset(
             title=title.strip(),
@@ -88,6 +89,7 @@ class PresetService:
             category_ids=category_ids,
             document_ids=document_ids,
             auto_run=auto_run,
+            output_mode=output_mode,
         )
 
     async def update_preset(
@@ -100,6 +102,7 @@ class PresetService:
         category_ids: list[str] | None = None,
         document_ids: list[str] | None = None,
         auto_run: bool | None = None,
+        output_mode: str | None = None,
     ) -> PresetRecord:
         """``category_ids=None`` 表示不修改范围；传列表则整组替换（空列表 = 清除绑定）。"""
         updated = await self._repository.update_preset(
@@ -110,6 +113,7 @@ class PresetService:
             category_ids=category_ids,
             document_ids=document_ids,
             auto_run=auto_run,
+            output_mode=output_mode,
         )
         if updated is None:
             raise PresetNotFoundError(f"预设不存在：{preset_id}")
@@ -120,11 +124,13 @@ class PresetService:
         if not deleted:
             raise PresetNotFoundError(f"预设不存在：{preset_id}")
 
-    async def reorder_presets(self, preset_ids: list[str]) -> list[PresetRecord]:
-        """按完整 id 列表重排；要求与当前预设集合完全一致，避免写乱顺序。"""
-        current = await self._repository.list_presets()
+    async def reorder_presets(
+        self, preset_ids: list[str], *, output_mode: str = "generate"
+    ) -> list[PresetRecord]:
+        """按 id 列表重排**同一输出方式**内的预设；要求与当前该组集合一致。"""
+        current = await self._repository.list_presets(output_mode)
         existing = {item.preset_id for item in current}
         ordered = list(dict.fromkeys(preset_ids))
         if len(ordered) != len(preset_ids) or set(ordered) != existing:
             raise PresetOrderError("预设列表已变化，请刷新后重试")
-        return await self._repository.reorder_presets(ordered)
+        return await self._repository.reorder_presets(ordered, output_mode=output_mode)

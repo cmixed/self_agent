@@ -76,7 +76,12 @@ import {
   formatTokenRate,
   formatTokens,
 } from '../utils/format'
-import { pickLastTask, splitWorkspacePresets, WORKSPACE_PRESET_LIMIT } from '../utils/presets'
+import {
+  filterPresetsByMode,
+  pickLastTask,
+  splitWorkspacePresets,
+  WORKSPACE_PRESET_LIMIT,
+} from '../utils/presets'
 import { runningTaskStage } from '../utils/runningTasks'
 import { describeScope } from '../utils/scope'
 import { readTaskOptionsMemory, sanitizeScope, saveTaskOptions } from '../utils/taskOptions'
@@ -220,13 +225,15 @@ export default function TaskPage() {
   const [outputTab, setOutputTab] = useState('plan')
   // 「上次任务」固定占预设区第一个槽位，因此可见预设少一条
   const lastTask = useMemo(() => pickLastTask(recentTasks), [recentTasks])
+  // 两种输出方式的预设相互独立：工作台只展示当前模式的预设
+  const modePresets = useMemo(() => filterPresetsByMode(presets, outputMode), [outputMode, presets])
   const { visible: workspacePresets, hidden: hiddenPresets } = useMemo(
     () =>
       splitWorkspacePresets(
-        presets,
+        modePresets,
         lastTask ? WORKSPACE_PRESET_LIMIT - 1 : WORKSPACE_PRESET_LIMIT,
       ),
-    [lastTask, presets],
+    [lastTask, modePresets],
   )
   // 执行选项记忆：开关在「设置」页，这里只负责套用与记录
   const [optionMemory] = useState(() => readTaskOptionsMemory())
@@ -285,7 +292,7 @@ export default function TaskPage() {
   useEffect(() => {
     if (hasStarted) return
     let cancelled = false
-    listTasks(8)
+    listTasks(8, undefined, outputMode)
       .then((tasks) => {
         // 保留 8 条：最近任务只展示 4 条，但「上次任务」需要跳过运行中的任务
         if (!cancelled) setRecentTasks(tasks.tasks)
@@ -296,7 +303,7 @@ export default function TaskPage() {
     return () => {
       cancelled = true
     }
-  }, [hasStarted, tasksVersion])
+  }, [hasStarted, outputMode, tasksVersion])
 
   // 结果出现后定位（含从其它页面切回来的情况）
   useEffect(() => {
@@ -375,13 +382,20 @@ export default function TaskPage() {
       ? preset.scope
       : null
 
-  /** 预设任务：填入输入框（同时套用其绑定范围），等用户确认后回车运行。 */
+  /** 预设任务：填入输入框（同时套用其绑定范围与输出方式），等用户确认后回车运行。 */
   const handlePresetFill = (preset: PresetInfo) => {
     setQuery(preset.query)
+    setOutputMode(preset.output_mode)
+    if (preset.output_mode === 'verbatim') {
+      // 原文预设统一按范围自动选文档，避免沿用范围外的旧选择导致 409
+      setVerbatimDocumentId(null)
+    }
     const bound = presetScope(preset)
     if (bound) {
       setScope(bound)
       setRetrievalMode('selected')
+    } else if (preset.output_mode === 'verbatim' && retrievalMode === 'none') {
+      setRetrievalMode('all')
     }
     document.getElementById('task-query')?.focus()
   }
@@ -390,7 +404,10 @@ export default function TaskPage() {
   const handlePresetRun = (preset: PresetInfo) => {
     if (running) return
     const bound = presetScope(preset)
+    const presetOutput = preset.output_mode
     setQuery(preset.query)
+    setOutputMode(presetOutput)
+    if (presetOutput === 'verbatim') setVerbatimDocumentId(null)
     if (bound) {
       // 绑定范围当前覆盖 0 篇文档：不发注定 409 的任务，先引导用户修正范围
       if (documents !== null && describeScope(bound, categories, documents).invalid) {
@@ -413,11 +430,14 @@ export default function TaskPage() {
       return
     }
     const effectiveScope = bound ?? scope
-    const effectiveMode: RetrievalMode = bound ? 'selected' : retrievalMode
+    let effectiveMode: RetrievalMode = bound ? 'selected' : retrievalMode
     if (bound) setRetrievalMode('selected')
-    setOutputMode('generate')
+    if (presetOutput === 'verbatim' && effectiveMode === 'none') {
+      effectiveMode = 'all'
+      setRetrievalMode('all')
+    }
     saveTaskOptions({ depth, useSkills, retrievalMode: effectiveMode, scope: effectiveScope })
-    void startRun(preset.query, effectiveScope, effectiveMode, 'generate', null)
+    void startRun(preset.query, effectiveScope, effectiveMode, presetOutput, null)
   }
 
   /** 点击预设卡片：只填入输入框（不执行），是否运行交给「直接运行」按钮 / 详情浮窗。 */
@@ -891,42 +911,6 @@ export default function TaskPage() {
 
           <div className="ws-compose__scope">
             <Space size={8} wrap>
-              <Text type="secondary">执行深度：</Text>
-              <Segmented
-                size="small"
-                value={depth}
-                disabled={running || outputMode === 'verbatim'}
-                onChange={(value) => setDepth(value as TaskDepth)}
-                options={[
-                  { label: '自动', value: 'auto' },
-                  { label: '简洁', value: 'brief' },
-                  { label: '长文', value: 'longform' },
-                ]}
-              />
-              <Tooltip title="默认关闭；勾选后 Planner 才会看到技能目录，并可能增加模型调用">
-                <Checkbox
-                  checked={useSkills}
-                  disabled={running || depth === 'brief' || outputMode === 'verbatim'}
-                  onChange={(event) => setUseSkills(event.target.checked)}
-                >
-                  允许技能
-                </Checkbox>
-              </Tooltip>
-              <Tooltip title="在设置中管理默认值：记住上次的执行选项、检索范围与提醒">
-                <Button
-                  type="link"
-                  size="small"
-                  icon={<SettingOutlined />}
-                  onClick={() => navigate('settings')}
-                >
-                  默认值
-                </Button>
-              </Tooltip>
-            </Space>
-          </div>
-
-          <div className="ws-compose__scope">
-            <Space size={8} wrap>
               <Text type="secondary">检索范围：</Text>
               <Segmented
                 size="small"
@@ -954,8 +938,46 @@ export default function TaskPage() {
                   </Button>
                 </>
               ) : null}
+              <Tooltip title="默认关闭；勾选后 Planner 才会看到技能目录，并可能增加模型调用">
+                <Checkbox
+                  checked={useSkills}
+                  disabled={running || depth === 'brief' || outputMode === 'verbatim'}
+                  onChange={(event) => setUseSkills(event.target.checked)}
+                >
+                  允许技能
+                </Checkbox>
+              </Tooltip>
+              <Tooltip title="在设置中管理默认值：记住上次的执行选项、检索范围与提醒">
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<SettingOutlined />}
+                  onClick={() => navigate('settings')}
+                >
+                  默认值
+                </Button>
+              </Tooltip>
             </Space>
           </div>
+
+          {outputMode !== 'verbatim' ? (
+            <div className="ws-compose__scope">
+              <Space size={8} wrap>
+                <Text type="secondary">执行深度：</Text>
+                <Segmented
+                  size="small"
+                  value={depth}
+                  disabled={running}
+                  onChange={(value) => setDepth(value as TaskDepth)}
+                  options={[
+                    { label: '自动', value: 'auto' },
+                    { label: '简洁', value: 'brief' },
+                    { label: '长文', value: 'longform' },
+                  ]}
+                />
+              </Space>
+            </div>
+          ) : null}
 
           {outputMode === 'verbatim' ? (
             <div className="ws-compose__scope">
@@ -1038,11 +1060,15 @@ export default function TaskPage() {
               </Card>
             ))}
           </div>
-        ) : presets.length === 0 && !lastTask ? (
+        ) : modePresets.length === 0 && !lastTask ? (
           <EmptyState
             compact
-            title="还没有预设任务"
-            hint="到「预设任务」页新增，或在下方直接描述任务"
+            title={outputMode === 'verbatim' ? '还没有原文输出预设' : '还没有预设任务'}
+            hint={
+              outputMode === 'verbatim'
+                ? '到「预设任务」页把输出方式切到「直接输出知识库原文」后新增'
+                : '到「预设任务」页新增，或在下方直接描述任务'
+            }
           />
         ) : (
           <div className="ws-presets">

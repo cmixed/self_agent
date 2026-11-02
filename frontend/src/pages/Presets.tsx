@@ -62,13 +62,14 @@ import {
 import type {
   CategoryInfo,
   DocumentInfo,
+  OutputMode,
   PresetImportPreview,
   PresetInfo,
   TaskScope,
 } from '../types/api'
 import { formatDateTime } from '../utils/format'
 import { downloadBlob } from '../utils/download'
-import { movePreset } from '../utils/presets'
+import { filterPresetsByMode, movePreset } from '../utils/presets'
 import { describeScope } from '../utils/scope'
 
 const { Text, Paragraph } = Typography
@@ -76,7 +77,7 @@ const { Text, Paragraph } = Typography
 const PAGE_EYEBROW = '预设任务'
 const PAGE_TITLE = '管理工作台的快捷任务'
 const PAGE_DESCRIPTION =
-  '预设会显示在工作台：点击卡片只填入输入框，点卡片上的「直接运行」才立即执行，右上角「详情」查看完整任务与检索范围。'
+  '预设按「生成内容 / 直接输出知识库原文」分开管理，工作台只展示当前模式的预设。点击卡片只填入输入框，点卡片上的「直接运行」才立即执行。'
 const PAGE_MAX_WIDTH = 1200
 
 const EMPTY_SCOPE: TaskScope = { category_ids: [], document_ids: [] }
@@ -172,6 +173,7 @@ function SortablePresetCard({
       </Paragraph>
 
       <div className="entity-card__badges">
+        {preset.output_mode === 'verbatim' ? <Tag color="cyan">原文输出</Tag> : null}
         {scopeInfo.bound ? (
           <Tag color={scopeInfo.invalid ? 'orange' : 'default'}>范围：{scopeInfo.label}</Tag>
         ) : (
@@ -196,12 +198,14 @@ export default function PresetsPage() {
   const [documents, setDocuments] = useState<DocumentInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [outputMode, setOutputMode] = useState<OutputMode>('generate')
   const [filter, setFilter] = useState<ScopeFilter>('all')
   const [sorting, setSorting] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<PresetInfo | null>(null)
   const [saving, setSaving] = useState(false)
   const [formScope, setFormScope] = useState<TaskScope>(EMPTY_SCOPE)
+  const [formOutputMode, setFormOutputMode] = useState<OutputMode>('generate')
   const [scopePickerOpen, setScopePickerOpen] = useState(false)
   const [form] = Form.useForm<PresetFormValues>()
 
@@ -239,6 +243,7 @@ export default function PresetsPage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
+  const modePresets = useMemo(() => filterPresetsByMode(presets, outputMode), [outputMode, presets])
   const canReorder = filter === 'all' && !sorting
 
   const handleDragEnd = async (event: DragEndEvent) => {
@@ -246,16 +251,23 @@ export default function PresetsPage() {
     const { active, over } = event
     if (!over) return
 
-    const next = movePreset(presets, String(active.id), String(over.id))
-    if (next === presets) return
+    const next = movePreset(modePresets, String(active.id), String(over.id))
+    if (next === modePresets) return
 
     const previous = presets
     setSorting(true)
-    setPresets(next)
+    setPresets([...presets.filter((preset) => preset.output_mode !== outputMode), ...next])
     try {
-      const data = await reorderPresets(next.map((item) => item.preset_id))
-      setPresets(data.presets)
-      setCachedPresets(data.presets)
+      const data = await reorderPresets(
+        next.map((item) => item.preset_id),
+        outputMode,
+      )
+      const merged = [
+        ...previous.filter((preset) => preset.output_mode !== outputMode),
+        ...data.presets,
+      ]
+      setPresets(merged)
+      setCachedPresets(merged)
     } catch (err) {
       // 后端拒绝（如并发增删）时恢复原顺序，避免界面与服务端长期不一致
       setPresets(previous)
@@ -266,29 +278,30 @@ export default function PresetsPage() {
     }
   }
 
-  const boundCount = presets.filter((preset) => isBound(preset.scope)).length
+  const boundCount = modePresets.filter((preset) => isBound(preset.scope)).length
   const filterOptions = useMemo(
     () => [
-      { label: `全部（${presets.length}）`, value: 'all' as ScopeFilter },
-      { label: `未绑定（${presets.length - boundCount}）`, value: 'unbound' as ScopeFilter },
+      { label: `全部（${modePresets.length}）`, value: 'all' as ScopeFilter },
+      { label: `未绑定（${modePresets.length - boundCount}）`, value: 'unbound' as ScopeFilter },
       { label: `指定范围（${boundCount}）`, value: 'bound' as ScopeFilter },
     ],
-    [presets.length, boundCount],
+    [modePresets.length, boundCount],
   )
   const filteredPresets = useMemo(
     () =>
-      presets.filter((preset) => {
+      modePresets.filter((preset) => {
         if (filter === 'unbound') return !isBound(preset.scope)
         if (filter === 'bound') return isBound(preset.scope)
         return true
       }),
-    [presets, filter],
+    [modePresets, filter],
   )
 
   const openCreate = () => {
     setEditing(null)
     form.resetFields()
     setFormScope(EMPTY_SCOPE)
+    setFormOutputMode(outputMode)
     setModalOpen(true)
   }
 
@@ -300,6 +313,7 @@ export default function PresetsPage() {
       query: preset.query,
     })
     setFormScope(preset.scope ?? EMPTY_SCOPE)
+    setFormOutputMode(preset.output_mode)
     setModalOpen(true)
   }
 
@@ -308,6 +322,7 @@ export default function PresetsPage() {
     setEditing(null)
     form.resetFields()
     setFormScope(EMPTY_SCOPE)
+    setFormOutputMode(outputMode)
   }
 
   const handleSave = async (values: PresetFormValues) => {
@@ -316,7 +331,7 @@ export default function PresetsPage() {
     // 未绑定范围时显式传 null（清空），绑定则传原始选择（类别保持动态）
     const scope = isBound(formScope) ? formScope : null
     // 「直接运行」开关已下线：统一为「卡片点击填入、按钮点击运行」，显式写 false 归一化旧数据
-    const payload = { ...values, scope, auto_run: false }
+    const payload = { ...values, scope, auto_run: false, output_mode: formOutputMode }
     try {
       if (editing) {
         await updatePreset(editing.preset_id, payload)
@@ -325,6 +340,7 @@ export default function PresetsPage() {
         await createPreset(payload)
         message.success(`已新增预设「${values.title}」`)
       }
+      setOutputMode(formOutputMode)
       closeModal()
       await refresh()
     } catch (err) {
@@ -443,21 +459,41 @@ export default function PresetsPage() {
       ) : null}
 
       <Card
-        title={`预设（${presets.length}）`}
+        title={`预设（${modePresets.length}）`}
         extra={
-          presets.length > 0 ? (
+          <Space size={8} wrap>
             <Segmented
-              value={filter}
-              onChange={(value) => setFilter(value as ScopeFilter)}
-              options={filterOptions}
+              value={outputMode}
+              onChange={(value) => {
+                setOutputMode(value as OutputMode)
+                setFilter('all')
+              }}
+              options={[
+                { label: '生成内容', value: 'generate' },
+                { label: '直接输出知识库原文', value: 'verbatim' },
+              ]}
             />
-          ) : null
+            {modePresets.length > 0 ? (
+              <Segmented
+                value={filter}
+                onChange={(value) => setFilter(value as ScopeFilter)}
+                options={filterOptions}
+              />
+            ) : null}
+          </Space>
         }
       >
         {firstLoad ? (
           <Skeleton active paragraph={{ rows: 4 }} />
-        ) : presets.length === 0 ? (
-          <EmptyState title="还没有预设任务" hint="新增一条预设，工作台就会出现对应的一键任务" />
+        ) : modePresets.length === 0 ? (
+          <EmptyState
+            title={outputMode === 'verbatim' ? '还没有原文输出预设' : '还没有生成内容预设'}
+            hint={
+              outputMode === 'verbatim'
+                ? '新增一条原文预设：绑定单篇文档后，点卡片即可直接输出该文档原文'
+                : '新增一条预设，工作台就会出现对应的一键任务'
+            }
+          />
         ) : filteredPresets.length === 0 ? (
           <EmptyState compact title="没有符合条件的预设" hint="切换筛选查看其它预设，或新增一条" />
         ) : (
@@ -535,8 +571,26 @@ export default function PresetsPage() {
           </Form.Item>
 
           <Form.Item
+            label="输出方式"
+            extra="两种模式的预设相互独立：工作台切到哪个模式，就只展示该模式的预设"
+          >
+            <Segmented
+              value={formOutputMode}
+              onChange={(value) => setFormOutputMode(value as OutputMode)}
+              options={[
+                { label: '生成内容', value: 'generate' },
+                { label: '直接输出知识库原文', value: 'verbatim' },
+              ]}
+            />
+          </Form.Item>
+
+          <Form.Item
             label="检索范围"
-            extra="绑定后，在工作台点击卡片或直接运行都会套用此范围（仍可临时修改）；不绑定 = 使用工作台当前选择"
+            extra={
+              formOutputMode === 'verbatim'
+                ? '原文预设建议绑定单篇文档：运行时直接读取该文档全文；不绑定时按任务描述自动选一篇'
+                : '绑定后，在工作台点击卡片或直接运行都会套用此范围（仍可临时修改）；不绑定 = 使用工作台当前选择'
+            }
           >
             <Space orientation="vertical" size="small" style={{ width: '100%' }}>
               <Space size={8} wrap>

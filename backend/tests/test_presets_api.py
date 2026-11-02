@@ -166,6 +166,64 @@ def test_preset_scope_and_auto_run_api(client: TestClient) -> None:
     assert cleared.json()["scope"] is None
 
 
+async def test_presets_are_separated_by_output_mode(service: PresetService) -> None:
+    generated = await service.create_preset(
+        title="生成内容预设", description="写内容", query="写一篇综述"
+    )
+    verbatim = await service.create_preset(
+        title="原文预设", description="输出原文", query="输出资料原文", output_mode="verbatim"
+    )
+
+    assert generated.output_mode == "generate"
+    assert verbatim.output_mode == "verbatim"
+    # 两种模式的排序互不影响：各自从 0 开始
+    assert generated.sort_order == 0
+    assert verbatim.sort_order == 0
+    assert [item.preset_id for item in await service.list_presets("generate")] == [
+        generated.preset_id
+    ]
+    assert [item.preset_id for item in await service.list_presets("verbatim")] == [
+        verbatim.preset_id
+    ]
+
+    # 原文列表只需提交原文预设 id
+    reordered = await service.reorder_presets([verbatim.preset_id], output_mode="verbatim")
+    assert [item.preset_id for item in reordered] == [verbatim.preset_id]
+
+    # 切换输出方式 = 移动到另一组末尾
+    moved = await service.update_preset(generated.preset_id, output_mode="verbatim")
+    assert moved.output_mode == "verbatim"
+    assert moved.sort_order == 1
+    assert {item.preset_id for item in await service.list_presets("verbatim")} == {
+        generated.preset_id,
+        verbatim.preset_id,
+    }
+    assert await service.list_presets("generate") == []
+
+
+def test_preset_api_filters_by_output_mode(client: TestClient) -> None:
+    created = client.post(
+        "/api/presets",
+        json={
+            "title": "输出原文",
+            "description": "直接读取知识库原文",
+            "query": "输出资料原文",
+            "output_mode": "verbatim",
+        },
+    )
+    assert created.status_code == 200
+    preset = created.json()
+    assert preset["output_mode"] == "verbatim"
+
+    verbatim = client.get("/api/presets?output_mode=verbatim").json()["presets"]
+    generated = client.get("/api/presets?output_mode=generate").json()["presets"]
+    all_presets = client.get("/api/presets").json()["presets"]
+
+    assert {item["preset_id"] for item in verbatim} == {preset["preset_id"]}
+    assert all(item["output_mode"] == "generate" for item in generated)
+    assert len(all_presets) == len(generated) + len(verbatim)
+
+
 async def test_new_presets_append_to_end(service: PresetService) -> None:
     await service.ensure_seeded()
     seeded = await service.list_presets()

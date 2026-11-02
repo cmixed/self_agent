@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vite-plus/test'
 
 import type { PresetInfo, TaskSummary } from '../types/api'
-import { movePreset, pickLastTask, splitWorkspacePresets, WORKSPACE_PRESET_LIMIT } from './presets'
+import {
+  filterPresetsByMode,
+  movePreset,
+  pickLastTask,
+  splitWorkspacePresets,
+  WORKSPACE_PRESET_LIMIT,
+} from './presets'
 
 function preset(id: string): PresetInfo {
   return {
@@ -9,6 +15,7 @@ function preset(id: string): PresetInfo {
     title: id,
     description: '',
     query: id,
+    output_mode: 'generate',
     scope: null,
     auto_run: false,
     sort_order: 0,
@@ -16,6 +23,25 @@ function preset(id: string): PresetInfo {
     updated_at: '2026-01-01T00:00:00+00:00',
   }
 }
+
+describe('filterPresetsByMode', () => {
+  it('按输出方式筛选，旧数据按生成内容处理', () => {
+    const items = [
+      { ...preset('gen'), output_mode: 'generate' as const },
+      { ...preset('verbatim'), output_mode: 'verbatim' as const },
+      // 模拟升级前的旧数据：字段缺失
+      { ...preset('legacy'), output_mode: undefined as unknown as 'generate' },
+    ]
+
+    expect(filterPresetsByMode(items, 'generate').map((item) => item.preset_id)).toEqual([
+      'gen',
+      'legacy',
+    ])
+    expect(filterPresetsByMode(items, 'verbatim').map((item) => item.preset_id)).toEqual([
+      'verbatim',
+    ])
+  })
+})
 
 describe('splitWorkspacePresets', () => {
   it('超过上限时拆成直接显示与更多两组', () => {

@@ -9,7 +9,7 @@ import StatusTag from '../components/StatusTag'
 import { useViewStack } from '../components/ViewStack'
 import { ApiError, listTasks } from '../services/api'
 import { useTaskRun } from '../state/taskRun'
-import type { TaskSummary } from '../types/api'
+import type { OutputMode, TaskSummary } from '../types/api'
 import { formatDateTime, formatDuration, taskDurationSeconds } from '../utils/format'
 
 const { Text } = Typography
@@ -26,21 +26,25 @@ export default function HistoryPage() {
   const [error, setError] = useState<string | null>(null)
   const [keyword, setKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [outputMode, setOutputMode] = useState<OutputMode>('generate')
 
   const { tasksVersion } = useTaskRun()
 
-  const refresh = useCallback(async (options?: { silent?: boolean }) => {
-    if (!options?.silent) setLoading(true)
-    setError(null)
-    try {
-      const data = await listTasks()
-      setTasks(data.tasks)
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : '加载任务历史失败')
-    } finally {
-      if (!options?.silent) setLoading(false)
-    }
-  }, [])
+  const refresh = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!options?.silent) setLoading(true)
+      setError(null)
+      try {
+        const data = await listTasks(100, undefined, outputMode)
+        setTasks(data.tasks)
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : '加载任务历史失败')
+      } finally {
+        if (!options?.silent) setLoading(false)
+      }
+    },
+    [outputMode],
+  )
 
   useEffect(() => {
     void refresh()
@@ -79,9 +83,22 @@ export default function HistoryPage() {
       description={PAGE_DESCRIPTION}
       maxWidth={PAGE_MAX_WIDTH}
       extra={
-        <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
-          刷新
-        </Button>
+        <Space>
+          <Segmented
+            value={outputMode}
+            onChange={(value) => {
+              setOutputMode(value as OutputMode)
+              setStatusFilter('all')
+            }}
+            options={[
+              { label: '生成内容', value: 'generate' },
+              { label: '原文输出', value: 'verbatim' },
+            ]}
+          />
+          <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
+            刷新
+          </Button>
+        </Space>
       }
     >
       {error && (
@@ -118,7 +135,13 @@ export default function HistoryPage() {
 
         {visibleTasks.length === 0 && !loading ? (
           <EmptyState
-            title={tasks.length === 0 ? '还没有任务记录' : '没有符合筛选条件的任务'}
+            title={
+              tasks.length === 0
+                ? outputMode === 'verbatim'
+                  ? '还没有原文输出记录'
+                  : '还没有任务记录'
+                : '没有符合筛选条件的任务'
+            }
             hint={tasks.length === 0 ? '先在「工作台」跑一个任务' : '试试清空搜索词或切换筛选条件'}
           />
         ) : (

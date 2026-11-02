@@ -6,6 +6,18 @@ import type { PresetInfo, TaskSummary } from '../types/api'
 export const WORKSPACE_PRESET_LIMIT = 6
 
 /**
+ * 只保留指定输出方式的预设。
+ *
+ * 旧数据没有 `output_mode` 时按「生成内容」处理，避免升级后旧预设消失。
+ */
+export function filterPresetsByMode(
+  presets: readonly PresetInfo[],
+  outputMode: string,
+): PresetInfo[] {
+  return presets.filter((preset) => (preset.output_mode ?? 'generate') === outputMode)
+}
+
+/**
  * 选出「上次任务」卡片使用的任务：最近一次**已结束**的任务。
  *
  * 运行中的任务不能直接 rerun（后端会 409），所以跳过；找不到时返回 null。

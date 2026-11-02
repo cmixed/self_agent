@@ -68,6 +68,13 @@ export default function PresetDetailModal({
         </Paragraph>
 
         <div className="preset-detail__row">
+          <Text type="secondary">输出方式</Text>
+          <Tag color={preset.output_mode === 'verbatim' ? 'cyan' : 'default'}>
+            {preset.output_mode === 'verbatim' ? '直接输出知识库原文' : '生成内容'}
+          </Tag>
+        </div>
+
+        <div className="preset-detail__row">
           <Text type="secondary">检索范围</Text>
           {scopeInfo ? (
             <Tag color={scopeInfo.invalid ? 'orange' : 'green'}>范围：{scopeInfo.label}</Tag>
