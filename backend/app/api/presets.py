@@ -49,7 +49,7 @@ def _info(record) -> PresetInfo:
         title=record.title,
         description=record.description,
         query=record.query,
-        output_mode=record.output_mode,  # type: ignore[arg-type]
+        output_mode=record.output_mode,
         scope=_scope_of(record),
         auto_run=record.auto_run,
         sort_order=record.sort_order,
@@ -82,7 +82,7 @@ def _package_item(item) -> PresetImportItem:
         title=item.title,
         description=item.description,
         query=item.query,
-        output_mode=item.output_mode,  # type: ignore[arg-type]
+        output_mode=item.output_mode,
         auto_run=item.auto_run,
         scope=(
             TaskScope(category_ids=list(item.category_ids), document_ids=list(item.document_ids))

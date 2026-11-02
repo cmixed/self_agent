@@ -1,0 +1,59 @@
+name: Quality
+
+# 后端质量门禁：ruff（lint）+ pyright（类型）+ pytest（单元/集成，不依赖真实 API）。
+#
+# 类型检查是这次补上的：此前只有 VS Code 里的 Pylance 会报，CI 不拦，
+# 于是 `app/core/agent_graph.py` 的节点签名问题长期没人发现。
+# 规则与 Pylance 一致（同一引擎），配置见 backend/pyrightconfig.json。
+#
+# 只跑后端：前端检查（vp check / npm test）留给前端自己的改动，避免 PR 变慢。
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "backend/**"
+      - ".github/workflows/quality.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/quality.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 缓存键绑定 backend/uv.lock；torch 是 CPU 轮子（uv.lock 里固定走
+      # download.pytorch.org/whl/cpu），不会被换成 CUDA 版本。
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Type check (pyright)
+        run: uv run pyright
+
+      # pyproject 里 addopts = -m 'not smoke'，真实 API 冒烟测试默认跳过。
+      - name: Test (pytest)
+        run: uv run pytest -q

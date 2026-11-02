@@ -1369,6 +1369,20 @@ Final result
 
 真实 API 测试应单独作为 smoke test。
 
+### Backend Type Check
+
+后端使用 **pyright**（与 VS Code 的 Pylance 同一引擎）做类型检查，
+配置在 `backend/pyrightconfig.json`，入口命令 `cd backend && uv run pyright`，
+CI 的 Quality workflow 会在每个 PR 上执行：
+
+- 只检查 `app/`（`tests/` 暂未纳入，仍有约 200 条既有标注问题，清理后再加入）；
+- `typeCheckingMode: standard`（与 Pylance 默认档一致）；
+- 开启 `reportUnnecessaryTypeIgnoreComment`：过期的 `# type: ignore` 也要报，
+  避免被忽略的错误悄悄回来；
+- 新增节点 / 服务时，工厂函数的返回类型要写成具名参数的可调用类型
+  （见 `app/agents/base.py::AgentNode`），不要用 `Callable[[State], ...]`
+  敷衍 LangGraph 的 `StateNode` 协议。
+
 ### Frontend Unit Test
 
 前端使用 Vitest（`npm test`，底层为 `vp test`），只覆盖纯逻辑与状态归并，
@@ -1629,10 +1643,11 @@ logs/
 
 1. 格式化。
 2. 静态检查。
-3. 运行相关测试。
-4. 确认 import 正常。
-5. 确认 API 启动正常（涉及 API 时）。
-6. 确认前端 build 正常（涉及 frontend 时）。
+3. 类型检查（后端 `cd backend && uv run pyright`）。
+4. 运行相关测试。
+5. 确认 import 正常。
+6. 确认 API 启动正常（涉及 API 时）。
+7. 确认前端 build 正常（涉及 frontend 时）。
 
 ### Ask First
 

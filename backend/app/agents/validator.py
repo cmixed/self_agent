@@ -286,7 +286,7 @@ def _deterministic_chapter_check(state: AgentState, *, index: int, max_retries: 
         result=ValidationResult(
             passed=passed,
             issues=issues,
-            suggested_action="continue" if passed else "retry_writer",  # type: ignore[typeddict-item]
+            suggested_action="continue" if passed else "retry_writer",
             target=target,
         ),
         max_retries=max_retries,
@@ -324,7 +324,7 @@ def _build_update(
                 result = ValidationResult(
                     passed=result["passed"],
                     issues=list(result["issues"]),
-                    suggested_action=action,  # type: ignore[typeddict-item]
+                    suggested_action=action,
                     target=target,
                 )
         else:
@@ -397,7 +397,7 @@ def make_validator_node(
                 result=ValidationResult(
                     passed=False,
                     issues=citation_issues,
-                    suggested_action="retry_writer",  # type: ignore[typeddict-item]
+                    suggested_action="retry_writer",
                     target=citation_target,
                 ),
                 max_retries=max_retries,

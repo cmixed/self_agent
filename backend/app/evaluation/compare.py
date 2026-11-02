@@ -30,7 +30,7 @@ class CountingLLM(LLMProvider):
         self._inner = inner
         self.calls = 0
 
-    async def chat(self, messages, **kwargs):  # type: ignore[override]
+    async def chat(self, messages, **kwargs):
         self.calls += 1
         return await self._inner.chat(messages, **kwargs)
 

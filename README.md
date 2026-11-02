@@ -344,10 +344,11 @@ IMAGE_PREFIX=ghcr.io/<owner> TAG=v1.0.0 \
 ## 测试与检查
 
 ```bash
-# 后端：格式化 / 静态检查 / 单元与集成测试（不依赖真实 API）
+# 后端：格式化 / 静态检查 / 类型检查 / 单元与集成测试（不依赖真实 API）
 cd backend
 uv run ruff format .
 uv run ruff check .
+uv run pyright        # 类型门禁，规则同 VS Code 的 Pylance（配置见 pyrightconfig.json）
 uv run pytest
 
 # 真实 DeepSeek API 冒烟测试（需已配置 DEEPSEEK_API_KEY，默认不执行）
@@ -359,6 +360,11 @@ vp check             # 无全局 vp 时：npm exec -- vp check
 npm test             # Vitest：纯逻辑与状态模块（Mock API，不依赖后端）
 vp build             # 内含 tsc --noEmit
 ```
+
+`ruff check` / `pyright` / `pytest` 由 CI 的 **Quality** workflow 在每个 PR 与
+master push 上执行（`.github/workflows/quality.yml`），只覆盖 `backend/`。
+`pyright` 目前只检查 `app/`：`tests/` 里夹具大量在裸 `dict` 与 TypedDict 之间
+互转，属于单独一轮清理（约 200 条），清理完再把 `include` 扩到 `["app", "tests"]`。
 
 ## 当前进度
 
