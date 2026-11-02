@@ -8,5 +8,6 @@
     "Qwen"
   ],
   "vitest.rootConfig": "frontend/vite.config.ts",
-  "vitest.vitestPackagePath": "frontend/node_modules/vitest/package.json"
+  "vitest.vitestPackagePath": "frontend/node_modules/vitest/package.json",
+  "vitest.nodeExecutable": "${workspaceFolder}/.vscode/node-localhost-ipv6.sh"
 }

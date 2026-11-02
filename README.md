@@ -366,6 +366,29 @@ master push 上执行（`.github/workflows/quality.yml`），只覆盖 `backend/
 `pyright` 目前只检查 `app/`：`tests/` 里夹具大量在裸 `dict` 与 TypedDict 之间
 互转，属于单独一轮清理（约 200 条），清理完再把 `include` 扩到 `["app", "tests"]`。
 
+### 在 VS Code 里跑前端测试（WSL）
+
+扩展装好后即可在「测试」面板里运行，配置全在 `.vscode/settings.json`：
+
+- `vitest.rootConfig` / `vitest.vitestPackagePath`：指向前端的配置文件与前端自己的
+  `vitest`（避免与仓库根的 `node_modules` 混用）；
+- `vitest.nodeExecutable`：指向 `.vscode/node-localhost-ipv6.sh`，见下。
+
+WSL 下扩展的 WebSocket 服务只监听 IPv6（`::`），而本机 `localhost` 只解析到
+`127.0.0.1`（`/etc/hosts` 里的 `::1` 只绑了 `ip6-localhost`），并且 WSL 内核不接受
+连到 IPv6 socket 的 IPv4 连接 —— 于是 worker 连不上扩展，报
+「There were errors during config load / could not load any config」。
+那个 `.sh` 只做一件事：`exec node --require .vscode/vitest-localhost-ipv6.cjs "$@"`，
+后者给 `localhost` 补一条 `::1`，Node 的 Happy Eyeballs 会在 IPv4 失败后回退到 ::1。
+
+为什么用包装器而不是 `vitest.nodeExecArgs: ["--require", ...]`：扩展拉起 worker 时的
+cwd 是**配置文件所在目录** `frontend/`，`nodeExecArgs` 里的相对路径按该 cwd 解析，
+写 `./.vscode/...` 会直接 module-not-found 退出（表现为同样的 "exited with code 1"）；
+包装器用 `dirname "$0"` 定位，与 cwd 无关。
+
+想彻底不用补丁：给 `/etc/hosts` 加一行 `::1 localhost` 即可（WSL 每次启动会重写
+hosts，需配合 `/etc/wsl.conf` 的 `generateHosts=false` 才能持久）。
+
 ## 当前进度
 
 - [x] **Phase 1**：项目初始化 —— FastAPI、React、LLM Provider 抽象、DeepSeek 调用、测试
