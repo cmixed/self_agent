@@ -32,6 +32,8 @@ class TaskRecord:
     finished_at: str | None
     error_type: str | None
     result: dict[str, Any] | None
+    # generate / verbatim；历史与「最近任务」按它区分
+    output_mode: str = "generate"
 
 
 @dataclass(frozen=True)
@@ -266,7 +268,7 @@ class TaskRepository:
         with self._database.connect() as connection:
             row = connection.execute(
                 """
-                SELECT t.task_id, t.user_id, t.query, t.status, t.created_at,
+                SELECT t.task_id, t.user_id, t.query, t.status, t.output_mode, t.created_at,
                        r.finished_at, r.error_type, r.result_json
                   FROM tasks t
                   LEFT JOIN task_runs r ON r.run_id = (
@@ -322,6 +324,7 @@ def _row_to_record(row: Any) -> TaskRecord | None:
         finished_at=row["finished_at"],
         error_type=row["error_type"],
         result=result,
+        output_mode=str(row["output_mode"] or "generate"),
     )
 
 
@@ -988,13 +991,13 @@ class PresetRepository:
         """按给定顺序写入 ``sort_order``（调用方负责校验 id 集合）。"""
         return await asyncio.to_thread(self._reorder_presets, list(preset_ids), output_mode)
 
-    async def seed_once(self, seeds: list[dict[str, str]]) -> bool:
-        """仅在「从未写入过默认预设」时写入；返回是否真的写入了。
+    async def seed_once(self, seeds: list[dict[str, str]], *, key: str | None = None) -> bool:
+        """仅在「该组默认预设从未写入过」时写入；返回是否真的写入了。
 
         用 ``app_meta`` 标记而非「表是否为空」判断，因此用户删掉预设（甚至删空）
-        后重启不会被默认预设复活。
+        后重启不会被默认预设复活。不同输出方式使用不同的 marker key。
         """
-        return await asyncio.to_thread(self._seed_once, seeds)
+        return await asyncio.to_thread(self._seed_once, seeds, key or self._PRESETS_KEY)
 
     # --- 同步实现（在线程中执行）---
 
@@ -1159,11 +1162,11 @@ class PresetRepository:
             connection.commit()
         return self._list_presets(output_mode)
 
-    def _seed_once(self, seeds: list[dict[str, str]]) -> bool:
+    def _seed_once(self, seeds: list[dict[str, str]], key: str) -> bool:
         now = utc_now()
         with self._database.connect() as connection:
             seeded = connection.execute(
-                "SELECT value FROM app_meta WHERE key = ?", (self._PRESETS_KEY,)
+                "SELECT value FROM app_meta WHERE key = ?", (key,)
             ).fetchone()
             if seeded is not None:
                 return False
@@ -1172,13 +1175,14 @@ class PresetRepository:
                     """
                     INSERT OR IGNORE INTO presets(preset_id, title, description, query,
                                                   output_mode, sort_order, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, 'generate', ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         seed["preset_id"],
                         seed["title"],
                         seed["description"],
                         seed["query"],
+                        seed.get("output_mode", "generate"),
                         index,
                         now,
                         now,
@@ -1186,7 +1190,7 @@ class PresetRepository:
                 )
             connection.execute(
                 "INSERT OR REPLACE INTO app_meta(key, value) VALUES (?, ?)",
-                (self._PRESETS_KEY, "1"),
+                (key, "1"),
             )
             connection.commit()
         return True

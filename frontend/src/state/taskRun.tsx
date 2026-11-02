@@ -573,22 +573,37 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      if (event.event === 'verbatim_started' || event.event === 'verbatim_completed') {
-        const finished = event.event === 'verbatim_completed'
-        setNodes((prev) => ({ ...prev, researcher: finished ? 'finish' : 'process' }))
-        if (finished) {
-          setVerbatim({
-            document_id: event.document_id ?? '',
-            filename: event.filename ?? '',
-            title: '',
-            chars: event.chars ?? 0,
-            selection: event.selection ?? '',
-            reason: event.reason ?? '',
-          })
-          pushLog('原文', event.message, 'info')
-        } else {
-          pushLog('原文', event.message, 'info')
-        }
+      if (event.event === 'verbatim_started') {
+        setNodes((prev) => ({ ...prev, researcher: 'process' }))
+        pushLog('原文', event.message, 'info')
+        return
+      }
+
+      if (event.event === 'verbatim_selected') {
+        setNodes((prev) => ({ ...prev, researcher: 'finish', summarizer: 'process' }))
+        setVerbatim({
+          document_id: event.document_id ?? '',
+          filename: event.filename ?? '',
+          title: event.title ?? '',
+          chars: 0,
+          selection: event.selection ?? '',
+          reason: event.reason ?? '',
+        })
+        pushLog('原文', event.message, 'info')
+        return
+      }
+
+      if (event.event === 'verbatim_completed') {
+        setNodes((prev) => ({ ...prev, researcher: 'finish', summarizer: 'finish' }))
+        setVerbatim({
+          document_id: event.document_id ?? '',
+          filename: event.filename ?? '',
+          title: event.title ?? '',
+          chars: event.chars ?? 0,
+          selection: event.selection ?? '',
+          reason: event.reason ?? '',
+        })
+        pushLog('原文', event.message, 'info')
         return
       }
 

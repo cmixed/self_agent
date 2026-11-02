@@ -180,6 +180,15 @@ def render_verbatim_notice(state: AgentState) -> str:
     return "\n".join(lines)
 
 
+@dataclass(frozen=True)
+class VerbatimSelection:
+    """已选中的文档与选择依据（读取原文件之前的中间结果）。"""
+
+    document: DocumentInfo
+    selection: str
+    reason: str
+
+
 class VerbatimService:
     """选文档、读原文、构造结果。"""
 
@@ -204,23 +213,24 @@ class VerbatimService:
         """生成流程中的系统技能：从本次范围的检索结果中选一篇。"""
         scope = state.get("retrieval_scope") or None
         scope_ids = scope.get("document_ids") if scope else None
-        return await self._resolve(
+        selected = await self._resolve(
             query=str(state.get("user_query") or ""),
             step_description=str(step.get("description") or ""),
             scope_ids=scope_ids,
             retrieved_documents=list(state.get("retrieved_documents") or []),
             allow_retrieval=False,
         )
+        return await self._read_and_build(selected)
 
-    async def resolve_direct(
+    async def select_direct(
         self,
         query: str,
         *,
         document_id: str | None = None,
         scope_ids: Sequence[str] | None = None,
         retrieval_mode: str = "all",
-    ) -> VerbatimOutput:
-        """工作台直接入口：可指定文档，也可自动选择最合适的一篇。"""
+    ) -> VerbatimSelection:
+        """工作台直接入口的「选文档」阶段（不读取正文）。"""
         if retrieval_mode == "none":
             raise VerbatimUnavailableError("本次任务设置为「不检索知识库」，无法输出原文")
 
@@ -235,7 +245,7 @@ class VerbatimService:
             )
             if selected is None:
                 raise VerbatimDocumentNotFoundError("指定的文档不在当前检索范围内")
-            return await self._read_and_build(selected, selection="explicit", reason="用户指定文档")
+            return VerbatimSelection(document=selected, selection="explicit", reason="用户指定文档")
 
         return await self._resolve(
             query=query,
@@ -244,6 +254,27 @@ class VerbatimService:
             retrieved_documents=[],
             allow_retrieval=True,
         )
+
+    async def read_selection(self, selection: VerbatimSelection) -> VerbatimOutput:
+        """读取已选中文档的原文件全文。"""
+        return await self._read_and_build(selection)
+
+    async def resolve_direct(
+        self,
+        query: str,
+        *,
+        document_id: str | None = None,
+        scope_ids: Sequence[str] | None = None,
+        retrieval_mode: str = "all",
+    ) -> VerbatimOutput:
+        """工作台直接入口：可指定文档，也可自动选择最合适的一篇。"""
+        selected = await self.select_direct(
+            query,
+            document_id=document_id,
+            scope_ids=scope_ids,
+            retrieval_mode=retrieval_mode,
+        )
+        return await self._read_and_build(selected)
 
     async def _list_documents(self, scope_ids: Sequence[str] | None) -> list[DocumentInfo]:
         documents = await self._document_service_provider().list_documents()
@@ -261,7 +292,7 @@ class VerbatimService:
         scope_ids: Sequence[str] | None,
         retrieved_documents: Sequence[RetrievedDocument],
         allow_retrieval: bool,
-    ) -> VerbatimOutput:
+    ) -> VerbatimSelection:
         documents = await self._list_documents(scope_ids)
         if not documents:
             raise VerbatimNoDocumentError("当前检索范围内没有文档，无法输出原文")
@@ -269,13 +300,17 @@ class VerbatimService:
         text = f"{query}\n{step_description}".strip()
         explicit = _explicit_matches(documents, text)
         if len(explicit) == 1:
-            return await self._read_and_build(
-                explicit[0], selection="filename", reason="任务中明确提到了该文档"
+            return VerbatimSelection(
+                document=explicit[0],
+                selection="filename",
+                reason="任务中明确提到了该文档",
             )
 
         if len(documents) == 1:
-            return await self._read_and_build(
-                documents[0], selection="single", reason="检索范围内只有一篇文档"
+            return VerbatimSelection(
+                document=documents[0],
+                selection="single",
+                reason="检索范围内只有一篇文档",
             )
 
         candidates = self._candidates(documents, retrieved_documents)
@@ -287,8 +322,8 @@ class VerbatimService:
 
         if len(candidates) == 1:
             selected = candidates[0]
-            return await self._read_and_build(
-                self._document_by_id(documents, selected.document_id),
+            return VerbatimSelection(
+                document=self._document_by_id(documents, selected.document_id),
                 selection="retrieval",
                 reason="检索结果只命中一篇文档",
             )
@@ -301,14 +336,14 @@ class VerbatimService:
         if choice is not None:
             document = self._document_by_id(documents, choice.document_id)
             reason = choice.reason.strip() or "模型选择了与该任务最相关的一篇"
-            return await self._read_and_build(
-                document, selection="llm", reason=f"模型选择：{reason}"
+            return VerbatimSelection(
+                document=document, selection="llm", reason=f"模型选择：{reason}"
             )
 
         # 模型不可用 / 输出非法时回退到检索排序，保证生成流程仍可继续。
         fallback = candidates[0]
-        return await self._read_and_build(
-            self._document_by_id(documents, fallback.document_id),
+        return VerbatimSelection(
+            document=self._document_by_id(documents, fallback.document_id),
             selection="retrieval",
             reason="模型未给出有效选择，按检索相关度选择",
         )
@@ -465,13 +500,8 @@ class VerbatimService:
                 return document
         raise VerbatimDocumentNotFoundError("选中的文档不在当前检索范围内")
 
-    async def _read_and_build(
-        self,
-        document: DocumentInfo,
-        *,
-        selection: str,
-        reason: str,
-    ) -> VerbatimOutput:
+    async def _read_and_build(self, selected: VerbatimSelection) -> VerbatimOutput:
+        document = selected.document
         try:
             resolved = await self._document_service_provider().read_document_text(
                 document.document_id
@@ -491,7 +521,7 @@ class VerbatimService:
                 "status": "ok",
                 "document_id": document.document_id,
                 "chars": chars,
-                "selection": selection,
+                "selection": selected.selection,
             },
         )
         return VerbatimOutput(
@@ -500,8 +530,8 @@ class VerbatimService:
             title=title or Path(filename).stem,
             content=text,
             chars=chars,
-            selection=selection,
-            reason=reason,
+            selection=selected.selection,
+            reason=selected.reason,
         )
 
 

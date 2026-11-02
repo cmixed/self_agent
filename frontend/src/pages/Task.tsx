@@ -115,6 +115,13 @@ const PIPELINE_STEPS = [
   { key: 'summarizer', label: '整合结果' },
 ]
 
+/** 原文输出是确定性流程：定位文档 → 读取原文件 → 逐字输出（不经过写作/校验）。 */
+const VERBATIM_PIPELINE_STEPS = [
+  { key: 'researcher', label: '查找知识库文档' },
+  { key: 'summarizer', label: '读取原文件全文' },
+  { key: 'answer', label: '逐字输出原文' },
+]
+
 const TARGET_LABEL = (target: string) =>
   target === 'document' ? '整篇文档' : `章节 ${target.replace('chapter_', '')}`
 
@@ -224,7 +231,16 @@ export default function TaskPage() {
   const [emailOpen, setEmailOpen] = useState(false)
   const [outputTab, setOutputTab] = useState('plan')
   // 「上次任务」固定占预设区第一个槽位，因此可见预设少一条
-  const lastTask = useMemo(() => pickLastTask(recentTasks), [recentTasks])
+  // 接口已按 output_mode 过滤；这里再按同一字段兜底，避免模式切换瞬间出现另一模式的旧数据
+  const modeRecentTasks = useMemo(
+    () =>
+      recentTasks.filter(
+        (task) =>
+          (task.output_mode ?? (task.mode === 'verbatim' ? 'verbatim' : 'generate')) === outputMode,
+      ),
+    [outputMode, recentTasks],
+  )
+  const lastTask = useMemo(() => pickLastTask(modeRecentTasks), [modeRecentTasks])
   // 两种输出方式的预设相互独立：工作台只展示当前模式的预设
   const modePresets = useMemo(() => filterPresetsByMode(presets, outputMode), [outputMode, presets])
   const { visible: workspacePresets, hidden: hiddenPresets } = useMemo(
@@ -557,10 +573,19 @@ export default function TaskPage() {
     ? [
         {
           key: 'researcher',
-          title: '读取知识库原文',
+          title: '查找知识库文档',
           status: nodes.researcher as MacroStage['status'],
           badge: verbatim ? <Tag color="cyan">{verbatim.filename || '已选中文档'}</Tag> : undefined,
           note: verbatim?.reason,
+        },
+        {
+          key: 'summarizer',
+          title: '读取并逐字输出原文',
+          status: nodes.summarizer as MacroStage['status'],
+          badge:
+            verbatim && verbatim.chars > 0 ? (
+              <Tag color="green">{verbatim.chars} 字</Tag>
+            ) : undefined,
         },
       ]
     : isLight
@@ -694,6 +719,9 @@ export default function TaskPage() {
         ? `${verbatim.filename} · 约 ${verbatim.chars} 字 · 逐字读取`
         : '系统会读取原文件全文，不调用模型改写',
     )
+  }
+  if (isVerbatimRun && activeStage?.key === 'summarizer' && verbatim) {
+    currentFacts.push(`${verbatim.filename} · 逐字读取原文件，不调用模型改写`)
   }
   if (activeStage?.key === 'outline' && outline.length > 0) {
     currentFacts.push(`共 ${outline.length} 章`)
@@ -1074,7 +1102,7 @@ export default function TaskPage() {
           <div className="ws-presets">
             {lastTask ? (
               <Tooltip
-                title={`${lastTask.query}（沿用原检索范围 / 深度 / 技能重新执行）`}
+                title={`${lastTask.query}（沿用原${MODE_LABEL[lastTask.mode ?? ''] ?? '任务'}的检索范围 / 深度重新执行）`}
                 placement="top"
               >
                 <Card
@@ -1086,9 +1114,13 @@ export default function TaskPage() {
                   <div className="ws-preset__body">
                     <div className="ws-preset__title ws-preset__title--last">
                       <span className="ws-preset__last-label">
-                        <HistoryOutlined /> 上次任务
+                        <HistoryOutlined />{' '}
+                        {lastTask.mode === 'verbatim' ? '上次原文任务' : '上次任务'}
                       </span>
-                      <StatusTag status={lastTask.status} />
+                      <Space size={4}>
+                        {lastTask.mode === 'verbatim' ? <Tag color="cyan">原文输出</Tag> : null}
+                        <StatusTag status={lastTask.status} />
+                      </Space>
                     </div>
                     <div className="ws-preset__desc">{lastTask.query}</div>
                   </div>
@@ -1207,19 +1239,28 @@ export default function TaskPage() {
           onClose={() => setEmailOpen(false)}
         />
 
-        <Section title="Agent 执行流程" description="运行时会按此顺序推进，并实时反馈当前阶段" />
+        <Section
+          title="Agent 执行流程"
+          description={
+            outputMode === 'verbatim'
+              ? '确定性流程：定位文档 → 读取原文件 → 逐字输出，不经过模型改写'
+              : '运行时会按此顺序推进，并实时反馈当前阶段'
+          }
+        />
 
         <div className="ws-pipeline">
           <div className="ws-pipeline__flow">
-            {PIPELINE_STEPS.map((step, index) => (
-              <span className="ws-pipeline__item" key={step.key}>
-                {index > 0 ? <ArrowRightOutlined className="ws-pipeline__arrow" /> : null}
-                <span className="ws-pipeline__step">
-                  <span className="ws-pipeline__icon">{STAGE_ICONS[step.key]}</span>
-                  {step.label}
+            {(outputMode === 'verbatim' ? VERBATIM_PIPELINE_STEPS : PIPELINE_STEPS).map(
+              (step, index) => (
+                <span className="ws-pipeline__item" key={step.key}>
+                  {index > 0 ? <ArrowRightOutlined className="ws-pipeline__arrow" /> : null}
+                  <span className="ws-pipeline__step">
+                    <span className="ws-pipeline__icon">{STAGE_ICONS[step.key]}</span>
+                    {step.label}
+                  </span>
                 </span>
-              </span>
-            ))}
+              ),
+            )}
           </div>
         </div>
 
@@ -1252,18 +1293,18 @@ export default function TaskPage() {
 
           <Card
             size="small"
-            title="最近任务"
+            title={`最近任务（${outputMode === 'verbatim' ? '原文输出' : '生成内容'}）`}
             extra={
               <Button size="small" type="link" onClick={() => navigate('history')}>
                 全部 <ArrowRightOutlined />
               </Button>
             }
           >
-            {recentTasks.length === 0 ? (
+            {modeRecentTasks.length === 0 ? (
               <EmptyState compact title="还没有任务记录" />
             ) : (
               <ul className="ws-recent">
-                {recentTasks.slice(0, 4).map((task) =>
+                {modeRecentTasks.slice(0, 4).map((task) =>
                   task.status === 'running' ? (
                     <li key={task.task_id}>
                       <button

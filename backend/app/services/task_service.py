@@ -524,14 +524,31 @@ class TaskService:
         )
         self._last_usage = None
         try:
+            service = self._verbatim
+            if service is None:
+                raise VerbatimUnavailableError("原文输出服务未配置")
+            scope = retrieval_scope or None
+            scope_ids = scope.get("document_ids") if scope else None
             with collect_usage() as usage:
-                output = await self._resolve_verbatim(
+                selected = await service.select_direct(
                     query,
                     document_id=document_id,
-                    retrieval_scope=retrieval_scope,
-                    retrieval_mode=retrieval_mode,
+                    scope_ids=scope_ids,
+                    retrieval_mode=str(retrieval_mode or "all"),
                 )
             self._last_usage = usage.to_dict()
+            yield _event(
+                run_id,
+                "verbatim_selected",
+                status="running",
+                message=f"已选中《{selected.document.filename}》，正在读取原文",
+                document_id=selected.document.document_id,
+                filename=selected.document.filename,
+                title=selected.document.title,
+                selection=selected.selection,
+                reason=selected.reason,
+            )
+            output = dict(await service.read_selection(selected))
         except Exception as exc:
             error_type = _verbatim_error_type(exc)
             await self._fail_run(run_id, exc, error_type=error_type)
@@ -562,6 +579,7 @@ class TaskService:
             ),
             document_id=output.get("document_id", ""),
             filename=output.get("filename", ""),
+            title=output.get("title", ""),
             chars=output.get("chars", 0),
             selection=output.get("selection", ""),
             reason=output.get("reason", ""),

@@ -539,6 +539,8 @@ class TaskSummaryOut(BaseModel):
     query: str
     status: str
     mode: str | None = None
+    # generate / verbatim：历史与「最近任务」按输出方式区分
+    output_mode: OutputMode | None = None
     created_at: str
     finished_at: str | None = None
     error_type: str | None = None

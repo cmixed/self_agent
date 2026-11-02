@@ -163,7 +163,7 @@ export default function HistoryPage() {
                 ellipsis: true,
                 render: (query: string, record: TaskSummary) => (
                   <Space size={6}>
-                    {record.mode === 'verbatim' ? <Tag color="cyan">原文</Tag> : null}
+                    {record.output_mode === 'verbatim' ? <Tag color="cyan">原文</Tag> : null}
                     <Tooltip title={query}>
                       <Text>{query}</Text>
                     </Tooltip>

@@ -445,6 +445,8 @@ export interface TaskSummary {
   query: string
   status: string
   mode?: string | null
+  /** generate / verbatim：历史与「最近任务」按输出方式区分 */
+  output_mode?: OutputMode | null
   created_at: string
   finished_at?: string | null
   error_type?: string | null
@@ -562,6 +564,7 @@ export interface TaskEvent {
   /** verbatim_completed：本次直接输出的文档（正文在 result.final_answer） */
   document_id?: string
   filename?: string
+  title?: string
   chars?: number
   selection?: string
   reason?: string

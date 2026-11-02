@@ -459,10 +459,14 @@ def test_direct_verbatim_stream_only_reports_lookup_and_read() -> None:
     assert [event["event"] for event in events] == [
         "task_started",
         "verbatim_started",
+        "verbatim_selected",
         "verbatim_completed",
         "task_completed",
     ]
     assert events[0]["mode"] == "verbatim"
+    selected = events[2]
+    assert selected["filename"] == "rag.md"
+    assert selected["selection"] == "filename"
     assert events[-1]["result"]["output_mode"] == "verbatim"
     assert ORIGINAL_TEXT in events[-1]["result"]["final_answer"]
 

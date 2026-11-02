@@ -299,6 +299,7 @@ def _to_summary(record: Any, *, registry: TaskRegistry | None = None) -> TaskSum
         query=record.query,
         status=record.status,
         mode=result.get("mode"),
+        output_mode=record.output_mode,  # type: ignore[arg-type]
         created_at=record.created_at,
         finished_at=record.finished_at,
         error_type=record.error_type,

@@ -160,10 +160,21 @@ describe('TaskRunProvider 事件归并', () => {
         onEvent(ev('task_started', { mode: 'verbatim', output_mode: 'verbatim' }))
         onEvent(ev('verbatim_started', { message: '正在查找最合适的知识库文档' }))
         onEvent(
+          ev('verbatim_selected', {
+            message: '已选中《b.md》，正在读取原文',
+            document_id: 'doc-2',
+            filename: 'b.md',
+            title: '第二篇',
+            selection: 'explicit',
+            reason: '用户指定文档',
+          }),
+        )
+        onEvent(
           ev('verbatim_completed', {
             message: '已读取《b.md》原文',
             document_id: 'doc-2',
             filename: 'b.md',
+            title: '第二篇',
             chars: 12,
             selection: 'explicit',
             reason: '用户指定文档',
@@ -225,6 +236,7 @@ describe('TaskRunProvider 事件归并', () => {
     expect(result.current.verbatim?.filename).toBe('b.md')
     expect(result.current.finalAnswer).toBe('B 原文')
     expect(result.current.nodes.researcher).toBe('finish')
+    expect(result.current.nodes.summarizer).toBe('finish')
     expect(result.current.outline).toEqual([])
     expect(result.current.chapterList).toEqual([])
     expect(result.current.log.map((entry) => entry.label)).toContain('原文')

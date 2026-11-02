@@ -12,6 +12,7 @@ from app.main import create_app
 from app.memory.sqlite import SqliteDatabase
 from app.services.preset_service import (
     DEFAULT_PRESETS,
+    DEFAULT_VERBATIM_PRESETS,
     PresetNotFoundError,
     PresetOrderError,
     PresetService,
@@ -31,10 +32,34 @@ def client() -> Iterator[TestClient]:
         yield test_client
 
 
+async def test_verbatim_defaults_seeded_for_existing_install(
+    service: PresetService,
+) -> None:
+    """旧安装只有生成预设 marker 时，升级后应补上两条原文预设。"""
+    # 模拟旧版本：只写过生成内容默认预设
+    await service._repository.seed_once(DEFAULT_PRESETS)  # noqa: SLF001 - 测试旧 marker 状态
+    assert await service.list_presets("verbatim") == []
+
+    await service.ensure_seeded()
+
+    generated = await service.list_presets("generate")
+    verbatim = await service.list_presets("verbatim")
+    assert {item.preset_id for item in generated} == {seed["preset_id"] for seed in DEFAULT_PRESETS}
+    assert {item.preset_id for item in verbatim} == {
+        seed["preset_id"] for seed in DEFAULT_VERBATIM_PRESETS
+    }
+
+
 async def test_seed_once_writes_defaults(service: PresetService) -> None:
     await service.ensure_seeded()
-    presets = await service.list_presets()
-    assert {item.preset_id for item in presets} == {seed["preset_id"] for seed in DEFAULT_PRESETS}
+    generated = await service.list_presets("generate")
+    verbatim = await service.list_presets("verbatim")
+
+    assert {item.preset_id for item in generated} == {seed["preset_id"] for seed in DEFAULT_PRESETS}
+    assert {item.preset_id for item in verbatim} == {
+        seed["preset_id"] for seed in DEFAULT_VERBATIM_PRESETS
+    }
+    assert all(item.output_mode == "verbatim" for item in verbatim)
 
 
 async def test_deleted_presets_do_not_come_back(service: PresetService) -> None:
@@ -68,7 +93,11 @@ async def test_crud(service: PresetService) -> None:
 def test_list_presets_seeded_on_startup(client: TestClient) -> None:
     body = client.get("/api/presets").json()
     assert {item["preset_id"] for item in body["presets"]} == {
-        seed["preset_id"] for seed in DEFAULT_PRESETS
+        seed["preset_id"] for seed in [*DEFAULT_PRESETS, *DEFAULT_VERBATIM_PRESETS]
+    }
+    verbatim = client.get("/api/presets?output_mode=verbatim").json()["presets"]
+    assert {item["preset_id"] for item in verbatim} == {
+        seed["preset_id"] for seed in DEFAULT_VERBATIM_PRESETS
     }
 
 
@@ -219,38 +248,39 @@ def test_preset_api_filters_by_output_mode(client: TestClient) -> None:
     generated = client.get("/api/presets?output_mode=generate").json()["presets"]
     all_presets = client.get("/api/presets").json()["presets"]
 
-    assert {item["preset_id"] for item in verbatim} == {preset["preset_id"]}
+    assert any(item["preset_id"] == preset["preset_id"] for item in verbatim)
+    assert all(item["output_mode"] == "verbatim" for item in verbatim)
     assert all(item["output_mode"] == "generate" for item in generated)
     assert len(all_presets) == len(generated) + len(verbatim)
 
 
 async def test_new_presets_append_to_end(service: PresetService) -> None:
     await service.ensure_seeded()
-    seeded = await service.list_presets()
+    seeded = await service.list_presets("generate")
     assert [item.sort_order for item in seeded] == list(range(len(seeded)))
 
     created = await service.create_preset(
         title="新预设", description="追加到末尾", query="执行新预设"
     )
     assert created.sort_order == len(seeded)
-    assert (await service.list_presets())[-1].preset_id == created.preset_id
+    assert (await service.list_presets("generate"))[-1].preset_id == created.preset_id
 
 
 async def test_reorder_presets_persists_order(service: PresetService) -> None:
     await service.ensure_seeded()
-    presets = await service.list_presets()
+    presets = await service.list_presets("generate")
     reversed_ids = [item.preset_id for item in reversed(presets)]
 
     reordered = await service.reorder_presets(reversed_ids)
 
     assert [item.preset_id for item in reordered] == reversed_ids
     assert [item.sort_order for item in reordered] == list(range(len(presets)))
-    assert [item.preset_id for item in await service.list_presets()] == reversed_ids
+    assert [item.preset_id for item in await service.list_presets("generate")] == reversed_ids
 
 
 async def test_reorder_requires_exact_id_set(service: PresetService) -> None:
     await service.ensure_seeded()
-    presets = await service.list_presets()
+    presets = await service.list_presets("generate")
     ids = [item.preset_id for item in presets]
 
     with pytest.raises(PresetOrderError):
@@ -264,16 +294,22 @@ async def test_reorder_requires_exact_id_set(service: PresetService) -> None:
 
 
 def test_reorder_api_roundtrip_and_conflict(client: TestClient) -> None:
-    presets = client.get("/api/presets").json()["presets"]
+    presets = client.get("/api/presets?output_mode=generate").json()["presets"]
     reversed_ids = [item["preset_id"] for item in reversed(presets)]
 
-    response = client.put("/api/presets/order", json={"preset_ids": reversed_ids})
+    response = client.put(
+        "/api/presets/order",
+        json={"preset_ids": reversed_ids, "output_mode": "generate"},
+    )
     assert response.status_code == 200
     body = response.json()["presets"]
     assert [item["preset_id"] for item in body] == reversed_ids
     assert [item["sort_order"] for item in body] == list(range(len(presets)))
 
-    conflict = client.put("/api/presets/order", json={"preset_ids": reversed_ids[:-1]})
+    conflict = client.put(
+        "/api/presets/order",
+        json={"preset_ids": reversed_ids[:-1], "output_mode": "generate"},
+    )
     assert conflict.status_code == 409
     assert conflict.json()["error_type"] == "preset_order_conflict"
 

@@ -49,6 +49,35 @@ DEFAULT_PRESETS: list[dict[str, str]] = [
     },
 ]
 
+# 「直接输出知识库原文」模式的两个系统预设：不绑定范围，运行时按 query 或
+# 工作台当前选择自动选一篇文档。两条的差别是「全库自动选」与「限定当前范围」。
+DEFAULT_VERBATIM_PRESETS: list[dict[str, str]] = [
+    {
+        "preset_id": "preset-verbatim-auto",
+        "title": "输出知识库原文",
+        "description": "自动选择与任务最相关的一篇文档，逐字输出完整原文",
+        "query": (
+            "从我的知识库中选择与任务最相关的一篇文档，逐字输出完整原文，"
+            "不要改写、总结或省略任何段落"
+        ),
+        "output_mode": "verbatim",
+    },
+    {
+        "preset_id": "preset-verbatim-scope",
+        "title": "范围内原文输出",
+        "description": "只在你选定的检索范围内选择一篇文档，逐字输出全文",
+        "query": (
+            "从当前选定的检索范围中选择最相关的一篇文档，逐字输出完整原文，"
+            "不要改写、总结或省略任何段落"
+        ),
+        "output_mode": "verbatim",
+    },
+]
+
+# 两组默认预设使用不同的 app_meta marker：新版补种原文预设时，不会因为
+# 「生成内容预设早已 seed 过」而被跳过；删掉后也不会复活。
+_VERBATIM_SEED_KEY = "presets_verbatim_seeded"
+
 
 class PresetNotFoundError(Exception):
     """预设不存在。"""
@@ -65,8 +94,13 @@ class PresetService:
         self._repository = PresetRepository(database)
 
     async def ensure_seeded(self) -> None:
-        """首次启动写入默认预设（幂等，且删空后不会复活）。"""
+        """首次启动写入默认预设（幂等，且删空后不会复活）。
+
+        生成内容与原文输出两组默认预设使用独立 marker：升级到「两种模式分开」
+        后，已有安装仍会补上原文预设，但不会重复补种或复活用户删掉的条目。
+        """
         await self._repository.seed_once(DEFAULT_PRESETS)
+        await self._repository.seed_once(DEFAULT_VERBATIM_PRESETS, key=_VERBATIM_SEED_KEY)
 
     async def list_presets(self, output_mode: str | None = None) -> list[PresetRecord]:
         return await self._repository.list_presets(output_mode)
