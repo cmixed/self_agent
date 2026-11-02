@@ -847,6 +847,26 @@ export default function TaskPage() {
         <Section
           title="创建任务"
           description="描述一个需要多步完成的任务，Agent 会自动规划并执行"
+          extra={
+            <Space size={8} wrap>
+              <Text type="secondary">输出方式：</Text>
+              <Segmented
+                size="small"
+                value={outputMode}
+                disabled={running}
+                onChange={(value) => handleOutputModeChange(value as OutputMode)}
+                options={[
+                  { label: '生成内容', value: 'generate' },
+                  { label: '直接输出知识库原文', value: 'verbatim' },
+                ]}
+              />
+              {outputMode === 'verbatim' ? (
+                <Tooltip title="不经过模型改写，逐字输出整篇原文件">
+                  <InfoCircleOutlined className="section__hint-icon" />
+                </Tooltip>
+              ) : null}
+            </Space>
+          }
         />
 
         <div className="ws-compose">
@@ -868,25 +888,6 @@ export default function TaskPage() {
               }
             }}
           />
-
-          <div className="ws-compose__scope">
-            <Space size={8} wrap>
-              <Text type="secondary">输出方式：</Text>
-              <Segmented
-                size="small"
-                value={outputMode}
-                disabled={running}
-                onChange={(value) => handleOutputModeChange(value as OutputMode)}
-                options={[
-                  { label: '生成内容', value: 'generate' },
-                  { label: '直接输出知识库原文', value: 'verbatim' },
-                ]}
-              />
-              {outputMode === 'verbatim' ? (
-                <Text type="secondary">不经过模型改写，逐字输出整篇原文件</Text>
-              ) : null}
-            </Space>
-          </div>
 
           <div className="ws-compose__scope">
             <Space size={8} wrap>

@@ -1114,6 +1114,21 @@ html[data-theme='dark'] body {
   color: var(--ant-color-text-tertiary);
 }
 
+/* 区块右侧操作区（如「创建任务」旁输出方式切换）：始终右对齐 */
+.section__extra {
+  margin-left: auto;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: var(--ws-space-2);
+  flex-wrap: wrap;
+}
+
+.section__hint-icon {
+  color: var(--ant-color-text-tertiary);
+  cursor: help;
+}
+
 /* --- 设置页（设置项 / 记忆摘要） ------------------------------------------ */
 .settings-row {
   display: flex;
