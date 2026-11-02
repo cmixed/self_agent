@@ -53,7 +53,8 @@
 │   │                      #   任务历史 / 长期记忆 / 模型服务 / 设置
 │   └── src/types/         # 类型定义
 ├── docker/                # 容器镜像与 nginx 配置（本地开发不使用）
-├── compose.yaml           # 容器运行：nginx 前端 + FastAPI 后端
+├── compose.yaml           # 本地构建并运行：nginx 前端 + FastAPI 后端
+├── compose.release.yaml   # 目标机器只拉 GHCR 镜像，不本地构建
 ├── docs/                  # 架构说明、评估报告与容器使用说明
 └── data/                  # 运行时数据（Chroma / SQLite / 文档 / 技能目录）
 ```
@@ -322,7 +323,22 @@ SQLite / Chroma / 文档 / 技能都保留在宿主机；`data/hf-cache/` 缓存
 - 容器访问宿主机 Ollama 用 `http://host.containers.internal:11434/v1`（Docker 为
   `host.docker.internal`）。
 
-完整说明（数据目录、Ollama、端口、排错、rootless Podman 权限）见
+### GitHub Actions 自动构建
+
+`.github/workflows/images.yml` 会在 push `master` / 推送 `v*` tag 时构建并推送两个
+镜像到 GHCR；PR 只构建验证不推送。目标机器用 `compose.release.yaml` 只拉镜像：
+
+```bash
+IMAGE_PREFIX=ghcr.io/<owner> TAG=v1.0.0 \
+  docker compose -f compose.release.yaml pull
+IMAGE_PREFIX=ghcr.io/<owner> TAG=v1.0.0 \
+  docker compose -f compose.release.yaml up -d
+```
+
+镜像不含 `backend/.env` 与 `data/`，目标机器仍需单独提供。GHCR 私有包需要
+`read:packages` 权限的 PAT 登录，或把 package 改为 public。
+
+完整说明（数据目录、Ollama、端口、GHCR、排错、rootless Podman 权限）见
 [`docs/containers.md`](./docs/containers.md)。
 
 ## 测试与检查

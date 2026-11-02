@@ -1,0 +1,42 @@
+# 目标机器部署用：只拉取已构建好的镜像，不包含 build。
+#
+# 适用场景：另一台机器没有源码 / 不想在本地安装 Python・Node 依赖。
+# 本地开发仍然用 ./run.sh；有源码并想本地构建时用 compose.yaml。
+#
+# 用法：
+#   IMAGE_PREFIX=ghcr.io/<owner> TAG=v1.0.0 \
+#     docker compose -f compose.release.yaml pull
+#   IMAGE_PREFIX=ghcr.io/<owner> TAG=v1.0.0 \
+#     docker compose -f compose.release.yaml up -d
+#
+# 默认 IMAGE_PREFIX 对应本仓库（cmixed/self_agent）；fork 后请覆盖。
+# 目标机器仍然需要：backend/.env、可写的 ./data 目录。
+
+services:
+  backend:
+    image: ${IMAGE_PREFIX:-ghcr.io/cmixed}/self-agent-backend:${TAG:-latest}
+    env_file:
+      - backend/.env
+    environment:
+      HF_HOME: /app/data/hf-cache
+      APP_ENV: production
+      CORS_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+    volumes:
+      - ./data:/app/data
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  frontend:
+    image: ${IMAGE_PREFIX:-ghcr.io/cmixed}/self-agent-frontend:${TAG:-latest}
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

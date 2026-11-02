@@ -1,0 +1,107 @@
+name: Build container images
+
+# 构建并推送两个镜像到 GHCR：
+#   ghcr.io/<owner>/self-agent-backend:<tag>
+#   ghcr.io/<owner>/self-agent-frontend:<tag>
+#
+# 本地开发仍然用 ./run.sh；本 workflow 只负责发布容器镜像。
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+    # 纯文档改动不重建镜像；tag push 不受 paths-ignore 影响。
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+      - "AGENTS.md"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+      - "AGENTS.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+# 同一分支连续 push 时取消旧构建，避免后端长构建排队。
+concurrency:
+  group: images-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            dockerfile: docker/backend.Dockerfile
+          - name: frontend
+            dockerfile: docker/frontend.Dockerfile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR 要求镜像名全部小写；GitHub 用户名可能含大写。
+      - name: Lowercase owner
+        id: owner
+        run: echo "value=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      # 后端包含 torch / Chroma / sentence-transformers，标准 runner 的
+      # 剩余磁盘可能不够；只对 backend 释放空间，前端不需要。
+      - name: Free disk space
+        if: matrix.name == 'backend'
+        uses: jlumbroso/free-disk-space@v1.3.2
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.owner.outputs.value }}/self-agent-${{ matrix.name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          # PR 只验证能否构建，不推送。
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+          # 两个镜像分开 scope，避免互相覆盖缓存。
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          # 不生成 provenance / SBOM，减少一次构建的额外负担；
+          # 需要供应链证明时再把这两项打开并补 id-token: write。
+          provenance: false
+          sbom: false

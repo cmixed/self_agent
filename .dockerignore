@@ -1,5 +1,6 @@
 # 构建上下文是仓库根目录，尽量只发送真正需要的文件。
 .git
+.github
 .gitignore
 .vscode
 .idea

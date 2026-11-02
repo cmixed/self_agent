@@ -105,6 +105,72 @@ podman-compose up -d --build
 podman-compose build backend && podman-compose up -d backend
 ```
 
+## GitHub Actions 自动构建（GHCR）
+
+`.github/workflows/images.yml` 会在 push 到 `master`、推送 `v*` tag、PR 和手动触发时
+构建两个镜像，并推送到 GitHub Container Registry：
+
+```text
+ghcr.io/<owner>/self-agent-backend:<tag>
+ghcr.io/<owner>/self-agent-frontend:<tag>
+```
+
+| 事件 | 行为 |
+| --- | --- |
+| push `master` | 构建并推送 `master`、`sha-xxxx`、`latest` |
+| push `v1.0.0` | 构建并推送 `1.0.0`、`1.0`、`sha-xxxx` |
+| Pull Request | 只构建验证，不推送 |
+| 手动触发 | 构建并推送 |
+
+- PR 构建不登录、不推送，fork 的 PR 也能跑；
+- 缓存按 backend / frontend 分开（`type=gha`），后端依赖层可复用；
+- 后端镜像较大，workflow 仅对 backend 释放 runner 磁盘空间；
+- 默认只构建 `linux/amd64`。目标机器是 ARM 时需改为 `ubuntu-24.04-arm`
+  或在本地重新构建，不建议用 QEMU 模拟构建 torch；
+- 镜像不含 `backend/.env` 和 `data/`，仍然由目标机器在运行时提供。
+
+### 目标机器拉取镜像
+
+GHCR 包默认是 private，需要先登录（PAT 需要 `read:packages`）：
+
+```bash
+echo "$CR_PAT" | docker login ghcr.io -u <github用户名> --password-stdin
+# 或
+podman login ghcr.io -u <github用户名>
+```
+
+也可以在 GitHub 的 package 设置里把镜像改成 public，之后匿名即可拉取。
+
+### 用 compose.release.yaml 部署
+
+目标机器只需要：
+
+```text
+compose.release.yaml
+backend/.env
+data/
+```
+
+```bash
+# 第一次 / 版本升级时拉取
+IMAGE_PREFIX=ghcr.io/<owner> TAG=v1.0.0 \
+  docker compose -f compose.release.yaml pull
+IMAGE_PREFIX=ghcr.io/<owner> TAG=v1.0.0 \
+  docker compose -f compose.release.yaml up -d
+
+# Podman
+IMAGE_PREFIX=ghcr.io/<owner> TAG=v1.0.0 \
+  podman-compose -f compose.release.yaml pull
+IMAGE_PREFIX=ghcr.io/<owner> TAG=v1.0.0 \
+  podman-compose -f compose.release.yaml up -d
+```
+
+`IMAGE_PREFIX` / `TAG` 不传时默认使用 `ghcr.io/cmixed` 和 `latest`；演示和长期部署
+建议固定到 `v1.0.0` 或 `sha-xxxx`，不要依赖 `latest`。
+
+> 目标机器如果只有镜像、没有源码，不要用 `compose.yaml` —— 它带 `build:`，
+> 会尝试本地构建。用 `compose.release.yaml` 只拉镜像。
+
 ## 常用配置
 
 ### Embedding 模型缓存
@@ -190,7 +256,9 @@ rootless Podman 默认把容器 root 映射到当前宿主用户，因此 `./dat
 
 | 文件 | 作用 |
 | --- | --- |
-| `compose.yaml` | 两个服务、端口、`env_file`、数据挂载、健康检查 |
+| `compose.yaml` | 本地构建并启动两个服务、端口、`env_file`、数据挂载、健康检查 |
+| `compose.release.yaml` | 目标机器只拉 GHCR 镜像，不含 `build:` |
+| `.github/workflows/images.yml` | push / tag / PR / 手动触发构建并推送 GHCR |
 | `docker/backend.Dockerfile` | `python:3.14-slim-bookworm` + uv + CPU-only torch |
 | `docker/frontend.Dockerfile` | `node:22-bookworm-slim` 构建 → `nginx:stable-alpine` 运行 |
 | `docker/nginx.conf` | 静态托管、`/api` 反代、SSE、上传上限、gzip、SPA fallback |
