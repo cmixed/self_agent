@@ -7,8 +7,8 @@ Validator 在汇总之前完成校验（Phase 4B），因此本节点不调用 L
 from __future__ import annotations
 
 import re
-from collections.abc import Awaitable, Callable
 
+from app.agents.base import AgentNode
 from app.agents.budget import resolve_writing_budget
 from app.agents.chapters import MAX_SECTIONS, chapter_target, failed_chapters
 from app.core.limits import (
@@ -199,7 +199,7 @@ def make_summarizer_node(
     max_retries: int = 2,
     max_sections: int = MAX_SECTIONS,
     target_total_chars: int = DEFAULT_TOTAL_CHARS,
-) -> Callable[[AgentState], Awaitable[dict]]:
+) -> AgentNode:
     """构造 summarizer 节点。"""
 
     async def summarizer_node(state: AgentState) -> dict:

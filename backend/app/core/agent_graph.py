@@ -24,7 +24,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Hashable, Sequence
 from typing import Any
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -145,7 +145,10 @@ def build_graph(
         )
     next_stage = "skills" if catalog else "outline"
 
-    routes: dict[str, str] = {"outline": "outline", "end": END}
+    # 键必须声明为 Hashable：add_conditional_edges 的 path_map 是
+    # dict[Hashable, str]，而 dict 的键类型不变（invariant），
+    # 传 dict[str, str] 会被类型检查器判为不可赋值。
+    routes: dict[Hashable, str] = {"outline": "outline", "end": END}
     if catalog:
         routes["skills"] = "skills"
     if rag_tool_provider is not None:

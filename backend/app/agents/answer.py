@@ -13,8 +13,9 @@ RAG 仍然只通过 ``RagTool`` 访问（AGENTS.md §4.1），本节点不碰 Ch
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 
+from app.agents.base import AgentNode
 from app.agents.citations import citation_issue_text, dangling_citation_indices
 from app.agents.memory_context import render_memories
 from app.agents.preferences import render_preferences
@@ -33,7 +34,7 @@ def make_answer_node(
     llm: LLMProvider,
     *,
     rag_tool_provider: Callable[[], RagTool] | None = None,
-) -> Callable[[AgentState], Awaitable[dict]]:
+) -> AgentNode:
     """构造轻量回答节点。"""
 
     # 本地小模型上下文更小：记忆预算减半，避免挤占 num_ctx

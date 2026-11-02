@@ -10,8 +10,7 @@ Phase 4B / 4C：
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-
+from app.agents.base import AgentNode
 from app.agents.budget import (
     budget_context,
     chapter_char_target,
@@ -141,7 +140,7 @@ def make_writer_node(
     max_retries: int = 2,
     max_sections: int = MAX_SECTIONS,
     target_total_chars: int = DEFAULT_TOTAL_CHARS,
-) -> Callable[[AgentState], Awaitable[dict]]:
+) -> AgentNode:
     """构造 writer 节点（每次撰写或重写一章）。
 
     篇幅用「目标字数」软约束；输出被长度上限截断时（``finish_reason=length``）

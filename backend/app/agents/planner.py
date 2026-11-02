@@ -6,11 +6,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Callable, Sequence
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.agents.base import AgentNode
 from app.agents.memory_context import render_memories
 from app.agents.preferences import render_preferences
 from app.agents.skills import (
@@ -138,7 +139,7 @@ def make_planner_node(
     *,
     max_retries: int = 2,
     skill_catalog: Sequence[CatalogEntry] | SkillCatalog | None = None,
-) -> Callable[[AgentState], Awaitable[dict]]:
+) -> AgentNode:
     """构造绑定了 LLM 的 planner 节点。
 
     ``skill_catalog`` 非空时注入 L1 目录（id/name/description），Planner 可在

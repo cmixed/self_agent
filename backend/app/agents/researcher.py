@@ -7,8 +7,9 @@ Phase 3B 采用单次检索：以用户任务（拼接计划目标）作为检�
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 
+from app.agents.base import AgentNode
 from app.core.logging import get_logger
 from app.embedding.base import EmbeddingError
 from app.llm.base import ChatMessage
@@ -23,7 +24,7 @@ def make_researcher_node(
     tool_provider: Callable[[], RagTool],
     *,
     top_k: int | None = None,
-) -> Callable[[AgentState], Awaitable[dict]]:
+) -> AgentNode:
     """构造 researcher 节点。
 
     ``tool_provider`` 延迟创建 RAG Tool，避免不需要检索的任务也去加载

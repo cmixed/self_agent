@@ -7,10 +7,9 @@ Phase 4A：长文采用「大纲 → 分章节生成 → 汇总」的方式，�
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-
 from pydantic import BaseModel, Field, field_validator
 
+from app.agents.base import AgentNode
 from app.agents.budget import budget_context, compute_writing_budget
 from app.agents.preferences import render_preferences
 from app.core.limits import (
@@ -84,7 +83,7 @@ def make_outline_node(
     target_sections: int = DEFAULT_TARGET_SECTIONS,
     max_sections: int = DEFAULT_MAX_SECTIONS,
     target_total_chars: int = DEFAULT_TOTAL_CHARS,
-) -> Callable[[AgentState], Awaitable[dict]]:
+) -> AgentNode:
     """构造 outline 节点。
 
     ``target_sections`` 是提示词里的**参考上限**（不是强制章节数），

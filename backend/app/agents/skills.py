@@ -10,10 +10,11 @@ Planner 可在计划中加入 ``type="skill"`` 的步骤；本节点每次执行
 from __future__ import annotations
 
 import re
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, NotRequired, TypedDict
 
+from app.agents.base import AgentNode
 from app.agents.budget import budget_context, compute_writing_budget
 from app.core.limits import (
     DEFAULT_TOTAL_CHARS,
@@ -296,7 +297,7 @@ def make_skills_node(
     catalog: Sequence[CatalogEntry] | SkillCatalog,
     *,
     verbatim_provider: Callable[[], Any] | None = None,
-) -> Callable[[AgentState], Awaitable[dict]]:
+) -> AgentNode:
     """构造绑定了 LLM 与技能目录的 skills 节点。
 
     正文按 ``skill_id`` 在执行时读取（L2）：未选中的技能不会出现在提示词中。

@@ -17,11 +17,11 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Awaitable, Callable
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.agents.base import AgentNode
 from app.agents.budget import (
     budget_context,
     chapter_char_target,
@@ -380,7 +380,7 @@ def make_validator_node(
     max_retries: int = 2,
     max_sections: int = MAX_SECTIONS,
     target_total_chars: int = DEFAULT_TOTAL_CHARS,
-) -> Callable[[AgentState], Awaitable[dict]]:
+) -> AgentNode:
     """构造 validator 节点。"""
 
     async def validator_node(state: AgentState) -> dict:
