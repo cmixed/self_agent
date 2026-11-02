@@ -365,6 +365,7 @@ vp build             # 内含 tsc --noEmit
 master push 上执行（`.github/workflows/quality.yml`），只覆盖 `backend/`。
 `pyright` 目前只检查 `app/`：`tests/` 里夹具大量在裸 `dict` 与 TypedDict 之间
 互转，属于单独一轮清理（约 200 条），清理完再把 `include` 扩到 `["app", "tests"]`。
+清理的执行手册见 [`docs/test-typing-cleanup.md`](docs/test-typing-cleanup.md)。
 
 ### 在 VS Code 里跑前端测试（WSL）
 
