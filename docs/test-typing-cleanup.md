@@ -1,7 +1,7 @@
 # 把 `tests/` 纳入 pyright 类型门禁（执行手册）
 
 > 这份文档是给**执行者**（人或 AI）的作业单，不是设计文档。
-> 起点：`master` @ `4b84792`；后端 pyright 1.1.414（由 `uv.lock` 固定）。
+> 起点：`master`（含本手册的提交即可）；后端 pyright 1.1.414（由 `uv.lock` 固定）。
 > 目标：让 `cd backend && uv run pyright`（覆盖 `app` + `tests`）**0 errors**，
 > 且不牺牲测试本身的价值。
 
