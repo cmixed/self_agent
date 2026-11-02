@@ -24,6 +24,8 @@ think=false       思考 0 字、正文 1293 字 | 10.4s | 67.6 tok/s
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import httpx
 
 from app.core.logging import get_logger
@@ -85,7 +87,7 @@ class OllamaNativeProvider(OpenAICompatProvider):
 
     def _build_payload(
         self,
-        messages: list[ChatMessage] | tuple[ChatMessage, ...],
+        messages: Sequence[ChatMessage],
         *,
         temperature: float,
         max_tokens: int | None,

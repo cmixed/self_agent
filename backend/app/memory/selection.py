@@ -19,6 +19,7 @@ from collections.abc import Sequence
 
 from app.memory.dedupe import normalize_text
 from app.memory.repository import MemoryRecord
+from app.models.state import UserMemory
 
 # 状态里最多保留多少条候选记忆（每个节点还会再按预算取更少）
 MAX_CONTEXT_MEMORIES = 6
@@ -142,7 +143,7 @@ def select_memories(
     *,
     query: str,
     limit: int = MAX_CONTEXT_MEMORIES,
-) -> list[dict[str, str]]:
+) -> list[UserMemory]:
     """返回最多 ``limit`` 条值得注入的记忆（``{"kind", "content"}``）。
 
     - 普通任务：只保留与 query 有词重合的记忆，宁缺毋滥；
@@ -168,7 +169,7 @@ def select_memories(
 
     scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
     return [
-        {"kind": memory.kind or "fact", "content": memory.content.strip()}
+        UserMemory(kind=memory.kind or "fact", content=memory.content.strip())
         for _, _, memory in scored[:limit]
     ]
 

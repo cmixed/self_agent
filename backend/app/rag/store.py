@@ -11,9 +11,12 @@ import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.embedding.base import EmbeddingConfigError
+
+if TYPE_CHECKING:  # Chroma 体积大，运行时按需在 __init__ 内导入
+    from chromadb.api.types import Where
 
 _ADD_BATCH_SIZE = 500
 
@@ -217,11 +220,11 @@ class ChromaStore:
             return []
         if self._collection.count() == 0:
             return []
-        where = (
-            {"document_id": {"$in": list(document_ids)}}
-            if document_ids is not None
-            else None
-        )
+        # 显式标注为 Chroma 的 Where：``dict`` 的字面量无法自动收敛到
+        # ``Where``（其值是嵌套的算子表达式联合），否则类型检查器会报不可赋值。
+        where: Where | None = None
+        if document_ids is not None:
+            where = {"document_id": {"$in": list(document_ids)}}
         result = self._collection.query(
             query_embeddings=[list(embedding)],
             n_results=max(1, top_k),
