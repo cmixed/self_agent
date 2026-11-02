@@ -116,6 +116,28 @@ class DocumentService:
             return None
         return matches[0], str(info["filename"])
 
+    async def read_document_text(self, document_id: str) -> tuple[str, str, str] | None:
+        """读取知识库原始全文，返回 ``(filename, title, text)``。
+
+        原文必须来自上传时保存的原文件，而不是 Chroma 中的切片重建：
+        - ``.md/.txt`` 直接读原文件；
+        - PDF 复用既有 ``load_document`` 解析（放进线程，避免阻塞事件循环）。
+
+        文档不存在、原文件缺失或无法解析时返回 ``None``；调用方据此给出
+        可读错误，不要把半截内容当成原文输出。
+        """
+        resolved = await self.document_file(document_id)
+        if resolved is None:
+            return None
+        path, filename = resolved
+        info = await self._store.aget_document(document_id)
+        title = str((info or {}).get("title") or Path(filename).stem)
+        pages = await asyncio.to_thread(load_document, path)
+        text = "\n\n".join(page.text.strip("\n") for page in pages if page.text.strip()).strip()
+        if not text:
+            return None
+        return filename, title, text
+
     async def delete_document(self, document_id: str) -> bool:
         if await self._store.aget_document(document_id) is None:
             return False

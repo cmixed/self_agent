@@ -109,6 +109,14 @@ async def test_extract_stores_preferences_and_memories(repository: MemoryReposit
     )
 
     assert extracted is not None
+    assert extracted["attempted"] is True
+    assert extracted["trigger"] == "manual"
+    assert extracted["preferences"] == [{"key": "style", "value": "偏好学术严谨"}]
+    assert extracted["memories"] == [
+        {"kind": "task_type", "content": "经常撰写技术综述"},
+        {"kind": "fact", "content": "希望输出 Markdown"},
+    ]
+    assert extracted["skipped"] == 0
     assert await repository.get_preferences("u1") == {"style": "偏好学术严谨"}
     contents = [m.content for m in await repository.list_memories("u1")]
     assert contents == ["希望输出 Markdown", "经常撰写技术综述"]

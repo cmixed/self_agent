@@ -27,6 +27,7 @@ import EmptyState from '../components/EmptyState'
 import ErrorNotice from '../components/ErrorNotice'
 import ImportPreviewModal from '../components/ImportPreviewModal'
 import PageContainer from '../components/PageContainer'
+import { useViewStack } from '../components/ViewStack'
 import {
   ApiError,
   addMemory,
@@ -47,7 +48,7 @@ const { Text, Paragraph } = Typography
 const PAGE_EYEBROW = '长期记忆'
 const PAGE_TITLE = '管理跨任务保留的偏好与信息'
 const PAGE_DESCRIPTION =
-  '偏好会在后续任务中按模式生效；事实与任务类型会作为相关任务的背景参考，不会被当作引用来源。'
+  '偏好会在后续任务中按模式生效；事实与任务类型会作为相关任务的背景参考，不会被当作引用来源。长文任务完成后会自动学习，其他任务中明确说「记住…」「以后都…」也会触发。'
 const PAGE_MAX_WIDTH = 1200
 
 /** 常用偏好键（与后端 MemoryService 的提示保持一致） */
@@ -62,6 +63,7 @@ interface PreferenceRow {
 
 export default function MemoryPage() {
   const { message } = App.useApp()
+  const { openTask } = useViewStack()
   const [profile, setProfile] = useState<MemoryProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -345,7 +347,10 @@ export default function MemoryPage() {
         {firstLoad ? (
           <Skeleton active paragraph={{ rows: 3 }} />
         ) : memories.length === 0 ? (
-          <EmptyState title="还没有长期记忆" hint="跑一次任务后系统会自动积累，也可以手动添加" />
+          <EmptyState
+            title="还没有长期记忆"
+            hint="长文任务结束后会自动提取；其他任务中说出「记住…」「以后都…」「我的研究方向是…」也会触发，也可以手动添加"
+          />
         ) : (
           <div className="mem-grid">
             {memories.map((item) => (
@@ -358,11 +363,18 @@ export default function MemoryPage() {
                 </div>
                 <div className="mem-card__content">{item.content}</div>
                 <div className="mem-card__foot">
-                  <Text type="secondary">
-                    {item.source_task_id
-                      ? `来自任务 ${item.source_task_id.slice(0, 8)}`
-                      : '手动添加'}
-                  </Text>
+                  {item.source_task_id ? (
+                    <Button
+                      type="link"
+                      size="small"
+                      className="mem-card__source"
+                      onClick={() => openTask(item.source_task_id as string)}
+                    >
+                      来自任务 {item.source_task_id.slice(0, 8)}
+                    </Button>
+                  ) : (
+                    <Text type="secondary">手动添加</Text>
+                  )}
                   <Popconfirm
                     title="删除该记忆？"
                     description="删除后不可恢复。"

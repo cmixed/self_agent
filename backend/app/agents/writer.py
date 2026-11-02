@@ -33,6 +33,7 @@ from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, Section, StepResult, WritingBudget
 from app.prompts import render_prompt
 from app.rag.tools import format_context
+from app.services.verbatim_service import render_verbatim_notice
 
 logger = get_logger(__name__)
 
@@ -92,6 +93,10 @@ def _render_section_input(
             "一律以「检索到的资料」的编号为准，不得引用资料之外的编号）：\n"
             f"{skill_context}"
         )
+
+    verbatim_notice = render_verbatim_notice(state)
+    if verbatim_notice:
+        lines.append(verbatim_notice)
 
     rendered = render_preferences(state)
     if rendered:

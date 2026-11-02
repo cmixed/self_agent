@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
 from fakes import (
     DRAFT_TEXT,
     OUTLINE_JSON,
@@ -13,8 +14,9 @@ from fakes import (
 )
 from fastapi.testclient import TestClient
 
-from app.api.deps import get_task_service
+from app.api.deps import build_memory_repository, get_memory_service, get_task_service
 from app.main import create_app
+from app.services.memory_service import MemoryService
 from app.services.task_service import TaskService
 
 # planner -> outline -> 每章 (writer -> validator) -> 整篇校验 -> summarizer
@@ -163,6 +165,38 @@ def test_stream_endpoint_emits_sse_frames() -> None:
     assert events[0]["event"] == "task_started"
     assert events[-1]["event"] == "task_completed"
     assert DRAFT_TEXT in events[-1]["result"]["final_answer"]
+
+
+async def test_stream_completed_carries_memory_updates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """终态之后补发记忆更新事件，不拖慢 task_completed。"""
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("MEMORY_AUTO_EXTRACT", "true")
+    get_settings.cache_clear()
+    extraction = json.dumps(
+        {"preferences": [{"key": "style", "value": "偏好简洁"}], "memories": []},
+        ensure_ascii=False,
+    )
+    app = create_app()
+    app.dependency_overrides[get_task_service] = lambda: TaskService(_provider(), max_retries=0)
+    app.dependency_overrides[get_memory_service] = lambda: MemoryService(
+        build_memory_repository(), ScriptedProvider([extraction])
+    )
+
+    with (
+        TestClient(app) as client,
+        client.stream("POST", "/api/tasks/stream", json={"query": "写一篇 RAG 综述"}) as response,
+    ):
+        body = "".join(response.iter_text())
+
+    frames = [line[len("data: ") :] for line in body.splitlines() if line.startswith("data: ")]
+    events = [json.loads(frame) for frame in frames]
+    names = [event["event"] for event in events]
+
+    assert names.index("task_completed") < names.index("memory_started")
+    updated = next(event for event in events if event["event"] == "memory_updated")
+    assert updated["memory_updates"]["trigger"] == "longform"
+    assert updated["memory_updates"]["preferences"] == [{"key": "style", "value": "偏好简洁"}]
 
 
 async def test_stream_includes_researcher_events(tmp_path) -> None:

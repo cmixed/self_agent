@@ -19,6 +19,7 @@ import type {
   PresetInfo,
   PresetListResponse,
   ModelListResponse,
+  OutputMode,
   ProviderInfo,
   ProviderListResponse,
   ProviderProbeResponse,
@@ -173,6 +174,8 @@ export async function streamTask(
   depth: TaskDepth = 'auto',
   useSkills = false,
   retrievalMode: RetrievalMode = 'all',
+  outputMode: OutputMode = 'generate',
+  verbatimDocumentId?: string | null,
 ): Promise<void> {
   const hasScope =
     retrievalMode === 'selected' &&
@@ -184,11 +187,16 @@ export async function streamTask(
       headers: { 'Content-Type': 'application/json' },
       // retrieval_mode=all 时不传 scope（后端按整个知识库处理）；
       // none 表示本次完全不检索；depth=auto 由后端确定性路由决定。
+      // verbatim 模式不进入 Agent 生成流程，verbatim_document_id 为空表示自动选择。
       body: JSON.stringify({
         query,
         depth,
         use_skills: useSkills,
         retrieval_mode: retrievalMode,
+        output_mode: outputMode,
+        ...(outputMode === 'verbatim' && verbatimDocumentId
+          ? { verbatim_document_id: verbatimDocumentId }
+          : {}),
         ...(hasScope ? { scope } : {}),
       }),
     },

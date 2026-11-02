@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from typing import Literal
 
@@ -59,6 +60,8 @@ logger = get_logger(__name__)
 # 章级确定性检查的「过短」阈值：低于该长度基本可判定为无效章节。
 # 这是机械检查，不调用 LLM；阈值刻意很低，避免正常的短章节被误判。
 _MIN_CHAPTER_CHARS = 80
+# 系统原文占位符：由 Summarizer 在校验之后替换为全文，因此这里不检查原文内容。
+_VERBATIM_PLACEHOLDER_RE = re.compile(r"\[\[VERBATIM:\d+\]\]")
 
 _VALIDATOR_SYSTEM_PROMPT = render_prompt("validator.md")
 
@@ -211,9 +214,7 @@ def _resolve_action_and_target(
         # 确定性推断（例如「第二章内容重复冗余」）。只有确实定位不到时才 replan。
         chapter = model.chapter
         if chapter is None or not 1 <= chapter <= total_sections:
-            chapter = infer_chapter_from_issues(
-                list(model.issues), total_sections=total_sections
-            )
+            chapter = infer_chapter_from_issues(list(model.issues), total_sections=total_sections)
         if chapter is not None:
             index = chapter - 1
             if is_chapter_failed(state, index, max_retries=max_retries):
@@ -275,7 +276,7 @@ def _deterministic_chapter_check(state: AgentState, *, index: int, max_retries: 
     sections = state.get("sections") or []
     content = str(sections[index].get("content") or "").strip() if index < len(sections) else ""
     issues: list[str] = []
-    if len(content) < _MIN_CHAPTER_CHARS:
+    if not _VERBATIM_PLACEHOLDER_RE.search(content) and len(content) < _MIN_CHAPTER_CHARS:
         issues.append(f"章节正文过短（{len(content)} 字），不足以构成有效内容")
 
     target = chapter_target(index)

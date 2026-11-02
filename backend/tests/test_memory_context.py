@@ -78,6 +78,14 @@ def test_no_overlap_and_no_self_reference_drops_everything() -> None:
     assert selected == []
 
 
+def test_generic_phrases_do_not_create_false_matches() -> None:
+    """「我的」「写一份」这类结构词不应让无关记忆命中。"""
+    memories = [memory(1, "我的一般偏好是蓝色")]
+    selected = select_memories(memories, query="根据我的资料写一份报告")
+
+    assert selected == []
+
+
 def test_self_reference_falls_back_to_newest() -> None:
     memories = [memory(1, "喜欢简洁"), memory(2, "住在杭州")]
     selected = select_memories(memories, query="我的情况你了解吗", limit=2)

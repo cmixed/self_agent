@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -29,6 +29,21 @@ from app.prompts import render_prompt
 logger = get_logger(__name__)
 
 PreferenceKind = Literal["preference", "fact", "task_type"]
+
+
+class MemoryUpdateSummary(TypedDict):
+    """一次自动提取的可回显结果（只含元数据，不含模型提示词）。
+
+    ``attempted`` 为 True 表示确实调用了提取模型；``preferences`` / ``memories``
+    只列**真正写入**的条目，``skipped`` 是重复或越界被丢弃的数量。
+    """
+
+    attempted: bool
+    trigger: str
+    preferences: list[dict[str, str]]
+    memories: list[dict[str, str]]
+    skipped: int
+
 
 # 常用偏好键（§14）；允许其他键，但提示模型优先使用这些
 COMMON_PREFERENCE_KEYS = ("style", "format", "language", "task_types")
@@ -148,10 +163,12 @@ class MemoryService:
         query: str,
         result: dict,
         task_id: str | None = None,
-    ) -> MemoryExtractionModel | None:
+        trigger: str = "manual",
+    ) -> MemoryUpdateSummary | None:
         """从一次已完成的任务中提取长期记忆。
 
-        best-effort：任何失败只记日志，绝不影响任务本身。
+        best-effort：任何失败只记日志，绝不影响任务本身；返回写入摘要，供
+        任务结果回显「已记住 / 跳过」内容。
         """
         if self._llm is None or not query.strip():
             return None
@@ -188,10 +205,10 @@ class MemoryService:
             )
             return None
 
-        preferences_written = await self._apply_preferences(
+        preferences_written, preferences_skipped = await self._apply_preferences(
             user_id, extracted.preferences, existing_preferences, task_id=task_id
         )
-        memories_written = await self._apply_memories(
+        memories_written, memories_skipped = await self._apply_memories(
             user_id,
             extracted.memories,
             preferences=existing_preferences,
@@ -200,8 +217,8 @@ class MemoryService:
         )
 
         counts = (
-            f"preferences={preferences_written}/{len(extracted.preferences)} "
-            f"memories={memories_written}/{len(extracted.memories)}"
+            f"preferences={len(preferences_written)}/{len(extracted.preferences)} "
+            f"memories={len(memories_written)}/{len(extracted.memories)}"
         )
         logger.info(
             "长期记忆已更新",
@@ -212,7 +229,13 @@ class MemoryService:
                 "node": counts,
             },
         )
-        return extracted
+        return MemoryUpdateSummary(
+            attempted=True,
+            trigger=trigger,
+            preferences=preferences_written,
+            memories=memories_written,
+            skipped=preferences_skipped + memories_skipped,
+        )
 
     async def _apply_preferences(
         self,
@@ -221,24 +244,31 @@ class MemoryService:
         existing: dict[str, str],
         *,
         task_id: str | None,
-    ) -> int:
-        """写入偏好：键归一化后去重；已有键/值一律不覆盖（显式设置优先）。"""
-        written = 0
+    ) -> tuple[list[dict[str, str]], int]:
+        """写入偏好：键归一化后去重；已有键/值一律不覆盖（显式设置优先）。
+
+        返回 ``(真正写入的条目, 跳过数量)``。
+        """
+        written: list[dict[str, str]] = []
+        skipped = 0
         for item in items:
             key = canonical_preference_key(item.key)
             value = item.value.strip()
             if not key or not value:
+                skipped += 1
                 continue
             if key in existing:
                 self._log_skip("memory_preference_skipped", task_id, key)
+                skipped += 1
                 continue
             if matches_any(value, existing.values()):
                 self._log_skip("memory_preference_skipped", task_id, key)
+                skipped += 1
                 continue
             await self._repository.set_preference(user_id, key, value)
             existing[key] = value
-            written += 1
-        return written
+            written.append({"key": key, "value": value})
+        return written, skipped
 
     async def _apply_memories(
         self,
@@ -248,18 +278,24 @@ class MemoryService:
         preferences: dict[str, str],
         memories: list[MemoryRecord],
         task_id: str | None,
-    ) -> int:
-        """写入记忆：与已有偏好值/记忆近似重复时跳过，避免跨任务累积。"""
-        written = 0
+    ) -> tuple[list[dict[str, str]], int]:
+        """写入记忆：与已有偏好值/记忆近似重复时跳过，避免跨任务累积。
+
+        返回 ``(真正写入的条目, 跳过数量)``。
+        """
+        written: list[dict[str, str]] = []
+        skipped = 0
         known: list[str] = [memory.content for memory in memories]
         known.extend(preferences.values())
 
         for item in items:
             content = item.content.strip()
             if not content:
+                skipped += 1
                 continue
             if matches_any(content, known):
                 self._log_skip("memory_duplicate_skipped", task_id, item.kind)
+                skipped += 1
                 continue
 
             kind = item.kind.strip() or "fact"
@@ -274,10 +310,11 @@ class MemoryService:
             )
             if record is None:
                 self._log_skip("memory_duplicate_skipped", task_id, kind)
+                skipped += 1
                 continue
             known.append(content)
-            written += 1
-        return written
+            written.append({"kind": kind, "content": content})
+        return written, skipped
 
     @staticmethod
     def _log_skip(event: str, task_id: str | None, detail: str) -> None:
@@ -296,5 +333,6 @@ __all__ = [
     "COMMON_PREFERENCE_KEYS",
     "MemoryExtractionModel",
     "MemoryService",
+    "MemoryUpdateSummary",
     "PreferenceKind",
 ]

@@ -37,8 +37,10 @@ from app.services.provider_service import ProviderService
 from app.services.skill_generation_service import SkillGenerationService
 from app.services.skill_service import SkillService
 from app.services.task_service import TaskService
+from app.services.verbatim_service import VerbatimService
 from app.skills.package import SkillPackageService
 from app.skills.store import SkillFileStore
+from app.skills.system import SYSTEM_VERBATIM_SKILL_ID, system_verbatim_entry
 
 _store: ChromaStore | None = None
 _task_repository: TaskRepository | None = None
@@ -173,6 +175,15 @@ def build_skill_package_service() -> SkillPackageService:
     return _skill_package_service
 
 
+def build_verbatim_service(provider: LLMProvider) -> VerbatimService:
+    """原文输出服务：显式文档路径不加载 Embedding，自动选择才按需检索。"""
+    return VerbatimService(
+        llm=provider,
+        document_service_provider=build_document_service,
+        rag_tool_provider=build_rag_tool,
+    )
+
+
 def build_skill_generation_service() -> SkillGenerationService:
     """从文档生成技能草稿（不落库）；LLM 与文档服务按请求构造。"""
     settings = get_settings()
@@ -227,10 +238,14 @@ async def get_task_service(provider: LLMProvider = Depends(get_llm_provider)) ->
         }
         for skill in skills
     ]
+    # 系统原文能力不是用户可编辑技能：始终加入目录（不受 use_skills 开关影响）。
+    if not any(item["skill_id"] == SYSTEM_VERBATIM_SKILL_ID for item in catalog):
+        catalog.append(system_verbatim_entry())
     return TaskService(
         provider,
         rag_tool_provider=build_rag_tool,
         skill_catalog=catalog,
+        verbatim_provider=build_verbatim_service,
         repository=build_task_repository(),
         checkpointer=get_checkpointer(),
         max_retries=settings.max_retries,

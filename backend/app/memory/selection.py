@@ -3,7 +3,8 @@
 为什么需要筛选：长期记忆会随着长文任务持续累积，如果把「最近若干条」无脑
 塞进每个节点，既浪费 token，也会把无关事实变成噪声。这里只做三件轻量的事：
 
-1. 用 query 与记忆的字符二元组 / ASCII 词重合度打分；
+1. 用 query 与记忆的字符二元组 / ASCII 词重合度打分，并过滤「我的」「写一篇」
+   这类几乎每个任务都会出现的结构词；
 2. 用户明确在问自己时（「我的方向」「我平时」…）允许无重合的记忆入选；
 3. 按得分、再按新旧排序，最多取 ``MAX_CONTEXT_MEMORIES`` 条。
 
@@ -24,6 +25,65 @@ MAX_CONTEXT_MEMORIES = 6
 
 _ASCII_TOKEN_RE = re.compile(r"[a-z0-9]+")
 _CJK_RUN_RE = re.compile(r"[\u3400-\u9fff]+")
+
+# 泛化词不参与相关性打分：它们几乎出现在每个任务里（「我的资料」「写一篇」
+# 「输出总结」），会把无关记忆误判成相关。只去掉**完整 token**（ASCII 词或
+# 中文二元组），不做模糊删除，避免误伤「研究方向」这类有效词。
+_STOPWORDS = frozenset(
+    {
+        # 中文二元组：只去掉纯结构/口语词，避免误伤「综述」「资料」这类可能
+        # 与用户长期任务类型相关的词。
+        "我的",
+        "我们",
+        "你们",
+        "他们",
+        "的资",
+        "的文",
+        "的论",
+        "的知",
+        "帮我",
+        "写一",
+        "一篇",
+        "一份",
+        "一个",
+        "一段",
+        "什么",
+        "怎么",
+        "如何",
+        "这个",
+        "那个",
+        "这些",
+        "那些",
+        "可以",
+        "需要",
+        "以及",
+        "或者",
+        "但是",
+        "因为",
+        "所以",
+        "现在",
+        "已经",
+        "还是",
+        "就是",
+        "不要",
+        "没有",
+        "如果",
+        "然后",
+        "而且",
+        "并且",
+        # ASCII 常见虚词
+        "the",
+        "and",
+        "for",
+        "with",
+        "that",
+        "this",
+        "from",
+        "what",
+        "how",
+        "please",
+    }
+)
 
 # 知识库口头语不算「在问用户本人」，否则「根据我的资料写综述」会把所有记忆拉进来。
 _KNOWLEDGE_PHRASES = (
@@ -66,7 +126,7 @@ def _query_tokens(query: str) -> set[str]:
             tokens.add(run)
         elif len(run) > 2:
             tokens.update(run[index : index + 2] for index in range(len(run) - 1))
-    return {token for token in tokens if len(token) >= 2}
+    return {token for token in tokens if len(token) >= 2 and token not in _STOPWORDS}
 
 
 def asks_about_user(query: str) -> bool:

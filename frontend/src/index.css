@@ -1017,6 +1017,13 @@ html[data-theme='dark'] body {
   font-size: var(--ws-font-caption);
 }
 
+/* 记忆来源任务：做成链接但保持与脚注同级字号 */
+.mem-card__source.ant-btn {
+  height: auto;
+  padding: 0;
+  font-size: var(--ws-font-caption);
+}
+
 .memory-form-hint {
   margin-top: var(--ws-space-3);
   font-size: var(--ws-font-caption);
@@ -1072,6 +1079,11 @@ html[data-theme='dark'] body {
   font-size: var(--ws-font-caption);
   color: var(--ant-color-text-tertiary);
   font-variant-numeric: tabular-nums;
+}
+
+/* 本次自动写入的长期记忆：完成结果里的轻量提示 */
+.result-memory {
+  margin-top: var(--ws-space-3);
 }
 
 /* --- 区块小标题 ----------------------------------------------------------- */

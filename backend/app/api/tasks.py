@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
@@ -32,6 +32,7 @@ from app.core.logging import get_logger
 from app.core.task_registry import TaskRegistry
 from app.memory.repository import TaskRepository
 from app.memory.selection import select_memories
+from app.memory.signals import memory_signal
 from app.models.schemas import (
     CancelTaskResponse,
     TaskDetailResponse,
@@ -46,6 +47,13 @@ from app.models.state import RetrievalMode
 from app.services.category_service import CategoryService
 from app.services.memory_service import MemoryService
 from app.services.task_service import TaskService, task_result
+from app.services.verbatim_service import (
+    VerbatimDocumentNotFoundError,
+    VerbatimDocumentTooLargeError,
+    VerbatimError,
+    VerbatimNoDocumentError,
+    VerbatimUnavailableError,
+)
 
 router = APIRouter(prefix="/api", tags=["tasks"])
 
@@ -102,6 +110,61 @@ async def _resolve_retrieval(
 logger = get_logger(__name__)
 
 
+def _guard_verbatim(
+    *,
+    retrieval_mode: RetrievalMode,
+    retrieval_scope: dict[str, object] | None,
+    document_id: str | None,
+) -> None:
+    """直接原文输出的请求校验（在启动任务之前失败，避免留下失败记录）。"""
+    if retrieval_mode == "none":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="直接输出知识库原文必须启用知识库检索，不能选择「不检索」",
+        )
+    if document_id and retrieval_scope is not None:
+        allowed = set(retrieval_scope.get("document_ids") or [])
+        if document_id not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="指定的文档不在当前检索范围内，请重新选择",
+            )
+
+
+def _verbatim_http_error(exc: VerbatimError) -> HTTPException:
+    """原文输出异常 → 可读 HTTP 错误（不泄露内部堆栈）。"""
+    if isinstance(exc, VerbatimDocumentNotFoundError):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, VerbatimDocumentTooLargeError):
+        return HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=str(exc),
+        )
+    if isinstance(exc, (VerbatimNoDocumentError, VerbatimUnavailableError)):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+def _memory_trigger(query: str, result: dict[str, Any]) -> str | None:
+    """判断本次结果是否触发长期记忆提取，并返回可回显的触发原因。
+
+    - ``verbatim``：不提取（用户只要原文）；
+    - ``longform``：总是提取（沿用原有行为）；
+    - 其他模式：只有 query 出现明确长期信号时才提取，避免短问答多一次调用。
+    """
+    if result.get("output_mode") == "verbatim":
+        return None
+    if str(result.get("mode") or "") == "longform":
+        return "longform"
+    marker = memory_signal(query)
+    return f"signal:{marker}" if marker else None
+
+
+def _should_extract_memories(query: str, result: dict[str, Any]) -> bool:
+    """轻量 gate：供事件流在真正调用模型前决定是否提示「整理记忆」。"""
+    return bool(get_settings().memory_auto_extract) and _memory_trigger(query, result) is not None
+
+
 async def _maybe_extract_memories(
     memory_service: MemoryService,
     user_id: str,
@@ -109,17 +172,55 @@ async def _maybe_extract_memories(
     query: str,
     result: dict[str, Any],
     task_id: str,
-) -> None:
-    """只在长文任务后提取长期记忆（best-effort）。
+) -> dict[str, Any] | None:
+    """提取长期记忆（best-effort），返回可回显的写入摘要。
 
-    轻量任务（direct/brief）往往是一次性指令，提取偏好既无价值、又会多一次
-    LLM 调用；长文任务才更可能暴露稳定的写作风格/格式偏好。
+    - longform 总是提取；
+    - brief / direct 只在 query 命中明确长期信号时提取；
+    - 原文输出不提取；
+    - 超过 ``memory_extract_timeout_seconds`` 只记日志，绝不影响任务结果。
     """
     if not get_settings().memory_auto_extract:
-        return
-    if result.get("mode") != "longform":
-        return
-    await memory_service.extract_from_task(user_id, query=query, result=result, task_id=task_id)
+        return None
+    trigger = _memory_trigger(query, result)
+    if trigger is None:
+        return None
+
+    settings = get_settings()
+    try:
+        summary = await asyncio.wait_for(
+            memory_service.extract_from_task(
+                user_id,
+                query=query,
+                result=result,
+                task_id=task_id,
+                trigger=trigger,
+            ),
+            timeout=settings.memory_extract_timeout_seconds,
+        )
+    except TimeoutError:
+        logger.warning(
+            "长期记忆提取超时（忽略）",
+            extra={
+                "task_id": task_id,
+                "event": "memory_extraction_timeout",
+                "status": "warning",
+            },
+        )
+        return None
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception(
+            "长期记忆提取出现未预期错误（忽略）",
+            extra={
+                "task_id": task_id,
+                "event": "memory_extraction_failed",
+                "status": "error",
+            },
+        )
+        return None
+    return dict(summary) if summary is not None else None
 
 
 @router.post("/tasks", response_model=TaskResponse)
@@ -129,6 +230,7 @@ async def create_task(
     service: TaskService = Depends(get_task_service),
     categories: CategoryService = Depends(get_category_service),
     memory_service: MemoryService = Depends(get_memory_service),
+    repository: TaskRepository = Depends(get_task_repository),
     user_id: str = Depends(get_user_id),
 ) -> TaskResponse:
     retrieval_mode, retrieval_scope = await _resolve_retrieval(
@@ -139,6 +241,27 @@ async def create_task(
     # 便于前端通过 GET /api/tasks/{id} 查询失败记录。
     task_id = str(uuid4())
     request.state.task_id = task_id
+
+    # 直接输出原文是确定性能力，不进入 Agent Graph，也不提取长期记忆。
+    if payload.output_mode == "verbatim":
+        _guard_verbatim(
+            retrieval_mode=retrieval_mode,
+            retrieval_scope=retrieval_scope,
+            document_id=payload.verbatim_document_id,
+        )
+        try:
+            state = await service.run_verbatim(
+                payload.query,
+                document_id=payload.verbatim_document_id,
+                task_id=task_id,
+                user_id=user_id,
+                retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
+                retrieval_mode=retrieval_mode,
+            )
+        except VerbatimError as exc:
+            raise _verbatim_http_error(exc) from exc
+        result = task_result(state, max_retries=service.max_retries, usage=service.last_usage)
+        return TaskResponse.model_validate(result)
 
     # 长期偏好 + 本次请求覆盖（请求优先）；长期记忆只作背景，不参与覆盖
     stored, memory_records = await memory_service.get_profile(user_id)
@@ -157,9 +280,14 @@ async def create_task(
         use_skills=payload.use_skills,
     )
     result = task_result(state, max_retries=service.max_retries, usage=service.last_usage)
-    await _maybe_extract_memories(
+    memory_updates = await _maybe_extract_memories(
         memory_service, user_id, query=payload.query, result=result, task_id=task_id
     )
+    if memory_updates:
+        result["memory_updates"] = memory_updates
+        # 记忆提取发生在 _finish_run 之后：补写 result_json，刷新详情仍能看到。
+        with contextlib.suppress(Exception):
+            await repository.update_result(task_id=task_id, result=result)
     return TaskResponse.model_validate(result)
 
 
@@ -317,12 +445,16 @@ async def _drive_task(
     events: AsyncIterator[dict[str, Any]],
     repository: TaskRepository,
     *,
-    on_complete: Any = None,
+    on_complete: Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]] | None = None,
+    should_complete: Callable[[dict[str, Any]], bool] | None = None,
 ) -> None:
     """后台驱动一次任务执行：把事件写入通道，与浏览器连接解耦。
 
     客户端断开（刷新页面）只会取消 SSE 订阅者，不会取消这里的执行；
     前端重新 ``GET /tasks/{id}/stream`` 即可从缓冲区完整回放。
+
+    ``task_completed`` 立即推送，保证任务结束不被长期记忆提取拖慢；提取是
+    终态之后的 best-effort 副作用，结果通过 ``memory_updated`` 事件补发。
     """
     completed: dict[str, Any] = {}
     try:
@@ -356,7 +488,7 @@ async def _drive_task(
             extra={"task_id": task_id, "event": "task_failed", "status": "error"},
         )
         with contextlib.suppress(Exception):
-            await repository.fail_run(task_id, "internal_error")
+            await repository.fail_run(task_id=task_id, error_type="internal_error")
         await registry.publish(
             task_id,
             {
@@ -368,11 +500,38 @@ async def _drive_task(
             },
         )
     finally:
-        # 先关闭通道让订阅者及时结束，再做收尾（长期记忆提取等）
-        await registry.close(task_id)
-        if completed and on_complete is not None:
-            with contextlib.suppress(Exception):
-                await on_complete(completed)
+        try:
+            if completed and on_complete is not None and (
+                should_complete is None or should_complete(completed)
+            ):
+                await registry.publish(
+                    task_id,
+                    {
+                        "task_id": task_id,
+                        "event": "memory_started",
+                        "status": "running",
+                        "message": "正在整理长期记忆…",
+                    },
+                )
+                updates: dict[str, Any] | None = None
+                with contextlib.suppress(Exception):
+                    updates = await on_complete(completed)
+                if updates:
+                    completed = {**completed, "memory_updates": updates}
+                    with contextlib.suppress(Exception):
+                        await repository.update_result(task_id=task_id, result=completed)
+                    await registry.publish(
+                        task_id,
+                        {
+                            "task_id": task_id,
+                            "event": "memory_updated",
+                            "status": "ok",
+                            "message": "已更新长期记忆",
+                            "memory_updates": updates,
+                        },
+                    )
+        finally:
+            await registry.close(task_id)
 
 
 async def _subscribe(registry: TaskRegistry, task_id: str) -> AsyncIterator[str]:
@@ -405,6 +564,32 @@ async def stream_task(
         payload.scope, categories, payload.retrieval_mode
     )
 
+    # 直接输出原文：只推送「查找文档 → 读取原文」，不进入 Agent Graph。
+    if payload.output_mode == "verbatim":
+        _guard_verbatim(
+            retrieval_mode=retrieval_mode,
+            retrieval_scope=retrieval_scope,
+            document_id=payload.verbatim_document_id,
+        )
+
+        async def verbatim_runner() -> None:
+            await _drive_task(
+                registry,
+                task_id,
+                service.stream_verbatim(
+                    payload.query,
+                    document_id=payload.verbatim_document_id,
+                    task_id=task_id,
+                    user_id=user_id,
+                    retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
+                    retrieval_mode=retrieval_mode,
+                ),
+                repository,
+            )
+
+        registry.start(task_id, verbatim_runner())
+        return _stream_response(_subscribe(registry, task_id))
+
     stored, memory_records = await memory_service.get_profile(user_id)
     preferences = {**stored, **(payload.user_preferences or {})}
     user_memories = select_memories(memory_records, query=payload.query)
@@ -428,6 +613,7 @@ async def stream_task(
             on_complete=lambda result: _maybe_extract_memories(
                 memory_service, user_id, query=payload.query, result=result, task_id=task_id
             ),
+            should_complete=lambda result: _should_extract_memories(payload.query, result),
         )
 
     registry.start(task_id, runner())
@@ -483,6 +669,7 @@ async def resume_task(
             on_complete=lambda result: _maybe_extract_memories(
                 memory_service, user_id, query=record.query, result=result, task_id=task_id
             ),
+            should_complete=lambda result: _should_extract_memories(record.query, result),
         )
 
     registry.start(task_id, runner())
@@ -544,6 +731,34 @@ async def rerun_task(
     previous_mode = previous.get("mode")
     rerun_depth = previous_mode if previous_mode in {"brief", "longform"} else "auto"
 
+    # 直接输出原文的重跑：沿用上次选中的文档（为空则重新自动选择）。
+    if previous.get("output_mode") == "verbatim":
+        verbatim_info = previous.get("verbatim") or {}
+        rerun_document_id = str(verbatim_info.get("document_id") or "") or None
+        if rerun_document_id and rerun_scope is not None:
+            allowed = set(rerun_scope.get("document_ids") or [])
+            if rerun_document_id not in allowed:
+                rerun_document_id = None
+
+        async def rerun_verbatim_events() -> AsyncIterator[dict[str, Any]]:
+            async for event in service.stream_verbatim(
+                record.query,
+                document_id=rerun_document_id,
+                task_id=new_task_id,
+                user_id=user_id,
+                retrieval_scope=rerun_scope,  # type: ignore[arg-type]
+                retrieval_mode=rerun_retrieval_mode,
+            ):
+                if event.get("event") == "task_started":
+                    event = {**event, "rerun_of": task_id}
+                yield event
+
+        async def verbatim_runner() -> None:
+            await _drive_task(registry, new_task_id, rerun_verbatim_events(), repository)
+
+        registry.start(new_task_id, verbatim_runner())
+        return _stream_response(_subscribe(registry, new_task_id))
+
     async def rerun_events() -> AsyncIterator[dict[str, Any]]:
         async for event in service.stream(
             record.query,
@@ -570,6 +785,7 @@ async def rerun_task(
             on_complete=lambda result: _maybe_extract_memories(
                 memory_service, user_id, query=record.query, result=result, task_id=new_task_id
             ),
+            should_complete=lambda result: _should_extract_memories(record.query, result),
         )
 
     registry.start(new_task_id, runner())

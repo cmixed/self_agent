@@ -31,6 +31,7 @@ import {
   Input,
   Result,
   Segmented,
+  Select,
   Skeleton,
   Space,
   Tabs,
@@ -61,6 +62,7 @@ import { useTaskRun } from '../state/taskRun'
 import type {
   CategoryInfo,
   DocumentInfo,
+  OutputMode,
   PresetInfo,
   RetrievalMode,
   TaskDepth,
@@ -115,6 +117,22 @@ const MODE_LABEL: Record<string, string> = {
   direct: '直接回答',
   brief: '简洁回答',
   longform: '长文',
+  verbatim: '原文输出',
+}
+
+/** 原文选择方式（后端的确定性选择 / 一次小模型选择）。 */
+const VERBATIM_SELECTION_LABEL: Record<string, string> = {
+  explicit: '用户指定',
+  filename: '任务中提到',
+  single: '范围内唯一',
+  retrieval: '按检索相关度',
+  llm: '模型选择',
+}
+
+/** 长期记忆类型标签。 */
+const MEMORY_KIND_LABEL: Record<string, string> = {
+  fact: '事实',
+  task_type: '任务类型',
 }
 
 /** 计划步骤类型 -> 中文标签（skill 为技能调用） */
@@ -170,6 +188,12 @@ export default function TaskPage() {
     setDepth,
     useSkills,
     setUseSkills,
+    outputMode,
+    setOutputMode,
+    verbatimDocumentId,
+    setVerbatimDocumentId,
+    verbatim,
+    memoryUpdates,
     copied,
     run: startRun,
     abort,
@@ -282,6 +306,12 @@ export default function TaskPage() {
   }, [finalAnswer])
 
   const handleStart = () => {
+    const isVerbatim = outputMode === 'verbatim'
+    if (isVerbatim && retrievalMode === 'none') {
+      message.warning('直接输出知识库原文不能选择「不检索」')
+      setRetrievalMode('all')
+      return
+    }
     if (
       retrievalMode === 'selected' &&
       scope.category_ids.length + scope.document_ids.length === 0
@@ -292,7 +322,18 @@ export default function TaskPage() {
     }
     // 提交即视为「上一次实际使用」，关闭记忆时也为下次开启留档
     saveTaskOptions({ depth, useSkills, retrievalMode, scope })
-    void startRun(undefined, scope, retrievalMode)
+
+    // 原文模式允许「只选文档、不写任务」：自动补一句可读的 query 再提交。
+    let effectiveQuery = query
+    if (isVerbatim && !query.trim()) {
+      const picked = (documents ?? []).find((item) => item.document_id === verbatimDocumentId)
+      if (!picked) {
+        message.warning('请选择要输出原文的文档，或输入一句任务描述让 Agent 自动选择')
+        return
+      }
+      effectiveQuery = `输出《${picked.title || picked.filename}》的完整原文`
+    }
+    void startRun(effectiveQuery, scope, retrievalMode)
   }
 
   // 当前选择范围的可读描述（含涉及文档数）
@@ -301,6 +342,32 @@ export default function TaskPage() {
     [scope, categories, documents],
   )
   const scopeCount = scope.category_ids.length + scope.document_ids.length
+
+  /** 原文模式只能从本次检索范围内选文档（与后端冻结范围保持一致）。 */
+  const scopedDocuments = useMemo(() => {
+    const docs = documents ?? []
+    if (retrievalMode !== 'selected') return docs
+    const ids = new Set(scope.document_ids)
+    const categoryIds = new Set(scope.category_ids)
+    if (ids.size === 0 && categoryIds.size === 0) return []
+    return docs.filter(
+      (document) =>
+        ids.has(document.document_id) ||
+        document.category_ids.some((categoryId) => categoryIds.has(categoryId)),
+    )
+  }, [documents, retrievalMode, scope])
+
+  const handleOutputModeChange = (value: OutputMode) => {
+    setOutputMode(value)
+    if (value === 'verbatim' && retrievalMode === 'none') {
+      setRetrievalMode('all')
+    }
+  }
+
+  // 通过任务胶囊打开原文任务后，表单可能还停在「不检索」：自动纠正，避免提交即 409。
+  useEffect(() => {
+    if (outputMode === 'verbatim' && retrievalMode === 'none') setRetrievalMode('all')
+  }, [outputMode, retrievalMode])
 
   /** 预设绑定的范围（未绑定 / 两者皆空则返回 null，表示沿用工作台当前选择）。 */
   const presetScope = (preset: PresetInfo): TaskScope | null =>
@@ -348,8 +415,9 @@ export default function TaskPage() {
     const effectiveScope = bound ?? scope
     const effectiveMode: RetrievalMode = bound ? 'selected' : retrievalMode
     if (bound) setRetrievalMode('selected')
+    setOutputMode('generate')
     saveTaskOptions({ depth, useSkills, retrievalMode: effectiveMode, scope: effectiveScope })
-    void startRun(preset.query, effectiveScope, effectiveMode)
+    void startRun(preset.query, effectiveScope, effectiveMode, 'generate', null)
   }
 
   /** 点击预设卡片：只填入输入框（不执行），是否运行交给「直接运行」按钮 / 详情浮窗。 */
@@ -462,95 +530,109 @@ export default function TaskPage() {
 
   const skillSteps = (plan?.steps ?? []).filter((step) => step.type === 'skill')
   const hasSkillStage = skillSteps.length > 0 || nodes.skills !== 'wait'
+  const isVerbatimRun = mode === 'verbatim' || outputMode === 'verbatim'
   const isLight = mode === 'direct' || mode === 'brief'
 
-  const macroStages: MacroStage[] = isLight
+  const macroStages: MacroStage[] = isVerbatimRun
     ? [
         {
-          key: 'answer',
-          title:
-            mode === 'direct'
-              ? '生成直接回答'
-              : profile?.needs_retrieval
-                ? '检索并生成简洁回答'
-                : '生成简洁回答',
-          status: nodes.answer as MacroStage['status'],
-          note: profile?.reason,
-          badge: finalAnswer !== null ? <Tag color="green">已生成</Tag> : undefined,
-        },
-      ]
-    : [
-        {
-          key: 'planner',
-          title: '分析任务',
-          status: nodes.planner as MacroStage['status'],
-          badge: replans > 0 ? <Tag color="volcano">重新规划 {replans} 次</Tag> : undefined,
-          notes: plannerNotes,
-        },
-        {
           key: 'researcher',
-          title: '检索知识库',
+          title: '读取知识库原文',
           status: nodes.researcher as MacroStage['status'],
-          skipped: retrievalSkipped,
-          badge:
-            retrievedCount !== null ? (
-              <Tag color={retrievedCount > 0 ? 'blue' : 'orange'}>{retrievedCount} 条片段</Tag>
-            ) : undefined,
-        },
-        ...(hasSkillStage
-          ? [
-              {
-                key: 'skills',
-                title: '应用技能',
-                status: nodes.skills as MacroStage['status'],
-                badge:
-                  skillSteps.length > 0 ? (
-                    <Tag color="green">{skillSteps.length} 个</Tag>
-                  ) : undefined,
-                notes: skillNotes,
-              },
-            ]
-          : []),
-        {
-          key: 'outline',
-          title: '生成文章大纲',
-          status: nodes.outline as MacroStage['status'],
-          badge:
-            outline.length > 0 ? (
-              <Tag color={writingBudget?.source_limited ? 'orange' : undefined}>
-                {outline.length} 章
-              </Tag>
-            ) : undefined,
-          note: writingBudget?.source_limited
-            ? `资料约 ${writingBudget.source_chars} 字，参考篇幅调整为 ${writingBudget.effective_chars} 字`
-            : undefined,
-        },
-        {
-          key: 'writer',
-          title: '逐章撰写',
-          status: nodes.writer as MacroStage['status'],
-          note: outline.length > 0 ? `已写 ${writtenChapters}/${outline.length} 章` : undefined,
-          progress:
-            outline.length > 0 ? { done: writtenChapters, total: outline.length } : undefined,
-          chapters: chapterList,
-        },
-        {
-          key: 'validator',
-          title: '校验与重试',
-          status: nodes.validator as MacroStage['status'],
-          badge: validatorBadge,
-          notes: validatorNotes,
-        },
-        {
-          key: 'summarizer',
-          title: '整合结果',
-          status: nodes.summarizer as MacroStage['status'],
-          badge: finalAnswer !== null ? <Tag color="green">已整合</Tag> : undefined,
+          badge: verbatim ? <Tag color="cyan">{verbatim.filename || '已选中文档'}</Tag> : undefined,
+          note: verbatim?.reason,
         },
       ]
+    : isLight
+      ? [
+          {
+            key: 'answer',
+            title:
+              mode === 'direct'
+                ? '生成直接回答'
+                : profile?.needs_retrieval
+                  ? '检索并生成简洁回答'
+                  : '生成简洁回答',
+            status: nodes.answer as MacroStage['status'],
+            note: profile?.reason,
+            badge: finalAnswer !== null ? <Tag color="green">已生成</Tag> : undefined,
+          },
+        ]
+      : [
+          {
+            key: 'planner',
+            title: '分析任务',
+            status: nodes.planner as MacroStage['status'],
+            badge: replans > 0 ? <Tag color="volcano">重新规划 {replans} 次</Tag> : undefined,
+            notes: plannerNotes,
+          },
+          {
+            key: 'researcher',
+            title: '检索知识库',
+            status: nodes.researcher as MacroStage['status'],
+            skipped: retrievalSkipped,
+            badge:
+              retrievedCount !== null ? (
+                <Tag color={retrievedCount > 0 ? 'blue' : 'orange'}>{retrievedCount} 条片段</Tag>
+              ) : undefined,
+          },
+          ...(hasSkillStage
+            ? [
+                {
+                  key: 'skills',
+                  title: '应用技能',
+                  status: nodes.skills as MacroStage['status'],
+                  badge:
+                    skillSteps.length > 0 ? (
+                      <Tag color="green">{skillSteps.length} 个</Tag>
+                    ) : undefined,
+                  notes: skillNotes,
+                },
+              ]
+            : []),
+          {
+            key: 'outline',
+            title: '生成文章大纲',
+            status: nodes.outline as MacroStage['status'],
+            badge:
+              outline.length > 0 ? (
+                <Tag color={writingBudget?.source_limited ? 'orange' : undefined}>
+                  {outline.length} 章
+                </Tag>
+              ) : undefined,
+            note: writingBudget?.source_limited
+              ? `资料约 ${writingBudget.source_chars} 字，参考篇幅调整为 ${writingBudget.effective_chars} 字`
+              : undefined,
+          },
+          {
+            key: 'writer',
+            title: '逐章撰写',
+            status: nodes.writer as MacroStage['status'],
+            note: outline.length > 0 ? `已写 ${writtenChapters}/${outline.length} 章` : undefined,
+            progress:
+              outline.length > 0 ? { done: writtenChapters, total: outline.length } : undefined,
+            chapters: chapterList,
+          },
+          {
+            key: 'validator',
+            title: '校验与重试',
+            status: nodes.validator as MacroStage['status'],
+            badge: validatorBadge,
+            notes: validatorNotes,
+          },
+          {
+            key: 'summarizer',
+            title: '整合结果',
+            status: nodes.summarizer as MacroStage['status'],
+            badge: finalAnswer !== null ? <Tag color="green">已整合</Tag> : undefined,
+          },
+        ]
 
   const metrics: string[] = []
   if (mode) metrics.push(`模式：${MODE_LABEL[mode] ?? mode}`)
+  if (isVerbatimRun && verbatim) {
+    metrics.push(`原文：${verbatim.filename}（约 ${verbatim.chars} 字）`)
+  }
   if (scopeLabel) metrics.push(`范围：${scopeLabel}`)
   if (outline.length > 0) metrics.push(`${outline.length} 章`)
   if (writingBudget?.source_limited) {
@@ -585,6 +667,13 @@ export default function TaskPage() {
   if (activeStage?.key === 'planner' && plan?.goal) currentFacts.push(plan.goal)
   if (activeStage?.key === 'researcher' && retrievedCount !== null) {
     currentFacts.push(`命中 ${retrievedCount} 个文本块`)
+  }
+  if (isVerbatimRun && activeStage?.key === 'researcher') {
+    currentFacts.push(
+      verbatim
+        ? `${verbatim.filename} · 约 ${verbatim.chars} 字 · 逐字读取`
+        : '系统会读取原文件全文，不调用模型改写',
+    )
   }
   if (activeStage?.key === 'outline' && outline.length > 0) {
     currentFacts.push(`共 ${outline.length} 章`)
@@ -638,6 +727,9 @@ export default function TaskPage() {
 
   const citationCount = finalAnswer ? (finalAnswer.match(/\[\d+\]/g)?.length ?? 0) : 0
   const hitRate = cacheHitRate(usage)
+  const memoryUpdateCount = memoryUpdates
+    ? memoryUpdates.preferences.length + memoryUpdates.memories.length
+    : 0
 
   const outputTabs = [
     {
@@ -768,7 +860,9 @@ export default function TaskPage() {
             onChange={(event) => setQuery(event.target.value)}
             onPressEnter={(event) => {
               // Enter 直接运行任务；Shift+Enter 换行
-              if (!event.shiftKey && query.trim()) {
+              const runnable =
+                query.trim() || (outputMode === 'verbatim' && verbatimDocumentId !== null)
+              if (!event.shiftKey && runnable) {
                 event.preventDefault()
                 handleStart()
               }
@@ -777,11 +871,30 @@ export default function TaskPage() {
 
           <div className="ws-compose__scope">
             <Space size={8} wrap>
+              <Text type="secondary">输出方式：</Text>
+              <Segmented
+                size="small"
+                value={outputMode}
+                disabled={running}
+                onChange={(value) => handleOutputModeChange(value as OutputMode)}
+                options={[
+                  { label: '生成内容', value: 'generate' },
+                  { label: '直接输出知识库原文', value: 'verbatim' },
+                ]}
+              />
+              {outputMode === 'verbatim' ? (
+                <Text type="secondary">不经过模型改写，逐字输出整篇原文件</Text>
+              ) : null}
+            </Space>
+          </div>
+
+          <div className="ws-compose__scope">
+            <Space size={8} wrap>
               <Text type="secondary">执行深度：</Text>
               <Segmented
                 size="small"
                 value={depth}
-                disabled={running}
+                disabled={running || outputMode === 'verbatim'}
                 onChange={(value) => setDepth(value as TaskDepth)}
                 options={[
                   { label: '自动', value: 'auto' },
@@ -792,7 +905,7 @@ export default function TaskPage() {
               <Tooltip title="默认关闭；勾选后 Planner 才会看到技能目录，并可能增加模型调用">
                 <Checkbox
                   checked={useSkills}
-                  disabled={running || depth === 'brief'}
+                  disabled={running || depth === 'brief' || outputMode === 'verbatim'}
                   onChange={(event) => setUseSkills(event.target.checked)}
                 >
                   允许技能
@@ -819,11 +932,18 @@ export default function TaskPage() {
                 value={retrievalMode}
                 disabled={running}
                 onChange={(value) => handleRetrievalModeChange(value as RetrievalMode)}
-                options={[
-                  { label: '全部知识库', value: 'all' },
-                  { label: '指定范围', value: 'selected' },
-                  { label: '不检索', value: 'none' },
-                ]}
+                options={
+                  outputMode === 'verbatim'
+                    ? [
+                        { label: '全部知识库', value: 'all' },
+                        { label: '指定范围', value: 'selected' },
+                      ]
+                    : [
+                        { label: '全部知识库', value: 'all' },
+                        { label: '指定范围', value: 'selected' },
+                        { label: '不检索', value: 'none' },
+                      ]
+                }
               />
               {retrievalMode === 'selected' ? (
                 <>
@@ -836,9 +956,38 @@ export default function TaskPage() {
             </Space>
           </div>
 
+          {outputMode === 'verbatim' ? (
+            <div className="ws-compose__scope">
+              <Space size={8} wrap>
+                <Text type="secondary">原文文档：</Text>
+                <Select
+                  size="small"
+                  style={{ minWidth: 260 }}
+                  value={verbatimDocumentId ?? ''}
+                  disabled={running}
+                  onChange={(value: string) => setVerbatimDocumentId(value || null)}
+                  options={[
+                    { value: '', label: '自动选择最合适的一篇' },
+                    ...scopedDocuments.map((document) => ({
+                      value: document.document_id,
+                      label: document.title || document.filename,
+                    })),
+                  ]}
+                />
+                <Text type="secondary">
+                  {verbatimDocumentId
+                    ? '直接读取所选文档，不消耗模型调用'
+                    : '留空则按任务描述检索并选择一篇'}
+                </Text>
+              </Space>
+            </div>
+          ) : null}
+
           <div className="ws-compose__actions">
             <Text type="secondary" className="ws-compose__hint">
-              Enter 运行任务 · Shift + Enter 换行 · 或从下方预设任务开始
+              {outputMode === 'verbatim'
+                ? '选择文档后可直接运行；不选文档时可输入描述，让 Agent 自动选一篇'
+                : 'Enter 运行任务 · Shift + Enter 换行 · 或从下方预设任务开始'}
             </Text>
             <Space>
               <Button disabled={!query.trim()} onClick={() => setQuery('')}>
@@ -847,7 +996,9 @@ export default function TaskPage() {
               <Button
                 type="primary"
                 icon={<ThunderboltOutlined />}
-                disabled={!query.trim()}
+                disabled={
+                  !query.trim() && !(outputMode === 'verbatim' && verbatimDocumentId !== null)
+                }
                 onClick={handleStart}
               >
                 运行任务
@@ -1127,7 +1278,11 @@ export default function TaskPage() {
     >
       <div className="ws-run__bar">
         <StatusTag status={statusKey} />
-        {mode ? <Tag color={isLight ? 'cyan' : 'geekblue'}>{MODE_LABEL[mode] ?? mode}</Tag> : null}
+        {mode ? (
+          <Tag color={isLight || isVerbatimRun ? 'cyan' : 'geekblue'}>
+            {MODE_LABEL[mode] ?? mode}
+          </Tag>
+        ) : null}
         <span className="ws-run__meta">{metrics.join(' · ')}</span>
         <div className="ws-run__actions">
           <Tooltip
@@ -1201,9 +1356,11 @@ export default function TaskPage() {
             </Card>
           ) : null}
 
-          <Card title="产出" extra={<Text type="secondary">{running ? '实时' : '已完成'}</Text>}>
-            <Tabs size="small" activeKey={outputTab} onChange={setOutputTab} items={outputTabs} />
-          </Card>
+          {!isVerbatimRun ? (
+            <Card title="产出" extra={<Text type="secondary">{running ? '实时' : '已完成'}</Text>}>
+              <Tabs size="small" activeKey={outputTab} onChange={setOutputTab} items={outputTabs} />
+            </Card>
+          ) : null}
         </div>
       </div>
 
@@ -1235,7 +1392,7 @@ export default function TaskPage() {
       {finalAnswer !== null ? (
         <div ref={resultRef}>
           <Card
-            title="生成结果"
+            title={isVerbatimRun ? '知识库原文' : '生成结果'}
             extra={
               <Space>
                 <Tooltip title="复制 Markdown 原文">
@@ -1277,44 +1434,70 @@ export default function TaskPage() {
             }
           >
             <StatStrip
-              items={[
-                { label: '来源文档', value: sourceDocs.length },
-                { label: '正文引用', value: citationCount },
-                { label: '检索文本块', value: retrievedCount ?? 0 },
-                {
-                  label: '参考篇幅',
-                  value: writingBudget ? `${writingBudget.effective_chars} 字` : '—',
-                  hint: writingBudget
-                    ? `请求 ${writingBudget.requested_chars} 字 · 资料 ${writingBudget.source_chars} 字`
-                    : undefined,
-                },
-                {
-                  label: '质量校验',
-                  value: validation ? (
-                    <span className={validation.passed ? 'ws-tone-ok' : 'ws-tone-bad'}>
-                      {validation.passed ? '通过' : '未通过'}
-                    </span>
-                  ) : (
-                    '—'
-                  ),
-                },
-                {
-                  label: 'Token 消耗',
-                  value: usage ? formatTokens(usage.total_tokens) : '—',
-                  hint: usage
-                    ? `入 ${formatTokens(usage.prompt_tokens)} · 出 ${formatTokens(usage.completion_tokens)}`
-                    : undefined,
-                },
-                {
-                  label: '缓存命中',
-                  value: hitRate === null ? '—' : `${Math.round(hitRate * 100)}%`,
-                  hint: usage
-                    ? usage.cache_reported
-                      ? `${formatTokens(usage.cache_hit_tokens)} tokens`
-                      : '模型未上报'
-                    : undefined,
-                },
-              ]}
+              items={
+                isVerbatimRun
+                  ? [
+                      {
+                        label: '原文文档',
+                        value: verbatim?.filename || '—',
+                        hint: verbatim?.title || undefined,
+                      },
+                      {
+                        label: '原文长度',
+                        value: verbatim ? `${verbatim.chars} 字` : '—',
+                      },
+                      {
+                        label: '选择方式',
+                        value: verbatim
+                          ? (VERBATIM_SELECTION_LABEL[verbatim.selection] ?? verbatim.selection)
+                          : '—',
+                        hint: verbatim?.reason || undefined,
+                      },
+                      {
+                        label: '模型调用',
+                        value: usage ? usage.calls : 0,
+                        hint: '指定文档时不会调用模型',
+                      },
+                    ]
+                  : [
+                      { label: '来源文档', value: sourceDocs.length },
+                      { label: '正文引用', value: citationCount },
+                      { label: '检索文本块', value: retrievedCount ?? 0 },
+                      {
+                        label: '参考篇幅',
+                        value: writingBudget ? `${writingBudget.effective_chars} 字` : '—',
+                        hint: writingBudget
+                          ? `请求 ${writingBudget.requested_chars} 字 · 资料 ${writingBudget.source_chars} 字`
+                          : undefined,
+                      },
+                      {
+                        label: '质量校验',
+                        value: validation ? (
+                          <span className={validation.passed ? 'ws-tone-ok' : 'ws-tone-bad'}>
+                            {validation.passed ? '通过' : '未通过'}
+                          </span>
+                        ) : (
+                          '—'
+                        ),
+                      },
+                      {
+                        label: 'Token 消耗',
+                        value: usage ? formatTokens(usage.total_tokens) : '—',
+                        hint: usage
+                          ? `入 ${formatTokens(usage.prompt_tokens)} · 出 ${formatTokens(usage.completion_tokens)}`
+                          : undefined,
+                      },
+                      {
+                        label: '缓存命中',
+                        value: hitRate === null ? '—' : `${Math.round(hitRate * 100)}%`,
+                        hint: usage
+                          ? usage.cache_reported
+                            ? `${formatTokens(usage.cache_hit_tokens)} tokens`
+                            : '模型未上报'
+                          : undefined,
+                      },
+                    ]
+              }
             />
             {usage && usage.calls > 0 ? (
               <div className="result-usage">
@@ -1322,6 +1505,46 @@ export default function TaskPage() {
                 {formatTokenRate(usage.tokens_per_second)}
                 {usage.models.length > 0 ? ` · ${usage.models.join(' / ')}` : ''}
               </div>
+            ) : null}
+            {memoryUpdates ? (
+              <Alert
+                className="result-memory"
+                type={memoryUpdateCount > 0 ? 'success' : 'info'}
+                showIcon
+                title={
+                  memoryUpdateCount > 0
+                    ? `已更新长期记忆（${memoryUpdateCount} 条）`
+                    : '已检查长期记忆'
+                }
+                description={
+                  memoryUpdateCount > 0 ? (
+                    <Space size={[6, 6]} wrap>
+                      {memoryUpdates.preferences.map((item) => (
+                        <Tag color="green" key={`pref-${item.key}`}>
+                          偏好 · {item.key}={item.value}
+                        </Tag>
+                      ))}
+                      {memoryUpdates.memories.map((item) => (
+                        <Tag color="blue" key={`mem-${item.content}`}>
+                          {MEMORY_KIND_LABEL[item.kind] ?? item.kind} · {item.content}
+                        </Tag>
+                      ))}
+                      {memoryUpdates.skipped > 0 ? (
+                        <Text type="secondary">
+                          另有 {memoryUpdates.skipped} 条重复或越界信息已跳过
+                        </Text>
+                      ) : null}
+                    </Space>
+                  ) : (
+                    <Text type="secondary">
+                      本次没有发现新的长期偏好或事实
+                      {memoryUpdates.skipped > 0
+                        ? `（${memoryUpdates.skipped} 条重复信息已跳过）`
+                        : ''}
+                    </Text>
+                  )
+                }
+              />
             ) : null}
             <div className="result-body">
               <MarkdownReader content={finalAnswer} sources={sources} />

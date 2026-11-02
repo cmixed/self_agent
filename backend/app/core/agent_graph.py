@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from typing import Any
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
@@ -76,6 +77,7 @@ def build_graph(
     *,
     rag_tool_provider: Callable[[], RagTool] | None = None,
     skill_catalog: Sequence[CatalogEntry] | None = None,
+    verbatim_provider: Callable[[], Any] | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
     max_retries: int = 2,
     target_sections: int = DEFAULT_TARGET_SECTIONS,
@@ -132,7 +134,10 @@ def build_graph(
     )
 
     if catalog:
-        graph.add_node("skills", make_skills_node(llm, catalog))
+        graph.add_node(
+            "skills",
+            make_skills_node(llm, catalog, verbatim_provider=verbatim_provider),
+        )
         graph.add_conditional_edges(
             "skills",
             make_route_after_skills(),

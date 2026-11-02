@@ -138,8 +138,14 @@ class Settings(BaseSettings):
     target_total_chars: int = DEFAULT_TOTAL_CHARS
     # 默认执行深度：auto（确定性路由）/ brief / longform
     default_depth: str = "auto"
-    # 是否在长文任务后自动提取长期偏好（direct/brief 始终不提取）
+    # 任务完成后是否自动提取长期记忆：
+    # - longform 总是提取；
+    # - brief / direct 仅在 query 命中明确长期信号（记住 / 以后都 / 我的研究方向…）
+    #   时提取，避免每个短问答都多一次模型调用；
+    # - 原文输出（verbatim）从不提取。
     memory_auto_extract: bool = True
+    # 单次提取的墙钟上限（best-effort）：超时只记日志，不影响任务结果。
+    memory_extract_timeout_seconds: float = 20.0
     # 启动时是否自动写入 3 个内置技能；默认关闭（用户显式启用/创建即可）
     seed_builtin_skills: bool = False
 

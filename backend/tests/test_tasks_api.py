@@ -5,6 +5,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+import pytest
 from fakes import (
     DRAFT_TEXT,
     OUTLINE_JSON,
@@ -257,20 +258,83 @@ _EXTRACTION_JSON = json.dumps(
 )
 
 
-def test_task_completion_extracts_long_term_memory() -> None:
+def test_task_completion_extracts_long_term_memory(monkeypatch: pytest.MonkeyPatch) -> None:
     """任务完成后用一次结构化调用提取长期记忆。"""
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("MEMORY_AUTO_EXTRACT", "true")
+    get_settings.cache_clear()
     provider = _provider()
     with make_client(provider, memory_provider=ScriptedProvider([_EXTRACTION_JSON])) as client:
         response = client.post("/api/tasks", json={"query": "写一篇 RAG 综述"})
         assert response.status_code == 200
         profile = client.get("/api/memory").json()
+        detail = client.get(f"/api/tasks/{response.json()['task_id']}").json()
 
     assert profile["preferences"] == {"language": "使用中文"}
     assert [memory["content"] for memory in profile["memories"]] == ["经常撰写技术综述"]
+    # 结果里回显真正写入的条目，刷新详情仍能看到（result_json 已补写）
+    updates = response.json()["memory_updates"]
+    assert updates["attempted"] is True
+    assert updates["trigger"] == "longform"
+    assert updates["preferences"] == [{"key": "language", "value": "使用中文"}]
+    assert updates["memories"] == [{"kind": "task_type", "content": "经常撰写技术综述"}]
+    assert detail["memory_updates"] == updates
 
 
-def test_memory_extraction_failure_does_not_break_task() -> None:
+def test_brief_task_with_memory_signal_extracts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """brief 任务默认不提取；但用户明确说「记住…」时必须学到。"""
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("MEMORY_AUTO_EXTRACT", "true")
+    get_settings.cache_clear()
+    payload = json.dumps(
+        {"preferences": [{"key": "language", "value": "使用中文"}], "memories": []},
+        ensure_ascii=False,
+    )
+    with make_client(
+        _provider(),
+        memory_provider=ScriptedProvider([payload]),
+    ) as client:
+        response = client.post(
+            "/api/tasks",
+            json={"query": "记住：以后回答都用中文", "depth": "brief"},
+        )
+        profile = client.get("/api/memory").json()
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "brief"
+    updates = response.json()["memory_updates"]
+    assert updates["trigger"] == "signal:记住"
+    assert updates["preferences"] == [{"key": "language", "value": "使用中文"}]
+    assert profile["preferences"] == {"language": "使用中文"}
+
+
+def test_brief_task_without_signal_does_not_extract(monkeypatch: pytest.MonkeyPatch) -> None:
+    """普通短问答不触发提取，避免每个任务都多一次模型调用。"""
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("MEMORY_AUTO_EXTRACT", "true")
+    get_settings.cache_clear()
+    memory_provider = ScriptedProvider([_EXTRACTION_JSON])
+    with make_client(_provider(), memory_provider=memory_provider) as client:
+        response = client.post("/api/tasks", json={"query": "用一句话说明什么是RAG"})
+        profile = client.get("/api/memory").json()
+
+    assert response.status_code == 200
+    assert response.json()["memory_updates"] is None
+    assert memory_provider.calls == []
+    assert profile == {"user_id": profile["user_id"], "preferences": {}, "memories": []}
+
+
+def test_memory_extraction_failure_does_not_break_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """提取失败只记日志，任务结果照常返回。"""
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("MEMORY_AUTO_EXTRACT", "true")
+    get_settings.cache_clear()
     provider = _provider()
     # 提取调用返回非 JSON -> 解析失败 -> 被吞掉（best-effort）
     with make_client(
@@ -281,6 +345,8 @@ def test_memory_extraction_failure_does_not_break_task() -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "completed"
+    # 提取失败时不回显更新，但任务本身不受影响
+    assert response.json()["memory_updates"] is None
     assert profile["preferences"] == {}
     assert profile["memories"] == []
 

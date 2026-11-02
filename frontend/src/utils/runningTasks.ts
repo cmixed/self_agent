@@ -335,12 +335,16 @@ const STAGE_LABELS: Record<string, string> = {
   retrying: '重试中',
   summarizer_started: '整合结果',
   summarizer_completed: '整合完成',
+  verbatim_started: '查找原文',
+  verbatim_completed: '读取原文',
+  memory_started: '整理记忆',
 }
 
 const MODE_LABELS: Record<string, string> = {
   direct: '直接回答',
   brief: '简洁回答',
   longform: '长文',
+  verbatim: '原文输出',
 }
 
 export function stageLabel(stage?: string | null): string | null {

@@ -128,6 +128,8 @@ describe('TaskRunProvider 初始状态', () => {
     expect(result.current.query).toBe('')
     expect(result.current.depth).toBe('auto')
     expect(result.current.useSkills).toBe(false)
+    expect(result.current.outputMode).toBe('generate')
+    expect(result.current.verbatimDocumentId).toBeNull()
     expect(result.current.activeTab).toBe('content')
     expect(result.current.log).toEqual([])
     expect(Object.values(result.current.nodes).every((value) => value === 'wait')).toBe(true)
@@ -152,6 +154,126 @@ describe('TaskRunProvider 初始状态', () => {
 })
 
 describe('TaskRunProvider 事件归并', () => {
+  it('直接输出原文：只走查找 / 读取两步，结果不产生章节', async () => {
+    mocks.streamTask.mockImplementation(
+      async (_query: string, onEvent: (event: TaskEvent) => void) => {
+        onEvent(ev('task_started', { mode: 'verbatim', output_mode: 'verbatim' }))
+        onEvent(ev('verbatim_started', { message: '正在查找最合适的知识库文档' }))
+        onEvent(
+          ev('verbatim_completed', {
+            message: '已读取《b.md》原文',
+            document_id: 'doc-2',
+            filename: 'b.md',
+            chars: 12,
+            selection: 'explicit',
+            reason: '用户指定文档',
+          }),
+        )
+        onEvent(
+          ev('task_completed', {
+            result: {
+              task_id: 'run-1',
+              status: 'completed',
+              mode: 'verbatim',
+              output_mode: 'verbatim',
+              verbatim: {
+                document_id: 'doc-2',
+                filename: 'b.md',
+                title: '第二篇',
+                chars: 12,
+                selection: 'explicit',
+                reason: '用户指定文档',
+              },
+              plan: null,
+              outline: [],
+              step_results: [],
+              sources: [],
+              validation: null,
+              retry_count: 0,
+              failed_chapters: [],
+              final_answer: 'B 原文',
+              usage: null,
+            },
+          }),
+        )
+      },
+    )
+
+    const { result } = renderHook(() => useTaskRun(), { wrapper })
+    act(() => {
+      result.current.setOutputMode('verbatim')
+      result.current.setVerbatimDocumentId('doc-2')
+      result.current.setQuery('输出原文')
+    })
+    await act(async () => {
+      await result.current.run()
+    })
+
+    expect(mocks.streamTask).toHaveBeenCalledWith(
+      '输出原文',
+      expect.anything(),
+      expect.anything(),
+      undefined,
+      'auto',
+      false,
+      'all',
+      'verbatim',
+      'doc-2',
+    )
+    expect(result.current.mode).toBe('verbatim')
+    expect(result.current.outputMode).toBe('verbatim')
+    expect(result.current.verbatim?.filename).toBe('b.md')
+    expect(result.current.finalAnswer).toBe('B 原文')
+    expect(result.current.nodes.researcher).toBe('finish')
+    expect(result.current.outline).toEqual([])
+    expect(result.current.chapterList).toEqual([])
+    expect(result.current.log.map((entry) => entry.label)).toContain('原文')
+  })
+
+  it('task_completed 之后的 memory_updated 回显长期记忆', async () => {
+    const result = await runScript([
+      ev('task_started', { mode: 'longform' }),
+      ev('memory_started', { message: '正在整理长期记忆…' }),
+      ev('task_completed', {
+        result: {
+          task_id: 'run-1',
+          status: 'completed',
+          mode: 'longform',
+          output_mode: 'generate',
+          plan: null,
+          outline: [],
+          step_results: [],
+          sources: [],
+          validation: null,
+          retry_count: 0,
+          failed_chapters: [],
+          final_answer: '# 结果',
+          usage: null,
+        },
+      }),
+      ev('memory_updated', {
+        message: '已更新长期记忆',
+        memory_updates: {
+          attempted: true,
+          trigger: 'longform',
+          preferences: [{ key: 'language', value: '使用中文' }],
+          memories: [{ kind: 'fact', content: '研究方向是 RAG' }],
+          skipped: 1,
+        },
+      }),
+    ])
+
+    expect(result.current.memoryUpdates?.preferences).toEqual([
+      { key: 'language', value: '使用中文' },
+    ])
+    expect(result.current.memoryUpdates?.memories).toEqual([
+      { kind: 'fact', content: '研究方向是 RAG' },
+    ])
+    expect(result.current.memoryUpdates?.skipped).toBe(1)
+    expect(result.current.running).toBe(false)
+    expect(result.current.log.map((entry) => entry.label)).toContain('记忆')
+  })
+
   it('完成一次长文运行后汇总章节、来源与结果', async () => {
     const result = await runScript([
       ev('task_started', { mode: 'longform' }),

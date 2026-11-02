@@ -15,6 +15,7 @@ from app.agents.memory_context import render_memories
 from app.agents.preferences import render_preferences
 from app.agents.skills import (
     MAX_SKILL_STEPS,
+    MAX_VERBATIM_STEPS,
     CatalogEntry,
     SkillCatalog,
     SkillMeta,
@@ -24,6 +25,7 @@ from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, Plan, PlanStep, StepResult
 from app.prompts import render_prompt
+from app.skills.system import SYSTEM_VERBATIM_SKILL_ID
 
 logger = get_logger(__name__)
 
@@ -79,22 +81,50 @@ def _render_planner_input(state: AgentState, *, compact: bool = False) -> str:
 
 
 def _validate_skill_steps(
-    steps: list[PlanStepModel], catalog: Sequence[SkillMeta] | None
+    steps: list[PlanStepModel],
+    catalog: Sequence[SkillMeta] | None,
+    *,
+    retrieval_mode: str = "all",
 ) -> list[PlanStepModel]:
-    """过滤非法技能步骤：无目录时全部剔除；skill_id 不在目录中剔除；超上限截断。"""
+    """过滤非法技能步骤：无目录时全部剔除；skill_id 不在目录中剔除；超上限截断。
+
+    原文输出系统技能额外受两条硬约束：
+    - ``retrieval_mode=none`` 时不可能读取知识库，直接剔除；
+    - 一次任务最多 1 个，避免最终文档里塞入多篇不相干的全文。
+    """
     if not catalog:
         return [step for step in steps if step.type != "skill"]
 
     valid_ids = {entry["skill_id"] for entry in catalog}
+    output_modes = {entry["skill_id"]: str(entry.get("output_mode") or "") for entry in catalog}
     kept: list[PlanStepModel] = []
     skill_count = 0
+    verbatim_count = 0
     for step in steps:
         if step.type != "skill":
             kept.append(step)
             continue
+        is_verbatim = (
+            step.skill_id == SYSTEM_VERBATIM_SKILL_ID
+            or output_modes.get(step.skill_id or "") == "verbatim"
+        )
+        if is_verbatim and retrieval_mode == "none":
+            logger.warning(
+                "忽略原文技能步骤：本次任务不检索知识库",
+                extra={"node": "planner", "skill_id": step.skill_id, "event": "skill_step_dropped"},
+            )
+            continue
+        if is_verbatim and verbatim_count >= MAX_VERBATIM_STEPS:
+            logger.warning(
+                "忽略多余的原文技能步骤",
+                extra={"node": "planner", "skill_id": step.skill_id, "event": "skill_step_dropped"},
+            )
+            continue
         if step.skill_id in valid_ids and skill_count < MAX_SKILL_STEPS:
             kept.append(step)
             skill_count += 1
+            if is_verbatim:
+                verbatim_count += 1
         else:
             logger.warning(
                 "忽略非法技能步骤",
@@ -121,8 +151,16 @@ def make_planner_node(
     async def planner_node(state: AgentState) -> dict:
         # 技能是显式 opt-in：默认不把目录注入 planner，避免模型被引导去
         # 添加「技能步骤」而多出一次 LLM 调用（简单任务尤其明显）。
+        # 例外：原文输出是系统确定性能力，不受该开关影响；否则默认配置下
+        # 用户永远用不上「生成过程中直接输出原文」。
         allow_skills = bool((state.get("task_profile") or {}).get("allow_skills", True))
-        catalog_meta = catalog.metadata if allow_skills else []
+        catalog_meta = [
+            entry
+            for entry in catalog.metadata
+            if allow_skills
+            or entry.get("output_mode") == "verbatim"
+            or entry["skill_id"] == SYSTEM_VERBATIM_SKILL_ID
+        ]
         system_prompt = _PLANNER_SYSTEM_PROMPT
         if catalog_meta:
             system_prompt = f"{system_prompt}\n\n{skill_catalog_for_prompt(catalog_meta)}"
@@ -141,7 +179,11 @@ def make_planner_node(
                 description=step.description,
                 skill_id=step.skill_id,
             )
-            for step in _validate_skill_steps(plan_model.steps, catalog_meta)
+            for step in _validate_skill_steps(
+                plan_model.steps,
+                catalog_meta,
+                retrieval_mode=str(state.get("retrieval_mode") or "all"),
+            )
         ]
         # 「不检索」是硬约束：即使模型忽略了提示，也不允许保留检索步骤
         if state.get("retrieval_mode") == "none":
@@ -155,9 +197,19 @@ def make_planner_node(
                         skill_id=None,
                     )
                 ]
+        # 原文技能必须建立在检索结果上：模型给了技能步骤但漏了检索时补上。
+        verbatim_ids = {
+            entry["skill_id"] for entry in catalog_meta if entry.get("output_mode") == "verbatim"
+        }
+        verbatim_ids.add(SYSTEM_VERBATIM_SKILL_ID)
+        has_verbatim = any(
+            step["type"] == "skill" and step.get("skill_id") in verbatim_ids for step in steps
+        )
         needs_retrieval = (
             False if state.get("retrieval_mode") == "none" else plan_model.needs_retrieval
         )
+        if has_verbatim and state.get("retrieval_mode") != "none":
+            needs_retrieval = True
         plan: Plan = Plan(
             goal=plan_model.goal,
             needs_retrieval=needs_retrieval,

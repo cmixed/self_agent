@@ -300,6 +300,12 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
                     ? `${detail.scope.label}（${detail.scope.document_count} 篇）`
                     : '全部知识库'}
               </Descriptions.Item>
+              {detail.output_mode === 'verbatim' ? (
+                <Descriptions.Item label="输出方式">
+                  知识库原文
+                  {detail.verbatim?.filename ? ` · ${detail.verbatim.filename}` : ''}
+                </Descriptions.Item>
+              ) : null}
               <Descriptions.Item label="重新规划次数">{detail.retry_count}</Descriptions.Item>
               <Descriptions.Item label="未通过校验章节">
                 {detail.failed_chapters.length > 0 ? detail.failed_chapters.join(', ') : '无'}
@@ -405,7 +411,7 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
                 items={[
                   {
                     key: 'content',
-                    label: '正文',
+                    label: detail.output_mode === 'verbatim' ? '原文' : '正文',
                     children: detail.final_answer ? (
                       <Space orientation="vertical" size="small" style={{ width: '100%' }}>
                         <Space>
@@ -424,6 +430,30 @@ export default function TaskDetailView({ taskId }: { taskId: string }) {
                             下载 .md
                           </Button>
                         </Space>
+                        {detail.memory_updates &&
+                        detail.memory_updates.preferences.length +
+                          detail.memory_updates.memories.length >
+                          0 ? (
+                          <Alert
+                            type="success"
+                            showIcon
+                            title="本次已更新长期记忆"
+                            description={
+                              <Space size={[6, 6]} wrap>
+                                {detail.memory_updates.preferences.map((item) => (
+                                  <Tag color="green" key={`pref-${item.key}`}>
+                                    偏好 · {item.key}={item.value}
+                                  </Tag>
+                                ))}
+                                {detail.memory_updates.memories.map((item) => (
+                                  <Tag color="blue" key={`mem-${item.content}`}>
+                                    {item.kind} · {item.content}
+                                  </Tag>
+                                ))}
+                              </Space>
+                            }
+                          />
+                        ) : null}
                         <MarkdownReader content={detail.final_answer} sources={detail.sources} />
                       </Space>
                     ) : (

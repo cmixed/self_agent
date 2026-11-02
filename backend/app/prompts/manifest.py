@@ -26,6 +26,7 @@ PROMPTS: tuple[PromptSpec, ...] = (
     PromptSpec("writer.md"),
     PromptSpec("writer_continue.md", ("title", "tail")),
     PromptSpec("validator.md"),
+    PromptSpec("verbatim_select.md", ("candidates",)),
     PromptSpec("answer_direct.md", ("target_chars",)),
     PromptSpec("answer_brief.md", ("target_chars",)),
     PromptSpec("answer_repair.md", ("issue",)),

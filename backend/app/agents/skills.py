@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from app.agents.budget import budget_context, compute_writing_budget
 from app.core.limits import (
@@ -28,11 +28,14 @@ from app.llm.base import ChatMessage, LLMProvider
 from app.models.state import AgentState, PlanStep, SkillOutput, StepResult
 from app.prompts import render_prompt
 from app.rag.tools import format_context
+from app.skills.system import SYSTEM_VERBATIM_SKILL_ID
 
 logger = get_logger(__name__)
 
 # 单个计划中允许的技能步骤上限（防滥用，与 MAX_SECTIONS 同类的安全约束）
 MAX_SKILL_STEPS = 2
+# 原文输出是系统能力：一次任务最多插入一篇，避免结果与上下文爆炸。
+MAX_VERBATIM_STEPS = 1
 
 # L3：最多加载一个附件、最多追加一次模型调用（协议固定，不做递归）
 MAX_RESOURCE_LOADS = 1
@@ -45,6 +48,8 @@ class SkillMeta(TypedDict):
     skill_id: str
     name: str
     description: str
+    # 系统技能标记：verbatim = 直接输出知识库原文（不经过模型改写）
+    output_mode: NotRequired[str]
 
 
 class SkillResource(TypedDict):
@@ -59,6 +64,7 @@ class CatalogEntry(SkillMeta):
 
     content: str
     resources: NotRequired[list[SkillResource]]
+    verbatim_scope: NotRequired[str]
 
 
 @dataclass(frozen=True)
@@ -79,14 +85,17 @@ class SkillCatalog:
 
     @property
     def metadata(self) -> list[SkillMeta]:
-        return [
-            SkillMeta(
+        metadata: list[SkillMeta] = []
+        for entry in self._definitions.values():
+            item = SkillMeta(
                 skill_id=entry["skill_id"],
                 name=entry["name"],
                 description=entry["description"],
             )
-            for entry in self._definitions.values()
-        ]
+            if entry.get("output_mode"):
+                item["output_mode"] = str(entry["output_mode"])
+            metadata.append(item)
+        return metadata
 
     def get(self, skill_id: str) -> CatalogEntry | None:
         return self._definitions.get(skill_id)
@@ -190,7 +199,11 @@ def render_skill_outputs(state: AgentState, *, max_chars: int = MAX_SKILL_CONTEX
 
 
 def skill_catalog_for_prompt(catalog: Sequence[SkillMeta]) -> str:
-    """渲染给 Planner 的技能目录说明（只含 L1 元数据）。"""
+    """渲染给 Planner 的技能目录说明（只含 L1 元数据）。
+
+    系统原文技能即使关闭「允许技能」也会出现，因此描述里必须把触发条件写得
+    足够克制，避免模型在普通写作任务里随手添加原文步骤。
+    """
     lines = ["可用技能（type 必须为 skill，且必须填写对应的 skill_id）："]
     for entry in catalog:
         lines.append(
@@ -200,12 +213,95 @@ def skill_catalog_for_prompt(catalog: Sequence[SkillMeta]) -> str:
     return "\n".join(lines)
 
 
+async def _run_verbatim_skill(
+    state: AgentState,
+    step: PlanStep,
+    definition: CatalogEntry,
+    verbatim_provider: Callable[[], Any] | None,
+) -> dict:
+    """系统技能：直接读取原文，不调用模型生成正文。
+
+    无论成功还是失败，都必须写回一条 ``skill_outputs``：``pending_skill_step``
+    依靠它判断该步骤已完成，否则技能路由会反复执行同一步骤直到递归上限。
+    """
+    skill_id = str(step.get("skill_id") or SYSTEM_VERBATIM_SKILL_ID)
+    skill_name = str(definition.get("name") or "知识库原文输出")
+    step_id = str(step.get("id", ""))
+
+    def completed(summary: str, *, output: dict | None = None, status: str = "ok") -> dict:
+        return {
+            "skill_outputs": [
+                SkillOutput(
+                    skill_id=skill_id,
+                    skill_name=skill_name,
+                    step_id=step_id,
+                    summary=summary,
+                    content=summary,
+                )
+            ],
+            **({"verbatim_outputs": [output]} if output is not None else {}),
+            "current_step": step.get("id"),
+            "task_status": "writing",
+            "step_results": [StepResult(step_id=step_id, status=status, summary=summary)],
+            "messages": [ChatMessage(role="assistant", content=f"[skills] {summary}")],
+        }
+
+    if verbatim_provider is None:
+        summary = "原文输出服务不可用，已跳过"
+        logger.warning(
+            "原文输出服务未配置",
+            extra={"task_id": state.get("task_id"), "node": "skills", "skill_id": skill_id},
+        )
+        return completed(summary, status="error")
+
+    try:
+        service = verbatim_provider()
+        output = await service.resolve_for_state(state, step)
+    except Exception as exc:
+        summary = f"未能输出知识库原文：{exc}"
+        logger.warning(
+            "原文输出失败，已跳过该技能步骤",
+            extra={
+                "task_id": state.get("task_id"),
+                "node": "skills",
+                "event": "verbatim_failed",
+                "status": "warning",
+                "skill_id": skill_id,
+                "error": str(exc),
+            },
+        )
+        return completed(summary, status="error")
+
+    summary = (
+        f"已直接输出《{output.get('filename', '')}》原文"
+        f"（约 {output.get('chars', 0)} 字，未经过模型改写）"
+    )
+    logger.info(
+        "系统技能完成原文输出",
+        extra={
+            "task_id": state.get("task_id"),
+            "node": "skills",
+            "event": "verbatim_completed",
+            "status": "ok",
+            "skill_id": skill_id,
+            "document_id": output.get("document_id", ""),
+            "chars": output.get("chars", 0),
+        },
+    )
+    return completed(summary, output=dict(output))
+
+
 def make_skills_node(
-    llm: LLMProvider, catalog: Sequence[CatalogEntry] | SkillCatalog
+    llm: LLMProvider,
+    catalog: Sequence[CatalogEntry] | SkillCatalog,
+    *,
+    verbatim_provider: Callable[[], Any] | None = None,
 ) -> Callable[[AgentState], Awaitable[dict]]:
     """构造绑定了 LLM 与技能目录的 skills 节点。
 
     正文按 ``skill_id`` 在执行时读取（L2）：未选中的技能不会出现在提示词中。
+    ``verbatim_provider`` 只服务系统原文技能；它返回的对象需要提供
+    ``resolve_for_state(state, step)``。
     """
 
     skill_catalog = SkillCatalog.from_entries(catalog)
@@ -233,6 +329,10 @@ def make_skills_node(
                     )
                 ],
             }
+
+        # 系统原文技能：确定性读取原文件，绝不调用生成模型。
+        if definition.get("output_mode") == "verbatim" or skill_id == SYSTEM_VERBATIM_SKILL_ID:
+            return await _run_verbatim_skill(state, step, definition, verbatim_provider)
 
         context_parts = [
             f"任务目标：{(state.get('plan') or {}).get('goal', '')}",

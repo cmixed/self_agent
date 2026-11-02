@@ -74,6 +74,7 @@ describe('modeLabel', () => {
   it('映射执行模式', () => {
     expect(modeLabel('longform')).toBe('长文')
     expect(modeLabel('brief')).toBe('简洁回答')
+    expect(modeLabel('verbatim')).toBe('原文输出')
     expect(modeLabel(null)).toBeNull()
     expect(modeLabel('custom')).toBe('custom')
   })

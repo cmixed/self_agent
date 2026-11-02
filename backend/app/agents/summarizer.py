@@ -6,6 +6,7 @@ Validator 在汇总之前完成校验（Phase 4B），因此本节点不调用 L
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 
 from app.agents.budget import resolve_writing_budget
@@ -19,8 +20,15 @@ from app.core.logging import get_logger
 from app.llm.base import ChatMessage
 from app.models.state import AgentState, StepResult, WritingBudget
 from app.rag.tools import render_references
+from app.services.verbatim_service import (
+    VerbatimOutput,
+    render_verbatim_appendix,
+)
 
 logger = get_logger(__name__)
+
+_VERBATIM_PLACEHOLDER_RE = re.compile(r"\[\[VERBATIM:(\d+)\]\]")
+_REFERENCES_MARKER = "\n\n## 参考来源"
 
 
 def _body_chars(document: str) -> int:
@@ -88,6 +96,52 @@ def append_limitation_note(document: str, budget: WritingBudget) -> str:
         head, tail = document.split(marker, 1)
         return f"{head}\n\n{note}{marker}{tail}"
     return f"{document}\n\n{note}"
+
+
+def _verbatim_blocks(outputs: list[VerbatimOutput]) -> list[str]:
+    return [render_verbatim_appendix(output) for output in outputs]
+
+
+def inject_verbatim(document: str, state: AgentState) -> str:
+    """把系统原文注入最终文档。
+
+    必须在 **篇幅审计与资料限制说明之后** 调用：
+
+    - 原文里的 ``[1]`` 不参与系统引用编号检查；
+    - 原文里的 ``## 参考来源`` 不会干扰资料限制说明的拆分；
+    - 原文不计入模型生成的篇幅统计。
+
+    有占位符 → 原地替换；没有占位符但计划确实准备了原文 → 在参考来源之前追加。
+    """
+    outputs = list(state.get("verbatim_outputs") or [])
+    if not outputs:
+        return document
+
+    blocks = _verbatim_blocks(outputs)
+    by_index = {str(index): block for index, block in enumerate(blocks, start=1)}
+    used = False
+
+    def replace(match: re.Match[str]) -> str:
+        nonlocal used
+        block = by_index.get(match.group(1))
+        if block is None:
+            logger.warning(
+                "原文占位符编号非法，已移除",
+                extra={"node": "summarizer", "event": "verbatim_placeholder_invalid"},
+            )
+            return ""
+        used = True
+        return block
+
+    injected = _VERBATIM_PLACEHOLDER_RE.sub(replace, document)
+    if used:
+        return injected
+
+    appendix = "\n\n".join(blocks)
+    if _REFERENCES_MARKER in injected:
+        head, tail = injected.split(_REFERENCES_MARKER, 1)
+        return f"{head}\n\n{appendix}{_REFERENCES_MARKER}{tail}"
+    return f"{injected}\n\n{appendix}".strip()
 
 
 def assemble_document(
@@ -169,7 +223,15 @@ def make_summarizer_node(
             summary += f"；{length_note}"
         if budget["source_limited"] or budget["no_sources"]:
             summary += f"；{budget['reason']}"
+        # 顺序很重要：先审计/说明，再注入原文，避免原文的长度与引用编号干扰系统判断。
         draft = append_limitation_note(draft, budget)
+        draft = inject_verbatim(draft, state)
+        verbatim_outputs = list(state.get("verbatim_outputs") or [])
+        if verbatim_outputs:
+            first = verbatim_outputs[0]
+            summary += (
+                f"；已直接输出《{first.get('filename', '')}》原文（约 {first.get('chars', 0)} 字）"
+            )
 
         logger.info(
             "summarizer 完成",

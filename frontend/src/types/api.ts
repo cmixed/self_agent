@@ -323,6 +323,30 @@ export interface TokenUsage {
 
 export type TaskDepth = 'auto' | 'brief' | 'longform'
 
+/** 输出方式：正常生成内容 / 直接输出知识库原文。 */
+export type OutputMode = 'generate' | 'verbatim'
+
+/** 直接输出原文时选中的文档（正文在 final_answer，不含在这里）。 */
+export interface VerbatimInfo {
+  document_id: string
+  filename: string
+  title: string
+  chars: number
+  /** explicit / filename / single / retrieval / llm */
+  selection: string
+  reason: string
+}
+
+/** 任务结束后自动写入的长期记忆（只含真正写入的条目）。 */
+export interface MemoryUpdates {
+  attempted: boolean
+  /** longform / signal:<命中短语> */
+  trigger: string
+  preferences: { key: string; value: string }[]
+  memories: { kind: string; content: string }[]
+  skipped: number
+}
+
 /** 后端确定性路由产生的执行画像。 */
 export interface TaskProfile {
   mode: string
@@ -352,9 +376,15 @@ export interface WritingBudget {
 export interface TaskResult {
   task_id: string
   status: string
-  /** direct / brief / longform（旧记录可能没有） */
+  /** direct / brief / longform / verbatim（旧记录可能没有） */
   mode?: string | null
   profile?: TaskProfile | null
+  /** generate / verbatim；旧记录缺省为 generate */
+  output_mode?: OutputMode | null
+  /** 直接输出原文时回显的文档（不含正文） */
+  verbatim?: VerbatimInfo | null
+  /** 任务结束后自动提取的长期记忆（未触发时为 null） */
+  memory_updates?: MemoryUpdates | null
   plan: Plan | null
   /** 旧任务 / 轻量回答可能没有 */
   writing_budget?: WritingBudget | null
@@ -524,6 +554,14 @@ export interface TaskEvent {
   /** task_started / task_completed：本次执行模式与画像 */
   mode?: string | null
   profile?: TaskProfile | null
+  /** task_started / task_completed：输出方式 */
+  output_mode?: OutputMode | null
+  /** verbatim_completed：本次直接输出的文档（正文在 result.final_answer） */
+  document_id?: string
+  filename?: string
+  chars?: number
+  selection?: string
+  reason?: string
   /** task_started / task_resumed：检索模式 */
   retrieval_mode?: RetrievalMode
   plan?: Plan | null
@@ -551,5 +589,7 @@ export interface TaskEvent {
   skill_id?: string
   skill_name?: string
   summary?: string
+  /** memory_updated：本次自动写入的长期记忆 */
+  memory_updates?: MemoryUpdates | null
   result?: TaskResult
 }

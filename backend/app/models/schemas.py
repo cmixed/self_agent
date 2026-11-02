@@ -13,6 +13,8 @@ from pydantic import BaseModel, Field
 from app.models.state import RetrievalMode
 
 Role = Literal["system", "user", "assistant"]
+# 输出方式：正常生成内容 / 直接输出知识库原文
+OutputMode = Literal["generate", "verbatim"]
 
 
 class ChatMessageIn(BaseModel):
@@ -349,6 +351,10 @@ class TaskRequest(BaseModel):
     depth: TaskDepth = "auto"
     # 技能默认关闭（显式 opt-in），避免简单任务被技能步骤放大
     use_skills: bool = False
+    # 输出方式：generate = 正常 Agent 生成；verbatim = 直接输出知识库原文
+    output_mode: OutputMode = "generate"
+    # verbatim 模式下可指定文档；为空表示自动选择最合适的一篇
+    verbatim_document_id: str | None = None
 
 
 class PlanStepOut(BaseModel):
@@ -436,12 +442,51 @@ class WritingBudgetOut(BaseModel):
     reason: str = ""
 
 
+class VerbatimOut(BaseModel):
+    """直接输出原文时选中的文档（只回显元数据，正文在 final_answer）。"""
+
+    document_id: str
+    filename: str
+    title: str = ""
+    chars: int = 0
+    # explicit / filename / single / retrieval / llm
+    selection: str = ""
+    reason: str = ""
+
+
+class MemoryPreferenceOut(BaseModel):
+    key: str
+    value: str
+
+
+class MemoryUpdateItemOut(BaseModel):
+    kind: str
+    content: str
+
+
+class MemoryUpdatesOut(BaseModel):
+    """任务完成后自动提取长期记忆的回显（只含真正写入的条目）。"""
+
+    attempted: bool = True
+    # longform / signal:<命中短语>
+    trigger: str = ""
+    preferences: list[MemoryPreferenceOut] = Field(default_factory=list)
+    memories: list[MemoryUpdateItemOut] = Field(default_factory=list)
+    skipped: int = 0
+
+
 class TaskResponse(BaseModel):
     task_id: str
     status: str
-    # direct / brief / longform；旧记录为 None
+    # direct / brief / longform / verbatim；旧记录为 None
     mode: str | None = None
     profile: TaskProfileOut | None = None
+    # generate / verbatim；旧记录缺省为 generate
+    output_mode: OutputMode | None = None
+    # 直接输出原文时回显选中的文档（不含正文）
+    verbatim: VerbatimOut | None = None
+    # 任务结束后自动提取的长期记忆（未触发 / 未配置模型时为 None）
+    memory_updates: MemoryUpdatesOut | None = None
     plan: PlanOut | None = None
     # 资料量自适应预算；旧任务 / 轻量回答为 None
     writing_budget: WritingBudgetOut | None = None

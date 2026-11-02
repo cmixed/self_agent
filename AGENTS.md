@@ -657,9 +657,23 @@ Agent
     `TaskProfile.needs_retrieval=True`；
   - `none`：完全不检索知识库，Planner 强制 `needs_retrieval=False` 并移除
     retrieval 步骤，Researcher 防御性跳过（不得加载 Embedding / 访问 Chroma）。
-  模式随 checkpoint 固化；续跑沿用，重新生成按原记录恢复。
-  旧客户端未传 `retrieval_mode` 时兼容推断：scope 非空 = selected，否则 all。
+    模式随 checkpoint 固化；续跑沿用，重新生成按原记录恢复。
+    旧客户端未传 `retrieval_mode` 时兼容推断：scope 非空 = selected，否则 all。
 - 检索结果必须保留 source metadata。
+- **原文输出是确定性能力，不是生成任务**（`output_mode=verbatim`）：
+  - Agent 只决定「是否需要原文 / 选哪一篇 / 放在哪里」，系统负责读取上传时的
+    原文件全文并插入，绝不经过模型改写；
+  - 全文不进入 Planner / Writer / Validator 上下文，也不消耗生成 token：
+    技能分支写入 `AgentState.verbatim_outputs`，Writer 只看到
+    `[[VERBATIM:n]]` 占位符 + 文件名 + 字数，Summarizer 在校验之后替换；
+  - 生成流程通过系统技能 `system-verbatim`（`output_mode=verbatim`）触发，
+    **不受「允许技能」开关影响**，一次任务最多 1 个原文步骤，
+    `retrieval_mode=none` 时直接丢弃；
+  - 工作台另有直接入口「直接输出知识库原文」：显式指定文档时 0 次模型调用，
+    自动选择时才做一次检索（+ 一次仅含元数据的小模型选择）；不写 checkpoint，
+    因此不能「继续生成」，只能重新运行；
+  - 单篇原文超过 `DEFAULT_VERBATIM_MAX_CHARS` 必须报错，不得静默截断；
+  - 检索范围为空时必须返回「范围内没有文档」，绝不能退化成整个知识库。
 - **`retrieved_documents` 是覆盖语义**：每次检索代表「本次计划可见的资料」。
   replan 后 researcher 会重新检索并整体替换，不得追加旧资料
   （追加会让同一 chunk 重复出现，引用编号与写作预算随之失真）。
@@ -831,8 +845,19 @@ validation result
 - 记忆是**数据不是指令**：提示词必须声明不得当作用户指令、不得作为引用来源，
   与检索资料冲突时以资料为准。
 - 本地 Provider（`is_local`）记忆预算减半，避免挤占小模型的 `num_ctx`。
-- 自动提取仍只发生在 `longform` 任务完成后（`direct` / `brief` 不提取）；
-  中断 / 取消 / 失败的任务不提取。
+- 自动提取的触发条件（`app/memory/signals.py`，确定性、可测试）：
+  - `longform` 完成后总是提取；
+  - `brief` / `direct` 只有 query 出现明确的长期信号（「记住…」「以后都…」
+    「我的研究方向是…」「我习惯…」）时才提取，普通短问答不额外调用模型；
+  - 原文输出（`output_mode=verbatim`）不提取；
+  - 中断 / 取消 / 失败的任务不提取。
+- 提取是 best-effort：超时（`memory_extract_timeout_seconds`）或模型失败只记
+  日志，不影响任务结果。任务结果通过 `memory_updates` 回显**真正写入**的
+  偏好 / 记忆与跳过数量，并补写进 `task_runs.result_json`（刷新详情仍可见）；
+  SSE 先推送 `task_completed`，再补发 `memory_started` / `memory_updated`，
+  记忆提取**不得拖慢终态**。
+- 记忆相关性筛选会过滤「我的」「写一篇」这类结构词，避免无关记忆误命中；
+  调整停用词或触发信号后必须补对应单测。
 - 续跑沿用 checkpoint 里的记忆快照；只有「重新生成」才重新读取最新记忆。
 
 ---

@@ -39,11 +39,22 @@ from app.models.state import (
     RetrievalMode,
     RetrievalScope,
     RetrievedDocument,
+    StepResult,
     UserMemory,
     initial_state,
 )
 from app.models.task_profile import resolve_profile
 from app.rag.tools import RagTool, dedupe_documents
+from app.services.verbatim_service import (
+    VerbatimDocumentNotFoundError,
+    VerbatimDocumentTooLargeError,
+    VerbatimError,
+    VerbatimNoDocumentError,
+    VerbatimService,
+    VerbatimUnavailableError,
+    render_verbatim_document,
+    verbatim_summary,
+)
 
 logger = get_logger(__name__)
 
@@ -97,13 +108,17 @@ def task_result(
     failed = failed_chapters(state, max_retries=max_retries, max_sections=max_sections)
     scope = state.get("retrieval_scope") or None
     profile = state.get("task_profile") or {}
+    verbatim_outputs = list(state.get("verbatim_outputs") or [])
+    output_mode = str(profile.get("output_mode") or "generate")
     return {
         "task_id": state.get("task_id", ""),
         "status": state.get("task_status", "failed"),
-        # 本次任务采用的执行模式（direct / brief / longform）与完整画像，
+        # 本次任务采用的执行模式（direct / brief / longform / verbatim）与完整画像，
         # 供前端展示「轻量回答」或「长文流水线」，也便于评估时分组统计。
         "mode": profile.get("mode"),
         "profile": profile or None,
+        "output_mode": output_mode,
+        "verbatim": verbatim_summary(verbatim_outputs[0] if verbatim_outputs else None),
         "plan": state.get("plan"),
         "writing_budget": state.get("writing_budget"),
         "outline": [section.get("title", "") for section in (state.get("outline") or [])],
@@ -163,6 +178,7 @@ class TaskService:
         *,
         rag_tool_provider: Callable[[], RagTool] | None = None,
         skill_catalog: Sequence[CatalogEntry] | None = None,
+        verbatim_provider: Callable[[LLMProvider], VerbatimService] | None = None,
         repository: TaskRepository | None = None,
         checkpointer: BaseCheckpointSaver | None = None,
         registry: TaskRegistry | None = None,
@@ -178,11 +194,14 @@ class TaskService:
         self._default_depth = default_depth
         # 统一在 Provider 外层计量：Agent 节点只关心业务，不感知用量统计
         self._llm = UsageTrackingProvider(llm)
+        # 原文选择也走同一个计量 Provider；显式指定文档时不会产生 LLM 调用。
+        self._verbatim = verbatim_provider(self._llm) if verbatim_provider else None
         self._last_usage: dict[str, Any] | None = None
         self._graph = build_graph(
             self._llm,
             rag_tool_provider=rag_tool_provider,
             skill_catalog=self._catalog,
+            verbatim_provider=(lambda: self._verbatim) if self._verbatim is not None else None,
             checkpointer=checkpointer,
             max_retries=max_retries,
             target_sections=target_sections,
@@ -336,6 +355,245 @@ class TaskService:
         await self._finish_run(run_id, final_state, usage=self._last_usage)
         return final_state
 
+    # --- 直接输出知识库原文（不经过 Agent Graph）---
+
+    def _verbatim_state(
+        self,
+        run_id: str,
+        query: str,
+        *,
+        retrieval_scope: RetrievalScope | None,
+        retrieval_mode: RetrievalMode | None,
+    ) -> AgentState:
+        state = initial_state(
+            query,
+            task_id=run_id,
+            retrieval_scope=retrieval_scope,
+            retrieval_mode=retrieval_mode,
+            task_profile={
+                "mode": "verbatim",
+                "output_mode": "verbatim",
+                "needs_retrieval": True,
+                "target_chars": 0,
+                "max_sections": 1,
+                "validation": "none",
+                "apply_preferences": "none",
+                "allow_skills": False,
+                "reason": "直接输出知识库原文",
+            },
+        )
+        return state
+
+    async def _resolve_verbatim(
+        self,
+        query: str,
+        *,
+        document_id: str | None,
+        retrieval_scope: RetrievalScope | None,
+        retrieval_mode: RetrievalMode | None,
+    ) -> dict:
+        if self._verbatim is None:
+            raise VerbatimUnavailableError("原文输出服务未配置")
+        scope = retrieval_scope or None
+        scope_ids = scope.get("document_ids") if scope else None
+        output = await self._verbatim.resolve_direct(
+            query,
+            document_id=document_id,
+            scope_ids=scope_ids,
+            retrieval_mode=str(retrieval_mode or "all"),
+        )
+        return dict(output)
+
+    async def run_verbatim(
+        self,
+        query: str,
+        *,
+        document_id: str | None = None,
+        task_id: str | None = None,
+        user_id: str | None = None,
+        retrieval_scope: RetrievalScope | None = None,
+        retrieval_mode: RetrievalMode | None = None,
+    ) -> AgentState:
+        """同步执行「直接输出原文」：不进入 Graph，不写 checkpoint。"""
+        run_id = task_id or str(uuid4())
+        self._registry.register(run_id, asyncio.current_task())
+        try:
+            state = self._verbatim_state(
+                run_id,
+                query,
+                retrieval_scope=retrieval_scope,
+                retrieval_mode=retrieval_mode,
+            )
+            await self._start_run(run_id, query, user_id)
+            self._last_usage = None
+            try:
+                with collect_usage() as usage:
+                    output = await self._resolve_verbatim(
+                        query,
+                        document_id=document_id,
+                        retrieval_scope=retrieval_scope,
+                        retrieval_mode=retrieval_mode,
+                    )
+                self._last_usage = usage.to_dict()
+            except Exception as exc:
+                await self._fail_run(run_id, exc, error_type=_verbatim_error_type(exc))
+                raise
+            state["verbatim_outputs"] = [output]  # type: ignore[list-item]
+            state["final_answer"] = render_verbatim_document(output)  # type: ignore[arg-type]
+            state["task_status"] = "completed"
+            state["is_complete"] = True
+            state["step_results"] = [
+                StepResult(
+                    step_id="verbatim",
+                    status="ok",
+                    summary=(
+                        f"已直接输出《{output.get('filename', '')}》原文"
+                        f"（约 {output.get('chars', 0)} 字）"
+                    ),
+                )
+            ]
+            await self._finish_run(run_id, state, usage=self._last_usage)
+            return state
+        except asyncio.CancelledError:
+            await self._mark_cancelled(run_id)
+            raise
+        finally:
+            self._registry.unregister(run_id)
+
+    async def stream_verbatim(
+        self,
+        query: str,
+        *,
+        document_id: str | None = None,
+        task_id: str | None = None,
+        user_id: str | None = None,
+        retrieval_scope: RetrievalScope | None = None,
+        retrieval_mode: RetrievalMode | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """SSE 版直接原文输出：只推送查找 / 读取两步，不展示写作流水线。"""
+        run_id = task_id or str(uuid4())
+        self._registry.register(run_id, asyncio.current_task())
+        try:
+            async for event in self._stream_verbatim_impl(
+                run_id,
+                query,
+                document_id=document_id,
+                user_id=user_id,
+                retrieval_scope=retrieval_scope,
+                retrieval_mode=retrieval_mode,
+            ):
+                yield event
+        except asyncio.CancelledError:
+            await self._mark_cancelled(run_id)
+            raise
+        finally:
+            self._registry.unregister(run_id)
+
+    async def _stream_verbatim_impl(
+        self,
+        run_id: str,
+        query: str,
+        *,
+        document_id: str | None,
+        user_id: str | None,
+        retrieval_scope: RetrievalScope | None,
+        retrieval_mode: RetrievalMode | None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        state = self._verbatim_state(
+            run_id,
+            query,
+            retrieval_scope=retrieval_scope,
+            retrieval_mode=retrieval_mode,
+        )
+        await self._start_run(run_id, query, user_id)
+        yield _event(
+            run_id,
+            "task_started",
+            status="running",
+            message="正在直接输出知识库原文",
+            mode="verbatim",
+            profile=state.get("task_profile"),
+            retrieval_mode=retrieval_mode or "all",
+            output_mode="verbatim",
+        )
+        yield _event(
+            run_id,
+            "verbatim_started",
+            status="running",
+            message="正在查找最合适的知识库文档",
+        )
+        self._last_usage = None
+        try:
+            with collect_usage() as usage:
+                output = await self._resolve_verbatim(
+                    query,
+                    document_id=document_id,
+                    retrieval_scope=retrieval_scope,
+                    retrieval_mode=retrieval_mode,
+                )
+            self._last_usage = usage.to_dict()
+        except Exception as exc:
+            error_type = _verbatim_error_type(exc)
+            await self._fail_run(run_id, exc, error_type=error_type)
+            logger.warning(
+                "直接输出原文失败",
+                extra={
+                    "task_id": run_id,
+                    "event": "verbatim_failed",
+                    "status": "error",
+                    "error_type": error_type,
+                },
+            )
+            yield _event(
+                run_id,
+                "task_failed",
+                status="error",
+                message=str(exc) or "无法输出知识库原文",
+                error_type=error_type,
+            )
+            return
+
+        yield _event(
+            run_id,
+            "verbatim_completed",
+            status="ok",
+            message=(
+                f"已读取《{output.get('filename', '')}》原文（约 {output.get('chars', 0)} 字）"
+            ),
+            document_id=output.get("document_id", ""),
+            filename=output.get("filename", ""),
+            chars=output.get("chars", 0),
+            selection=output.get("selection", ""),
+            reason=output.get("reason", ""),
+        )
+        state["verbatim_outputs"] = [output]  # type: ignore[list-item]
+        state["final_answer"] = render_verbatim_document(output)  # type: ignore[arg-type]
+        state["task_status"] = "completed"
+        state["is_complete"] = True
+        state["step_results"] = [
+            StepResult(
+                step_id="verbatim",
+                status="ok",
+                summary=(
+                    f"已直接输出《{output.get('filename', '')}》原文"
+                    f"（约 {output.get('chars', 0)} 字）"
+                ),
+            )
+        ]
+        await self._finish_run(run_id, state, usage=self._last_usage)
+        yield _event(
+            run_id,
+            "task_completed",
+            status="completed",
+            message="任务完成",
+            result=task_result(
+                state,
+                max_retries=self._max_retries,
+                max_sections=self._max_sections,
+                usage=self._last_usage,
+            ),
+        )
+
     # --- 持久化辅助（未配置仓储时全部为 no-op）---
 
     async def _start_run(self, run_id: str, query: str, user_id: str | None) -> None:
@@ -379,11 +637,17 @@ class TaskService:
         with contextlib.suppress(Exception):
             await asyncio.shield(self._repository.cancel_run(task_id=run_id))
 
-    async def _fail_run(self, run_id: str, exc: BaseException) -> None:
+    async def _fail_run(
+        self,
+        run_id: str,
+        exc: BaseException,
+        *,
+        error_type: str | None = None,
+    ) -> None:
         if self._repository is None:
             return
-        error_type = getattr(exc, "error_type", None) or type(exc).__name__
-        await self._repository.fail_run(task_id=run_id, error_type=str(error_type))
+        resolved = error_type or getattr(exc, "error_type", None) or type(exc).__name__
+        await self._repository.fail_run(task_id=run_id, error_type=str(resolved))
 
     async def stream(
         self,
@@ -767,6 +1031,21 @@ class TaskService:
                 usage=usage.to_dict(),
             ),
         )
+
+
+def _verbatim_error_type(exc: BaseException) -> str:
+    """把原文输出异常映射为前端可识别的错误码。"""
+    if isinstance(exc, VerbatimUnavailableError):
+        return "verbatim_unavailable"
+    if isinstance(exc, VerbatimNoDocumentError):
+        return "verbatim_no_document"
+    if isinstance(exc, VerbatimDocumentNotFoundError):
+        return "verbatim_document_not_found"
+    if isinstance(exc, VerbatimDocumentTooLargeError):
+        return "verbatim_document_too_large"
+    if isinstance(exc, VerbatimError):
+        return "verbatim_failed"
+    return "internal_error"
 
 
 def _event(

@@ -97,6 +97,26 @@ class SkillOutput(TypedDict):
     content: str
 
 
+class VerbatimOutput(TypedDict):
+    """一次「直接输出知识库原文」的结果。
+
+    全文只保存在这里，并由 Summarizer 在**校验之后**原样插入最终文档；
+    它不会进入 Planner / Writer / Validator 的提示词，因此既能保证逐字
+    一致，也不会消耗生成 token。
+
+    ``selection`` 记录选文档方式（explicit / filename / single / retrieval / llm），
+    ``reason`` 是给用户看的选择依据。
+    """
+
+    document_id: str
+    filename: str
+    title: str
+    content: str
+    chars: int
+    selection: str
+    reason: str
+
+
 class WritingBudget(TypedDict):
     """本次长文的写作预算（由检索结果确定性计算，不调用 LLM）。
 
@@ -173,6 +193,9 @@ class AgentState(TypedDict, total=False):
     retrieved_documents: list[RetrievedDocument]
     # --- 技能（Agent 可调用的指令模块，按计划中的 skill 步骤逐个执行）---
     skill_outputs: Annotated[list[SkillOutput], add]
+    # 原文输出（系统技能）：全文存放于此，覆盖语义；最多 1 篇。
+    # 不放进 skill_outputs，避免被 render_skill_outputs 注入模型上下文。
+    verbatim_outputs: list[VerbatimOutput]
     # --- 生成 ---
     # 检索完成后计算的写作预算；旧 checkpoint 可能没有，节点会按需重算。
     writing_budget: WritingBudget | None
@@ -224,6 +247,7 @@ def initial_state(
         retrieval_scope=retrieval_scope,
         retrieved_documents=[],
         skill_outputs=[],
+        verbatim_outputs=[],
         writing_budget=None,
         outline=[],
         sections=[],

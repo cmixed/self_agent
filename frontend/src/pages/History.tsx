@@ -1,5 +1,5 @@
 import { ReloadOutlined } from '@ant-design/icons'
-import { Button, Card, Input, Segmented, Table, Tooltip, Typography } from 'antd'
+import { Button, Card, Input, Segmented, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
@@ -138,10 +138,13 @@ export default function HistoryPage() {
                 dataIndex: 'query',
                 key: 'query',
                 ellipsis: true,
-                render: (query: string) => (
-                  <Tooltip title={query}>
-                    <Text>{query}</Text>
-                  </Tooltip>
+                render: (query: string, record: TaskSummary) => (
+                  <Space size={6}>
+                    {record.mode === 'verbatim' ? <Tag color="cyan">原文</Tag> : null}
+                    <Tooltip title={query}>
+                      <Text>{query}</Text>
+                    </Tooltip>
+                  </Space>
                 ),
               },
               {

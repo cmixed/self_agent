@@ -18,6 +18,8 @@ import {
   streamTask,
 } from '../services/api'
 import type {
+  MemoryUpdates,
+  OutputMode,
   Plan,
   RetrievalMode,
   Source,
@@ -28,6 +30,7 @@ import type {
   TaskSummary,
   TokenUsage,
   Validation,
+  VerbatimInfo,
   WritingBudget,
 } from '../types/api'
 import { downloadMarkdown } from '../utils/download'
@@ -77,6 +80,7 @@ const NODE_LABELS: Record<string, string> = {
   summarizer: '整合',
   retrying: '重试',
   task_started: '开始',
+  memory_started: '记忆',
   task_completed: '完成',
   task_failed: '失败',
   task_cancelled: '终止',
@@ -195,6 +199,16 @@ export interface TaskRunValue {
   setDepth: (depth: TaskDepth) => void
   useSkills: boolean
   setUseSkills: (value: boolean) => void
+  /** 输出方式：正常生成 / 直接输出知识库原文（本次任务参数） */
+  outputMode: OutputMode
+  setOutputMode: (mode: OutputMode) => void
+  /** 直接输出原文时指定的文档；null 表示自动选择 */
+  verbatimDocumentId: string | null
+  setVerbatimDocumentId: (documentId: string | null) => void
+  /** 本次直接输出选中的文档（来自 verbatim_completed / 结果回显） */
+  verbatim: VerbatimInfo | null
+  /** 本次任务自动写入的长期记忆（来自 task_completed 结果） */
+  memoryUpdates: MemoryUpdates | null
   activeTab: string
   setActiveTab: (key: string) => void
   copied: boolean
@@ -202,6 +216,8 @@ export interface TaskRunValue {
     overrideQuery?: string,
     scope?: TaskScope | null,
     retrievalMode?: RetrievalMode,
+    outputMode?: OutputMode,
+    verbatimDocumentId?: string | null,
   ) => Promise<void>
   /** 本次运行实际使用的检索范围标签（来自事件/结果，仅用于展示） */
   scopeLabel: string | null
@@ -261,6 +277,10 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<TaskProfile | null>(null)
   const [depth, setDepth] = useState<TaskDepth>('auto')
   const [useSkills, setUseSkills] = useState(false)
+  const [outputMode, setOutputMode] = useState<OutputMode>('generate')
+  const [verbatimDocumentId, setVerbatimDocumentId] = useState<string | null>(null)
+  const [verbatim, setVerbatim] = useState<VerbatimInfo | null>(null)
+  const [memoryUpdates, setMemoryUpdates] = useState<MemoryUpdates | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [elapsed, setElapsed] = useState(0)
@@ -503,6 +523,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
       if (event.event === 'task_started') {
         if (event.mode) setMode(event.mode)
         if (event.profile) setProfile(event.profile)
+        if (event.output_mode) setOutputMode(event.output_mode)
         if (event.retrieval_mode === 'none') setScopeLabel('不使用知识库')
         pushLog('开始', event.message, 'info')
         // 新任务立刻进入顶栏胶囊（不必等下一轮轮询）
@@ -552,6 +573,36 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         return
       }
 
+      if (event.event === 'verbatim_started' || event.event === 'verbatim_completed') {
+        const finished = event.event === 'verbatim_completed'
+        setNodes((prev) => ({ ...prev, researcher: finished ? 'finish' : 'process' }))
+        if (finished) {
+          setVerbatim({
+            document_id: event.document_id ?? '',
+            filename: event.filename ?? '',
+            title: '',
+            chars: event.chars ?? 0,
+            selection: event.selection ?? '',
+            reason: event.reason ?? '',
+          })
+          pushLog('原文', event.message, 'info')
+        } else {
+          pushLog('原文', event.message, 'info')
+        }
+        return
+      }
+
+      if (event.event === 'memory_started') {
+        pushLog('记忆', event.message, 'info')
+        return
+      }
+
+      if (event.event === 'memory_updated') {
+        if (event.memory_updates) setMemoryUpdates(event.memory_updates)
+        pushLog('记忆', event.message || '已更新长期记忆', 'info')
+        return
+      }
+
       if (event.event === 'task_failed') {
         pushLog('失败', event.message, 'error')
         setNodes((prev) => markRunningAsError(prev))
@@ -582,6 +633,9 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         })
         if (event.result?.mode) setMode(event.result.mode)
         if (event.result?.profile) setProfile(event.result.profile)
+        if (event.result?.output_mode) setOutputMode(event.result.output_mode)
+        setVerbatim(event.result?.verbatim ?? null)
+        setMemoryUpdates(event.result?.memory_updates ?? null)
         setWritingBudget(event.result?.writing_budget ?? null)
         setFinalAnswer(event.result?.final_answer ?? '')
         setUsage(event.result?.usage ?? null)
@@ -597,6 +651,9 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         }
         finishDuration()
         setActiveTab('content')
+        // 任务已生成完毕：长期记忆提取是终态之后的副作用，不应让界面继续显示「运行中」
+        setRunning(false)
+        void refreshTasks()
         return
       }
 
@@ -762,6 +819,8 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     setUsage(null)
     setMode(null)
     setProfile(null)
+    setVerbatim(null)
+    setMemoryUpdates(null)
     setCopied(false)
     setError(null)
     setElapsed(0)
@@ -801,6 +860,7 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
       activeTaskIdRef.current = task.task_id
       setQuery(task.query)
       if (task.mode) setMode(task.mode)
+      setOutputMode(task.mode === 'verbatim' ? 'verbatim' : 'generate')
       const start = task.created_at ? Date.parse(task.created_at) : Number.NaN
       startedAtRef.current = Number.isNaN(start) ? Date.now() : start
       finishedAtRef.current = task.finished_at ?? null
@@ -881,18 +941,33 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
       overrideQuery?: string,
       scope?: TaskScope | null,
       retrievalMode: RetrievalMode = 'all',
+      modeOverride?: OutputMode,
+      verbatimOverride?: string | null,
     ) => {
       const trimmed = (overrideQuery ?? query).trim()
       if (!trimmed) return
+      const effectiveOutput = modeOverride ?? outputMode
+      const effectiveDocument =
+        verbatimOverride !== undefined ? verbatimOverride : verbatimDocumentId
       // 预设任务「直接运行」路径：把预设写入输入框，保持界面与实际执行一致
       if (overrideQuery !== undefined && overrideQuery !== query) {
         setQuery(overrideQuery)
       }
       await runStream((onEvent, signal) =>
-        streamTask(trimmed, onEvent, signal, scope, depth, useSkills, retrievalMode),
+        streamTask(
+          trimmed,
+          onEvent,
+          signal,
+          scope,
+          depth,
+          useSkills,
+          retrievalMode,
+          effectiveOutput,
+          effectiveDocument,
+        ),
       )
     },
-    [depth, query, runStream, setQuery, useSkills],
+    [depth, outputMode, query, runStream, setQuery, useSkills, verbatimDocumentId],
   )
 
   const resume = useCallback(
@@ -1076,6 +1151,12 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
     setDepth,
     useSkills,
     setUseSkills,
+    outputMode,
+    setOutputMode,
+    verbatimDocumentId,
+    setVerbatimDocumentId,
+    verbatim,
+    memoryUpdates,
     activeTab,
     setActiveTab,
     copied,

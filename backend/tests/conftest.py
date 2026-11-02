@@ -37,6 +37,9 @@ def _isolate_settings(
     # 运行时 Provider 选择也指向临时目录，避免读写真实 data/settings.json
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    # 单元测试默认不自动提取长期记忆：避免任何用例在后台访问真实模型。
+    # 需要验证提取的用例在测试体内重新打开并清理 settings 缓存。
+    monkeypatch.setenv("MEMORY_AUTO_EXTRACT", "false")
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "app.db"))
     monkeypatch.setenv("CHECKPOINT_PATH", str(tmp_path / "checkpoints.db"))
     monkeypatch.setenv("SETTINGS_PATH", str(tmp_path / "settings.json"))

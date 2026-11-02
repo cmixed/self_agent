@@ -70,6 +70,10 @@ class TaskRepository:
     async def finish_run(self, *, task_id: str, result: dict[str, Any]) -> None:
         await asyncio.to_thread(self._finish_run, task_id, result)
 
+    async def update_result(self, *, task_id: str, result: dict[str, Any]) -> None:
+        """覆盖最近一次尝试的 result_json（用于任务结束后补写记忆摘要）。"""
+        await asyncio.to_thread(self._update_result, task_id, result)
+
     async def fail_run(self, *, task_id: str, error_type: str) -> None:
         await asyncio.to_thread(self._fail_run, task_id, error_type)
 
@@ -158,6 +162,14 @@ class TaskRepository:
                     now,
                     task_id,
                 ),
+            )
+            connection.commit()
+
+    def _update_result(self, task_id: str, result: dict[str, Any]) -> None:
+        with self._database.connect() as connection:
+            connection.execute(
+                f"UPDATE task_runs SET result_json = ? WHERE run_id = {self._LATEST_RUN}",
+                (json.dumps(result, ensure_ascii=False), task_id),
             )
             connection.commit()
 
@@ -255,9 +267,7 @@ class TaskRepository:
             ).fetchone()
         return _row_to_record(row)
 
-    def _list_tasks(
-        self, user_id: str, limit: int, status: str | None = None
-    ) -> list[TaskRecord]:
+    def _list_tasks(self, user_id: str, limit: int, status: str | None = None) -> list[TaskRecord]:
         query = """
             SELECT t.task_id, t.user_id, t.query, t.status, t.created_at,
                    r.finished_at, r.error_type, r.result_json
@@ -505,7 +515,7 @@ def _decode_scope(raw: str | None) -> tuple[list[str], list[str]]:
         return [], []
     try:
         data = json.loads(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return [], []
     if not isinstance(data, dict):
         return [], []
