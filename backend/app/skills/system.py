@@ -9,6 +9,11 @@ Planner 仍然通过 ``type="skill"`` 选择它，但 Skills 节点会走专用�
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # app.agents.skills 运行时会导入本模块，这里只做类型引用
+    from app.agents.skills import CatalogEntry
+
 SYSTEM_VERBATIM_SKILL_ID = "system-verbatim"
 SYSTEM_VERBATIM_SKILL_NAME = "知识库原文输出"
 SYSTEM_VERBATIM_SKILL_DESCRIPTION = (
@@ -22,7 +27,7 @@ SYSTEM_VERBATIM_SKILL_CONTENT = (
 )
 
 
-def system_verbatim_entry() -> dict[str, object]:
+def system_verbatim_entry() -> CatalogEntry:
     """构造系统技能目录条目（由 API 层追加到 Agent 技能快照）。"""
     return {
         "skill_id": SYSTEM_VERBATIM_SKILL_ID,

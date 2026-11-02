@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from app.agents.base import AgentNode
 from app.agents.budget import budget_context, compute_writing_budget
@@ -93,8 +93,9 @@ class SkillCatalog:
                 name=entry["name"],
                 description=entry["description"],
             )
-            if entry.get("output_mode"):
-                item["output_mode"] = str(entry["output_mode"])
+            output_mode = entry.get("output_mode")
+            if output_mode:
+                item["output_mode"] = str(output_mode)
             metadata.append(item)
         return metadata
 
@@ -229,7 +230,12 @@ async def _run_verbatim_skill(
     skill_name = str(definition.get("name") or "知识库原文输出")
     step_id = str(step.get("id", ""))
 
-    def completed(summary: str, *, output: dict | None = None, status: str = "ok") -> dict:
+    def completed(
+        summary: str,
+        *,
+        output: dict | None = None,
+        status: Literal["ok", "error"] = "ok",
+    ) -> dict:
         return {
             "skill_outputs": [
                 SkillOutput(

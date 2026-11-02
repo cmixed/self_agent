@@ -44,7 +44,7 @@ from app.models.schemas import (
     TaskStateResponse,
     TaskSummaryOut,
 )
-from app.models.state import RetrievalMode
+from app.models.state import RetrievalMode, RetrievalScope
 from app.services.category_service import CategoryService
 from app.services.memory_service import MemoryService
 from app.services.task_service import TaskService, task_result
@@ -63,7 +63,7 @@ async def _resolve_retrieval(
     scope: TaskScope | None,
     categories: CategoryService,
     mode: RetrievalMode | None,
-) -> tuple[RetrievalMode, dict[str, object] | None]:
+) -> tuple[RetrievalMode, RetrievalScope | None]:
     """解析检索模式与范围。
 
     - ``none``：不检索，忽略 scope；
@@ -114,7 +114,7 @@ logger = get_logger(__name__)
 def _guard_verbatim(
     *,
     retrieval_mode: RetrievalMode,
-    retrieval_scope: dict[str, object] | None,
+    retrieval_scope: RetrievalScope | None,
     document_id: str | None,
 ) -> None:
     """直接原文输出的请求校验（在启动任务之前失败，避免留下失败记录）。"""
@@ -256,7 +256,7 @@ async def create_task(
                 document_id=payload.verbatim_document_id,
                 task_id=task_id,
                 user_id=user_id,
-                retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
+                retrieval_scope=retrieval_scope,
                 retrieval_mode=retrieval_mode,
             )
         except VerbatimError as exc:
@@ -275,7 +275,7 @@ async def create_task(
         user_memories=user_memories,
         task_id=task_id,
         user_id=user_id,
-        retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
+        retrieval_scope=retrieval_scope,
         retrieval_mode=retrieval_mode,
         depth=payload.depth,
         use_skills=payload.use_skills,
@@ -592,7 +592,7 @@ async def stream_task(
                     document_id=payload.verbatim_document_id,
                     task_id=task_id,
                     user_id=user_id,
-                    retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
+                    retrieval_scope=retrieval_scope,
                     retrieval_mode=retrieval_mode,
                 ),
                 repository,
@@ -615,7 +615,7 @@ async def stream_task(
                 user_memories=user_memories,
                 task_id=task_id,
                 user_id=user_id,
-                retrieval_scope=retrieval_scope,  # type: ignore[arg-type]
+                retrieval_scope=retrieval_scope,
                 retrieval_mode=retrieval_mode,
                 depth=payload.depth,
                 use_skills=payload.use_skills,
@@ -757,7 +757,7 @@ async def rerun_task(
                 document_id=rerun_document_id,
                 task_id=new_task_id,
                 user_id=user_id,
-                retrieval_scope=rerun_scope,  # type: ignore[arg-type]
+                retrieval_scope=rerun_scope,
                 retrieval_mode=rerun_retrieval_mode,
             ):
                 if event.get("event") == "task_started":
@@ -777,7 +777,7 @@ async def rerun_task(
             user_memories=user_memories,
             task_id=new_task_id,
             user_id=user_id,
-            retrieval_scope=rerun_scope,  # type: ignore[arg-type]
+            retrieval_scope=rerun_scope,
             retrieval_mode=rerun_retrieval_mode,
             depth=rerun_depth,
             use_skills=bool((previous.get("profile") or {}).get("allow_skills")),

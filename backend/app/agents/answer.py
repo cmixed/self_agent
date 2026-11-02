@@ -19,6 +19,7 @@ from app.agents.base import AgentNode
 from app.agents.citations import citation_issue_text, dangling_citation_indices
 from app.agents.memory_context import render_memories
 from app.agents.preferences import render_preferences
+from app.core.coerce import as_int
 from app.core.logging import get_logger
 from app.llm.base import ChatMessage, LLMError, LLMProvider, LLMUpstreamError
 from app.llm.thinking import thinking_scope
@@ -43,7 +44,8 @@ def make_answer_node(
     async def answer_node(state: AgentState) -> dict:
         profile = state.get("task_profile") or {}
         mode = str(profile.get("mode") or "brief")
-        target_chars = int(profile.get("target_chars") or 900)
+        # 缺失 / 0 / 非数字一律回退 900（state 值来自 checkpoint，静态只是 object）
+        target_chars = as_int(profile.get("target_chars"), 0) or 900
         query = state.get("user_query", "")
 
         step_results: list[StepResult] = []

@@ -9,12 +9,15 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from app.evaluation.baseline import run_baseline
 from app.evaluation.dataset import EvaluationDataset, TaskCase
 from app.evaluation.generation import GenerationMetrics, analyze_document
 from app.llm.base import LLMProvider
+from app.rag.tools import RagTool
 from app.services.task_service import TaskService
 
 
@@ -73,8 +76,8 @@ async def evaluate_comparison(
     dataset: EvaluationDataset,
     *,
     provider: LLMProvider,
-    rag_tool_provider: callable,
-    task_service_factory: callable,
+    rag_tool_provider: Callable[[], RagTool],
+    task_service_factory: Callable[[LLMProvider, Callable[[], RagTool]], TaskService],
     top_k: int = 5,
 ) -> ComparisonReport:
     """在两个系统上跑同一批任务。"""
@@ -103,15 +106,15 @@ async def _run_agent_case(
     case: TaskCase,
     *,
     provider: LLMProvider,
-    rag_tool_provider,
-    task_service_factory,
+    rag_tool_provider: Callable[[], RagTool],
+    task_service_factory: Callable[[LLMProvider, Callable[[], RagTool]], TaskService],
 ) -> SystemRun:
     counting = CountingLLM(provider)
     service: TaskService = task_service_factory(counting, rag_tool_provider)
 
     started = time.perf_counter()
     status = "completed"
-    state: dict = {}
+    state: Mapping[str, Any] = {}
     try:
         state = await service.run(case.query)
     except Exception:  # noqa: BLE001 - 评估中失败要记录而不是中断整轮
@@ -145,7 +148,7 @@ async def _run_baseline_case(
     case: TaskCase,
     *,
     provider: LLMProvider,
-    rag_tool_provider,
+    rag_tool_provider: Callable[[], RagTool],
     top_k: int,
 ) -> SystemRun:
     counting = CountingLLM(provider)

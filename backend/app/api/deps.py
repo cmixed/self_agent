@@ -12,6 +12,7 @@ from __future__ import annotations
 from fastapi import Depends, Header
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
+from app.agents.skills import CatalogEntry
 from app.core import task_registry as core_task_registry
 from app.core.checkpoint import CheckpointStore
 from app.core.config import get_settings
@@ -224,7 +225,7 @@ async def get_task_service(provider: LLMProvider = Depends(get_llm_provider)) ->
     skill_service = build_skill_service()
     skills = await skill_service.enabled_skills()
     resources = await skill_service.resources_for_skills([skill.skill_id for skill in skills])
-    catalog = [
+    catalog: list[CatalogEntry] = [
         {
             "skill_id": skill.skill_id,
             "name": skill.name,

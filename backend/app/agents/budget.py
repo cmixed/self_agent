@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import cast
 
+from app.core.coerce import as_int
 from app.core.limits import (
     CHAPTER_LENGTH_HIGH_FACTOR,
     CHAPTER_LENGTH_LOW_FACTOR,
@@ -35,10 +36,7 @@ from app.rag.tools import dedupe_documents, source_char_count
 def requested_chars_for_state(state: AgentState, *, fallback: int = DEFAULT_TOTAL_CHARS) -> int:
     """读取用户/配置请求目标；旧 state 没有 profile 时使用节点配置。"""
     profile = state.get("task_profile") or {}
-    try:
-        value = int(profile.get("target_chars") or 0)
-    except TypeError, ValueError:
-        value = 0
+    value = as_int(profile.get("target_chars"), 0)
     return max(1, value or int(fallback))
 
 
