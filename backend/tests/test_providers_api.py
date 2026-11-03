@@ -235,9 +235,7 @@ def test_health_reports_local_provider_as_configured(client: TestClient) -> None
     ).json()
     assert created["label"] == "qwen3:4b"  # 默认取模型名
 
-    switched = client.put(
-        "/api/settings/llm-provider", json={"provider": created["provider_id"]}
-    )
+    switched = client.put("/api/settings/llm-provider", json={"provider": created["provider_id"]})
     assert switched.status_code == 200
 
     health = client.get("/api/health").json()
@@ -263,9 +261,7 @@ def test_remote_provider_without_key_cannot_be_activated(client: TestClient) -> 
     assert created["key_source"] == "none"
     assert created["key_hint"] == ""
 
-    refused = client.put(
-        "/api/settings/llm-provider", json={"provider": created["provider_id"]}
-    )
+    refused = client.put("/api/settings/llm-provider", json={"provider": created["provider_id"]})
     assert refused.status_code == 409
     assert "MOONSHOT_UNSET_KEY" in refused.json()["detail"]
     # 当前 Provider 不被改动（不允许自动降级/悬空）

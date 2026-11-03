@@ -146,8 +146,13 @@ def test_probe_and_models_endpoints() -> None:
 
         tested = client.post(
             "/api/providers/test",
-            json={"base_url": "http://127.0.0.1:59999/v1", "model": "m", "is_local": True,
-                  "requires_api_key": False, "timeout_seconds": 2},
+            json={
+                "base_url": "http://127.0.0.1:59999/v1",
+                "model": "m",
+                "is_local": True,
+                "requires_api_key": False,
+                "timeout_seconds": 2,
+            },
         )
         assert tested.status_code == 200
         body = tested.json()
@@ -239,8 +244,7 @@ async def test_task_failed_event_reports_local_unavailable(tmp_path) -> None:
             return None
 
     events = [
-        event
-        async for event in TaskService(DeadLocalProvider(), max_retries=0).stream("写点东西")
+        event async for event in TaskService(DeadLocalProvider(), max_retries=0).stream("写点东西")
     ]
     failed = events[-1]
     assert failed["event"] == "task_failed"

@@ -233,9 +233,7 @@ async def test_think_field_rejection_falls_back_without_it() -> None:
         body = json.loads(request.read())
         seen.append(body)
         if "think" in body:
-            return httpx.Response(
-                400, json={"error": "this model does not support thinking"}
-            )
+            return httpx.Response(400, json={"error": "this model does not support thinking"})
         return httpx.Response(200, json=native_body("普通模型的正文"))
 
     provider = make_native(handler, max_retries=0)

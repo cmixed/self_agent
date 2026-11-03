@@ -60,7 +60,11 @@ async def test_local_provider_needs_no_api_key() -> None:
         return httpx.Response(200, json=success_body("本地模型回答"))
 
     provider = make_provider(
-        handler, api_key="", requires_api_key=False, is_local=True, base_url="http://127.0.0.1:11434/v1"
+        handler,
+        api_key="",
+        requires_api_key=False,
+        is_local=True,
+        base_url="http://127.0.0.1:11434/v1",
     )
     try:
         response = await provider.chat([ChatMessage(role="user", content="你好")])
@@ -107,9 +111,7 @@ async def test_falls_back_when_endpoint_rejects_response_format() -> None:
 
     provider = make_provider(handler)
     try:
-        response = await provider.chat(
-            [ChatMessage(role="user", content="规划")], json_mode=True
-        )
+        response = await provider.chat([ChatMessage(role="user", content="规划")], json_mode=True)
         assert "response_format" not in seen[-1]
         assert json.loads(response.content)["goal"] == "ok"
         # 探测结果被记住：后续调用不再先撞一次 400
@@ -217,13 +219,9 @@ def test_provider_config_available_rules() -> None:
     assert ProviderConfig(id="x", label="X", base_url="", model="m", api_key="k").available is False
     assert ProviderConfig(id="x", label="X", base_url="u", model="", api_key="k").available is False
     assert ProviderConfig(id="x", label="X", base_url="u", model="m", api_key="").available is False
+    assert ProviderConfig(id="x", label="X", base_url="u", model="m", api_key="k").available is True
     assert (
-        ProviderConfig(id="x", label="X", base_url="u", model="m", api_key="k").available is True
-    )
-    assert (
-        ProviderConfig(
-            id="x", label="X", base_url="u", model="m", requires_api_key=False
-        ).available
+        ProviderConfig(id="x", label="X", base_url="u", model="m", requires_api_key=False).available
         is True
     )
 
@@ -253,7 +251,10 @@ async def test_planner_tolerates_missing_needs_retrieval(monkeypatch) -> None:
         return _httpx.Response(200, json=payload)
 
     provider = make_provider(
-        handler, api_key="", requires_api_key=False, is_local=True,
+        handler,
+        api_key="",
+        requires_api_key=False,
+        is_local=True,
         base_url="http://127.0.0.1:11434/v1",
     )
     try:
@@ -282,8 +283,12 @@ async def test_local_5xx_raises_actionable_error_without_retry() -> None:
         return httpx.Response(500, json={"error": "context length exceeded"})
 
     provider = make_provider(
-        handler, api_key="", requires_api_key=False, is_local=True,
-        base_url="http://127.0.0.1:11434/v1", max_retries=2,
+        handler,
+        api_key="",
+        requires_api_key=False,
+        is_local=True,
+        base_url="http://127.0.0.1:11434/v1",
+        max_retries=2,
     )
     try:
         with pytest.raises(LLMLocalInferenceError):

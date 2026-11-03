@@ -154,9 +154,7 @@ def test_set_document_categories_api(client: TestClient) -> None:
     )
     assert missing.status_code == 404
 
-    unknown = client.put(
-        "/api/documents/ghost/categories", json={"category_ids": ["nope"]}
-    )
+    unknown = client.put("/api/documents/ghost/categories", json={"category_ids": ["nope"]})
     assert unknown.status_code == 404
     assert second["category_id"]  # 保持引用，避免误删断言
 

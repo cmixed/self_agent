@@ -104,9 +104,7 @@ async def test_skill_resources_crud_and_conflict(service: SkillService) -> None:
     resources = await service.list_resources(skill.skill_id)
     assert [item.name for item in resources] == ["references/checklist.md"]
 
-    updated = await service.update_resource(
-        skill.skill_id, created.resource_id, content="新检查项"
-    )
+    updated = await service.update_resource(skill.skill_id, created.resource_id, content="新检查项")
     assert updated.content == "新检查项"
 
     with pytest.raises(SkillResourceNameConflictError):
