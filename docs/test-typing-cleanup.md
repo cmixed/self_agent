@@ -184,13 +184,32 @@ def make_settings(**overrides: Any) -> Settings:
 
 ## 5. 验收清单
 
-- [ ] `cd backend && uv run pyright` → `0 errors, 0 warnings, 0 informations`
-- [ ] `uv run pytest -q` → **≥ 633 passed**（数量只能增不能减）
-- [ ] `uv run ruff check .` → `All checks passed!`
-- [ ] `pyrightconfig.json` 的 `include` 是 `["app", "tests"]`，注释同步更新
-- [ ] 新增的 `# type: ignore` 仅限 `_env_file` 与负向测试，且每处都有中文原因
-- [ ] 未修改 `AgentState` / Schema / API / CI / 前端；如有需要已停下来报告
-- [ ] 3 个提交，中文提交信息，写清每类问题的处理方式与前后数字
+- [x] `cd backend && uv run pyright` → `0 errors, 0 warnings, 0 informations`
+- [x] `uv run pytest -q` → **≥ 633 passed**（数量只能增不能减）
+- [x] `uv run ruff check .` → `All checks passed!`
+- [x] `pyrightconfig.json` 的 `include` 是 `["app", "tests"]`，注释同步更新
+- [x] 新增的 `# type: ignore` 仅限 `_env_file` 与负向测试，且每处都有中文原因
+- [x] 未修改 `AgentState` / Schema / API / CI / 前端；如有需要已停下来报告
+- [x] 3 个提交，中文提交信息，写清每类问题的处理方式与前后数字
+
+> 验收记录（2026-11-03 实测，范围为提交 `59c1a92..d7813b2`）：
+>
+> 1. `uv run pyright` → `0 errors, 0 warnings, 0 informations`。
+> 2. `uv run pytest -q` → `633 passed, 2 deselected`，与起点持平，未减少。
+> 3. `uv run ruff check .` → `All checks passed!`。
+> 4. `include` 为 `["app", "tests"]`，头注释已改为「tests 曾在 include 之外……
+>    已完成清理并纳入」。
+> 5. 三个提交中新增 `# type: ignore` 仅 1 处（conftest 的 `_env_file`，
+>    相邻两行中文注释写明原因）；删除 13 处过期 ignore；无负向测试 ignore。
+> 6. 三提交触及 24 个文件：`backend/tests/` 21 + 文档 3（README / AGENTS /
+>    本文件）；`backend/app/`、`.github/`、`frontend/` 均为 0。
+> 7. 提交序列与数字：`e9da3ac`（210 → 125，Settings 构造集中化）、
+>    `48a4c15`（125 → 0，TypedDict 夹具 + 过时 ignore）、
+>    `d7813b2`（纳入门禁）。
+>
+> 范围说明：本清单只覆盖上述 3 个提交。其后另有三次用户另行委托的提交
+> （CI 的 Python 版本固定与格式门禁：`70b0e13`、`5b0cff2`、`a404dd2`）改动了
+> `quality.yml`，与本任务无关，不计入第 6 项。
 
 ## 6. 常见坑
 
