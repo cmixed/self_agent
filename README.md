@@ -363,9 +363,10 @@ vp build             # 内含 tsc --noEmit
 
 `ruff check` / `pyright` / `pytest` 由 CI 的 **Quality** workflow 在每个 PR 与
 master push 上执行（`.github/workflows/quality.yml`），只覆盖 `backend/`。
-`pyright` 目前只检查 `app/`：`tests/` 里夹具大量在裸 `dict` 与 TypedDict 之间
-互转，属于单独一轮清理（约 200 条），清理完再把 `include` 扩到 `["app", "tests"]`。
-清理的执行手册见 [`docs/test-typing-cleanup.md`](docs/test-typing-cleanup.md)。
+`pyright` 覆盖 `app/` 与 `tests/`（两边都是 0 error）：测试夹具统一用真实的
+TypedDict（`AgentState` / `CatalogEntry` / `RetrievedDocument`…），让类型检查
+成为测试与生产接口之间漂移的护栏。清理过程见
+[`docs/test-typing-cleanup.md`](docs/test-typing-cleanup.md)。
 
 ### 在 VS Code 里跑前端测试（WSL）
 

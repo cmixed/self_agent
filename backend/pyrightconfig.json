@@ -1,12 +1,12 @@
 // Pyright 配置（VS Code 的 Pylance 使用同一套引擎与规则）。
 //
-// 只覆盖应用代码 `app/`：类型问题的修复目标就是这 26 条 → 0，
-// 并且以 `uv run pyright` 作为门禁，避免以后再次退化。
+// 覆盖应用代码 `app/` 与测试 `tests/`，两边都已是 0 error，
+// 并以 `uv run pyright` 作为门禁，避免以后再次退化。
 //
-// `tests/` 暂不纳入：测试夹具大量在裸 dict 与 TypedDict 之间互转，
-// 清理由单独一轮（约 200 条）。等清理完成后再把 include 改成 ["app", "tests"]。
+// `tests/` 曾在 include 之外（夹具大量在裸 dict 与 TypedDict 之间互转，
+// 约 210 条）；已完成清理并纳入，详见 docs/test-typing-cleanup.md。
 {
-  "include": ["app"],
+  "include": ["app", "tests"],
   "exclude": ["**/__pycache__", ".venv"],
 
   // 与 requires-python / .python-version 对齐

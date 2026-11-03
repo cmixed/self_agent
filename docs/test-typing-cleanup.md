@@ -4,6 +4,10 @@
 > 起点：`master`（含本手册的提交即可）；后端 pyright 1.1.414（由 `uv.lock` 固定）。
 > 目标：让 `cd backend && uv run pyright`（覆盖 `app` + `tests`）**0 errors**，
 > 且不牺牲测试本身的价值。
+>
+> **状态：已完成。** `tests/` 已纳入 `include`，210 → 0 errors（提交：Settings 构造
+> 集中化 210→125；TypedDict 夹具与过时 ignore 125→0；本文件所在的纳入提交）。
+> 下文保留为执行记录；§1 的现状快照是**起点**，不是当前值。
 
 ---
 

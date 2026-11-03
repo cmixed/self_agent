@@ -1375,8 +1375,10 @@ Final result
 配置在 `backend/pyrightconfig.json`，入口命令 `cd backend && uv run pyright`，
 CI 的 Quality workflow 会在每个 PR 上执行：
 
-- 只检查 `app/`（`tests/` 暂未纳入，仍有约 200 条既有标注问题，清理后再加入）；
-  清理的执行手册见 [`docs/test-typing-cleanup.md`](docs/test-typing-cleanup.md)。
+- 覆盖 `app/` 与 `tests/`（两边都是 0 error）。测试夹具要标注真实的 TypedDict
+  （`AgentState` / `CatalogEntry` / `RetrievedDocument`…），不要用裸 `dict`：
+  这类漂移正是类型检查要抓的问题。清理过程见
+  [`docs/test-typing-cleanup.md`](docs/test-typing-cleanup.md)。
 - `typeCheckingMode: standard`（与 Pylance 默认档一致）；
 - 开启 `reportUnnecessaryTypeIgnoreComment`：过期的 `# type: ignore` 也要报，
   避免被忽略的错误悄悄回来；
