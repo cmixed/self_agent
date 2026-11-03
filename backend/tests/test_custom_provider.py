@@ -170,6 +170,7 @@ def test_kimi_config_builds_custom_provider(monkeypatch) -> None:
     assert custom.available is True
 
     provider = _build_provider(custom)
+    assert isinstance(provider, CustomProvider)  # display_name 只在具体实现上
     assert provider.name == "custom"
     assert provider.display_name == "Kimi"
     reset_llm()

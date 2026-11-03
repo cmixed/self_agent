@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -29,7 +30,7 @@ description: 当需要演示技能包导入时使用
 """
 
 
-def _zip(files: dict[str, str | bytes]) -> bytes:
+def _zip(files: Mapping[str, str | bytes]) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, content in files.items():

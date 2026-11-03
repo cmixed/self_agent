@@ -15,7 +15,7 @@ from app.agents.chapters import MAX_SECTIONS
 from app.agents.outline import make_outline_node
 from app.agents.writer import make_writer_node, resolve_target_index
 from app.llm.base import LLMResponseFormatError
-from app.models.state import initial_state
+from app.models.state import AgentState, initial_state
 
 MAX_RETRIES = 2
 
@@ -28,7 +28,14 @@ async def test_outline_prefills_aligned_sections_and_resets_state() -> None:
     # 模拟 replan：旧的生成/校验结果都应被重置
     state["sections"] = [{"title": "旧章节", "content": "旧内容"}]
     state["retry_counts"] = {"chapter_1": 2}
-    state["chapter_validations"] = {"chapter_1": {"passed": False}}
+    state["chapter_validations"] = {
+        "chapter_1": {
+            "passed": False,
+            "issues": ["旧问题"],
+            "suggested_action": "continue",
+            "target": "chapter_1",
+        }
+    }
     state["validation_result"] = {
         "passed": False,
         "issues": ["x"],
@@ -59,7 +66,7 @@ async def test_outline_retries_then_raises_on_bad_json() -> None:
     assert len(provider.calls) == 2
 
 
-def _state_with_outline() -> dict:
+def _state_with_outline() -> AgentState:
     state = initial_state("写一篇综述", task_id="t-writer")
     state["outline"] = [
         {"title": "引言", "content": ""},
@@ -86,7 +93,7 @@ async def test_writer_fills_next_pending_chapter() -> None:
 
 async def test_writer_moves_to_next_chapter() -> None:
     state = _state_with_outline()
-    state["sections"][0]["content"] = "第一章"
+    state.get("sections", [])[0]["content"] = "第一章"
     state["chapter_validations"] = {
         "chapter_1": {
             "passed": True,
@@ -109,8 +116,8 @@ async def test_writer_rewrites_targeted_chapter_with_issues() -> None:
     node = make_writer_node(provider, max_retries=MAX_RETRIES)
 
     state = _state_with_outline()
-    state["sections"][0]["content"] = "旧的第一章"
-    state["sections"][1]["content"] = "第二章"
+    state.get("sections", [])[0]["content"] = "旧的第一章"
+    state.get("sections", [])[1]["content"] = "第二章"
     state["validation_result"] = {
         "passed": False,
         "issues": ["第一章内容空泛"],
@@ -133,7 +140,7 @@ async def test_writer_skips_exhausted_chapter_and_continues() -> None:
     node = make_writer_node(ScriptedProvider(["第二章正文"]), max_retries=1)
 
     state = _state_with_outline()
-    state["sections"][0]["content"] = "失败的第一章"
+    state.get("sections", [])[0]["content"] = "失败的第一章"
     state["retry_counts"] = {"chapter_1": 1}
     state["chapter_validations"] = {
         "chapter_1": {
@@ -168,7 +175,7 @@ def test_resolve_target_index_variants() -> None:
     state = _state_with_outline()
     assert resolve_target_index(state, max_retries=MAX_RETRIES) == (0, False)
 
-    state["sections"][0]["content"] = "x"
+    state.get("sections", [])[0]["content"] = "x"
     assert resolve_target_index(state, max_retries=MAX_RETRIES) == (1, False)
 
     state["validation_result"] = {

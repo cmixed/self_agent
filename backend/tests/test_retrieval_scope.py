@@ -13,6 +13,7 @@ from fakes import (
 
 from app.api.deps import get_document_service, get_task_service
 from app.main import create_app
+from app.models.state import RetrievalScope
 from app.rag.retriever import Retriever
 from app.rag.store import ChromaStore
 from app.rag.tools import RagTool
@@ -107,7 +108,7 @@ async def test_task_sources_are_restricted_to_scope(tmp_path) -> None:
         rag_tool_provider=lambda: RagTool(Retriever(FakeEmbeddingProvider(), store, top_k=5)),
         max_retries=0,
     )
-    scope = {"document_ids": [doc_a], "label": "仅 a.md"}
+    scope: RetrievalScope = {"document_ids": [doc_a], "label": "仅 a.md"}
 
     events = [event async for event in service.stream("写综述", retrieval_scope=scope)]
 

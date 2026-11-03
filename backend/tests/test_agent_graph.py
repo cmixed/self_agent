@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 from fakes import (
     DRAFT_TEXT,
@@ -13,7 +14,7 @@ from fakes import (
 )
 
 from app.core.agent_graph import build_graph
-from app.models.state import initial_state
+from app.models.state import AgentState, initial_state
 from app.services.task_service import TaskService, task_result
 
 # planner -> outline -> 每章 (writer -> validator) -> 整篇校验 -> summarizer
@@ -122,7 +123,10 @@ async def test_graph_skips_exhausted_chapter_and_continues() -> None:
     assert final["retry_counts"] == {"chapter_1": 1}
     assert final["retry_count"] == 0  # 章节失败不消耗 replan 预算
 
-    result = task_result(final, max_retries=1)
+    # ainvoke 的返回类型是宽松的 dict，运行时就是 AgentState；这里 cast 是为了
+    # 明确契约。若把 final 整体标注成 AgentState，本文件所有 final["x"] 都会
+    # 触发 NotRequired 报错（total=False），代价更大。
+    result = task_result(cast(AgentState, final), max_retries=1)
     assert result["failed_chapters"] == ["chapter_1"]
     # 最终结果明确标记未通过
     assert "未通过校验" in result["final_answer"]
@@ -160,9 +164,9 @@ async def test_task_service_assigns_task_id_and_runs_graph() -> None:
 
     state = await service.run("写一篇 RAG 综述")
 
-    assert state["task_id"]
-    assert state["task_status"] == "completed"
-    assert DRAFT_TEXT in state["final_answer"]
+    assert state.get("task_id")
+    assert state.get("task_status") == "completed"
+    assert DRAFT_TEXT in state.get("final_answer", "")
 
 
 async def test_graph_without_tool_skips_researcher() -> None:

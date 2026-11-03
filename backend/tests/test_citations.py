@@ -12,7 +12,7 @@ from app.agents.citations import (
     find_chapters_with_dangling,
 )
 from app.agents.validator import make_validator_node
-from app.models.state import RetrievedDocument, initial_state
+from app.models.state import AgentState, RetrievedDocument, Section, initial_state
 from app.rag.tools import dedupe_documents, format_context, render_references
 
 PASS = json.dumps(
@@ -61,7 +61,7 @@ def test_dangling_when_no_sources() -> None:
 
 
 def test_find_chapters_with_dangling_locates_chapters() -> None:
-    sections = [
+    sections: list[Section] = [
         {"title": "一", "content": "正常 [1]"},
         {"title": "二", "content": "越界 [7]"},
         {"title": "三", "content": "也越界 [9]"},
@@ -72,7 +72,7 @@ def test_find_chapters_with_dangling_locates_chapters() -> None:
 # --- Validator 预检查 ---
 
 
-def _state_with_chapters(contents: list[str], *, sources: int = 5) -> dict:
+def _state_with_chapters(contents: list[str], *, sources: int = 5) -> AgentState:
     state = initial_state("写综述", task_id="t-cite")
     state["outline"] = [{"title": f"第{i}章", "content": ""} for i in range(len(contents))]
     state["sections"] = [
@@ -164,9 +164,7 @@ async def test_real_case_skill_invented_numbering_becomes_chapter_retry() -> Non
     """真实回归：技能结论自造 [1]—[10]、来源只有 5 条 → 章级重写而非全篇 replan。"""
     provider = ScriptedProvider()
     node = make_validator_node(provider, max_retries=2)
-    state = _state_with_chapters(
-        ["本综述依据资料 [1]—[10] 展开，重点见 [2][4][7]。"], sources=5
-    )
+    state = _state_with_chapters(["本综述依据资料 [1]—[10] 展开，重点见 [2][4][7]。"], sources=5)
 
     update = await node(state)
 
@@ -180,7 +178,7 @@ async def test_real_case_skill_invented_numbering_becomes_chapter_retry() -> Non
 # --- 整篇校验「定位优先」：能定位就章级重写，定位不到才 replan ---
 
 
-def _document_state(contents: list[str], *, sources: int = 5) -> dict:
+def _document_state(contents: list[str], *, sources: int = 5) -> AgentState:
     """所有章节已写完且已通过 → resolve_scope 会进入整篇校验。"""
     state = _state_with_chapters(contents, sources=sources)
     state["chapter_validations"] = {

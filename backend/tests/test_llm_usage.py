@@ -61,7 +61,7 @@ class StaticUsageProvider(LLMProvider):
 class UsageScriptedProvider(ScriptedProvider):
     """在脚本化 Provider 上带一份可预期的 usage（含缓存命中）。"""
 
-    async def chat(self, *args, **kwargs) -> LLMResponse:  # type: ignore[override]
+    async def chat(self, *args, **kwargs) -> LLMResponse:
         response = await super().chat(*args, **kwargs)
         return response.model_copy(
             update={

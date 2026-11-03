@@ -17,9 +17,10 @@ from app.evaluation.generation import (
 )
 from app.evaluation.retrieval import score_case, summarize
 from app.evaluation.runner import evaluate_retrieval
+from app.models.state import RetrievedDocument
 
 
-def _document(filename: str, content: str, score: float = 0.9) -> dict:
+def _document(filename: str, content: str, score: float = 0.9) -> RetrievedDocument:
     return {
         "document_id": "d1",
         "filename": filename,

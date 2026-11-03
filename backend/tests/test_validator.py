@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 
 from fakes import ScriptedProvider, validation_fail_json
 
@@ -9,10 +10,12 @@ from app.agents.validator import (
     make_validator_node,
     resolve_scope,
 )
-from app.models.state import initial_state
+from app.models.state import AgentState, SuggestedAction, initial_state
 
 
-def _state(*, outline: int = 2, written: list[int], retry_counts=None, validations=None) -> dict:
+def _state(
+    *, outline: int = 2, written: list[int], retry_counts=None, validations=None
+) -> AgentState:
     state = initial_state("写一篇综述", task_id="t-val")
     state["outline"] = [{"title": f"章节{i + 1}", "content": ""} for i in range(outline)]
     state["sections"] = [
@@ -141,14 +144,14 @@ async def test_validator_normalizes_contradictory_action() -> None:
 def _route_state(
     *,
     passed: bool,
-    action: str,
+    action: SuggestedAction,
     target: str,
     written: list[int],
     outline: int = 2,
     retry_counts=None,
     validations=None,
     replan_count: int = 0,
-) -> dict:
+) -> AgentState:
     state = _state(
         outline=outline,
         written=written,
@@ -298,4 +301,5 @@ async def test_validator_downgrades_replan_when_budget_exhausted() -> None:
     assert update["retry_count"] == 1
     assert update["validation_result"]["suggested_action"] == "continue"
     route = make_route_after_validation(max_retries=1)
-    assert route({**state, **update}) == "summarize"
+    # 字典解包会丢掉 TypedDict 类型，运行时就是「state 套上节点增量」，cast 只补类型。
+    assert route(cast(AgentState, {**state, **update})) == "summarize"

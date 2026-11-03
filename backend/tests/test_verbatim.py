@@ -25,7 +25,8 @@ from app.api.deps import (
 from app.main import create_app
 from app.memory.repository import TaskRecord
 from app.models.schemas import DocumentInfo
-from app.models.state import initial_state
+from app.models.state import PlanStep, initial_state
+from app.services.document_service import DocumentService
 from app.services.memory_service import MemoryService
 from app.services.task_service import TaskService
 from app.services.verbatim_service import (
@@ -41,11 +42,11 @@ from app.skills.system import SYSTEM_VERBATIM_SKILL_ID, system_verbatim_entry
 ORIGINAL_TEXT = "# RAG 论文\n\n这是知识库中的完整原文。\n\n第二段：逐字输出不得改写。"
 
 
-class FakeDocumentService:
-    """只有原文读取能力的假文档服务。"""
+class FakeDocumentService(DocumentService):
+    """只有原文读取能力的假文档服务（只实现被 VerbatimService 用到的两个方法）。"""
 
     def __init__(self, documents: dict[str, tuple[str, str, str]]) -> None:
-        # document_id -> (filename, title, text)
+        # 不复用父类 __init__：这里不需要向量库与 embedding，写侧方法不会被调用。
         self._documents = documents
 
     async def list_documents(self) -> list[DocumentInfo]:
@@ -301,7 +302,7 @@ def test_planner_drops_verbatim_when_retrieval_disabled() -> None:
         ),
     ]
 
-    kept = _validate_skill_steps(steps, catalog, retrieval_mode="none")  # type: ignore[arg-type]
+    kept = _validate_skill_steps(steps, catalog, retrieval_mode="none")
 
     assert [step.type for step in kept] == ["writing"]
 
@@ -318,7 +319,7 @@ def test_planner_keeps_at_most_one_verbatim_step() -> None:
         for index in range(MAX_VERBATIM_STEPS + 1)
     ]
 
-    kept = _validate_skill_steps(steps, catalog)  # type: ignore[arg-type]
+    kept = _validate_skill_steps(steps, catalog)
 
     assert len(kept) == MAX_VERBATIM_STEPS
 
@@ -334,16 +335,14 @@ async def test_verbatim_skill_failure_still_advances_step() -> None:
         return Broken()
 
     state = initial_state("输出原文", task_id="t1")
-    step = {
+    step: PlanStep = {
         "id": "verbatim",
         "type": "skill",
         "description": "输出原文",
         "skill_id": SYSTEM_VERBATIM_SKILL_ID,
     }
 
-    update = await _run_verbatim_skill(  # type: ignore[arg-type]
-        state, step, system_verbatim_entry(), failing_provider
-    )
+    update = await _run_verbatim_skill(state, step, system_verbatim_entry(), failing_provider)
 
     assert update["skill_outputs"][0]["step_id"] == "verbatim"
     assert update["step_results"][0]["status"] == "error"
@@ -382,7 +381,7 @@ def _build_service(documents: dict[str, tuple[str, str, str]] | None = None) -> 
     return TaskService(
         provider,
         rag_tool_provider=lambda: tool,  # type: ignore[arg-type,return-value]
-        skill_catalog=[system_verbatim_entry()],  # type: ignore[list-item]
+        skill_catalog=[system_verbatim_entry()],
         verbatim_provider=lambda llm: VerbatimService(
             llm=llm,
             document_service_provider=lambda: FakeDocumentService(docs),
@@ -396,12 +395,14 @@ async def test_generation_inserts_original_text_without_llm_context() -> None:
 
     state = await service.run("把 rag.md 的原文完整输出", use_skills=False, depth="longform")
 
-    assert state["final_answer"].count(ORIGINAL_TEXT) == 1
-    assert "[[VERBATIM" not in state["final_answer"]
-    assert len(state["verbatim_outputs"]) == 1
-    assert state["verbatim_outputs"][0]["filename"] == "rag.md"
+    final_answer = state.get("final_answer", "")
+    verbatim_outputs = state.get("verbatim_outputs") or []
+    assert final_answer.count(ORIGINAL_TEXT) == 1
+    assert "[[VERBATIM" not in final_answer
+    assert len(verbatim_outputs) == 1
+    assert verbatim_outputs[0]["filename"] == "rag.md"
     # 原文不进入 skill_outputs（否则会被注入模型上下文）
-    assert all(ORIGINAL_TEXT not in item["content"] for item in state["skill_outputs"])
+    assert all(ORIGINAL_TEXT not in item["content"] for item in state.get("skill_outputs") or [])
 
 
 # --- 直接入口：不进入 Graph，只推送查找 / 读取两步 ---------------------------

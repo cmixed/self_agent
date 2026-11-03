@@ -94,7 +94,7 @@ async def test_long_term_memory_is_per_user(repository: MemoryRepository) -> Non
 class _FailingProvider(LLMProvider):
     name = "failing"
 
-    async def chat(self, messages, **kwargs) -> LLMResponse:  # type: ignore[override]
+    async def chat(self, messages, **kwargs) -> LLMResponse:
         raise LLMError("模拟失败")
 
     async def aclose(self) -> None:

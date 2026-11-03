@@ -9,6 +9,7 @@ validator → validator 空转，最终以 graph_recursion_limit 结束任务
 from __future__ import annotations
 
 from fakes import FakeEmbeddingProvider, ScriptedProvider
+from langchain_core.runnables.config import RunnableConfig
 
 from app.core.agent_graph import build_graph, recursion_limit
 from app.models.state import initial_state
@@ -59,7 +60,7 @@ async def _run(tmp_path, *, max_retries: int, budget: int = 6):
         max_retries=max_retries,
         max_sections=3,
     )
-    config = {
+    config: RunnableConfig = {
         "configurable": {"thread_id": f"exhaust-{max_retries}"},
         "recursion_limit": recursion_limit(max_retries, max_sections=3),
     }
@@ -130,7 +131,7 @@ async def _run_with_document_located_failure(tmp_path, *, max_retries: int):
         max_retries=max_retries,
         max_sections=3,
     )
-    config = {
+    config: RunnableConfig = {
         "configurable": {"thread_id": f"doc-located-{max_retries}"},
         "recursion_limit": recursion_limit(max_retries, max_sections=3),
     }

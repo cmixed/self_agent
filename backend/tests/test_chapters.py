@@ -10,10 +10,10 @@ from app.agents.chapters import (
     last_written_index,
     next_pending_index,
 )
-from app.models.state import initial_state
+from app.models.state import AgentState, Section, ValidationResult, initial_state
 
 
-def _state(*, outline: int, written: list[int], retry_counts=None, validations=None) -> dict:
+def _state(*, outline: int, written: list[int], retry_counts=None, validations=None) -> AgentState:
     state = initial_state("任务", task_id="t")
     state["outline"] = [{"title": f"章节{i + 1}", "content": ""} for i in range(outline)]
     state["sections"] = [
@@ -68,7 +68,7 @@ def test_next_pending_index_returns_none_when_all_done() -> None:
 
 
 def test_is_chapter_failed_requires_exhausted_budget() -> None:
-    validation = {
+    validation: ValidationResult = {
         "passed": False,
         "issues": ["x"],
         "suggested_action": "retry_writer",
@@ -84,7 +84,7 @@ def test_is_chapter_failed_requires_exhausted_budget() -> None:
     assert is_chapter_failed(state, 0, max_retries=1) is True
 
     # 通过后不算失败
-    passed = dict(validation, passed=True)
+    passed: ValidationResult = {**validation, "passed": True}
     state["chapter_validations"] = {"chapter_1": passed}
     assert is_chapter_failed(state, 0, max_retries=1) is False
 
@@ -108,7 +108,7 @@ def test_failed_chapters_lists_exhausted_ones() -> None:
 
 
 def test_ensure_aligned_pads_sections() -> None:
-    outline = [{"title": "a", "content": ""}, {"title": "b", "content": ""}]
+    outline: list[Section] = [{"title": "a", "content": ""}, {"title": "b", "content": ""}]
     aligned = ensure_aligned([{"title": "a", "content": "x"}], outline)
 
     assert len(aligned) == 2

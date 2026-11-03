@@ -11,6 +11,7 @@ from fakes import OUTLINE_JSON, ScriptedProvider, validation_fail_json
 
 from app.agents.skills import (
     MAX_SKILL_STEPS,
+    CatalogEntry,
     SkillCatalog,
     clip_skill_content,
     make_route_after_skills,
@@ -21,10 +22,10 @@ from app.agents.skills import (
     skill_output_target_chars,
 )
 from app.core.agent_graph import build_graph
-from app.models.state import AgentState, Plan, initial_state
+from app.models.state import AgentState, Plan, PlanStep, SkillOutput, initial_state
 from app.services.task_service import TaskService
 
-CATALOG = [
+CATALOG: list[CatalogEntry] = [
     {
         "skill_id": "builtin-compare",
         "name": "对比分析",
@@ -40,22 +41,24 @@ CATALOG = [
 ]
 
 
-def _state_with_plan(steps: list[dict], *, skill_outputs: list[dict] | None = None) -> AgentState:
+def _state_with_plan(
+    steps: list[PlanStep], *, skill_outputs: list[SkillOutput] | None = None
+) -> AgentState:
     state = initial_state("写一篇综述", task_id="t1")
-    state["plan"] = Plan(goal="写综述", needs_retrieval=False, steps=steps)  # type: ignore[typeddict-item]
-    state["skill_outputs"] = skill_outputs or []  # type: ignore[typeddict-item]
+    state["plan"] = Plan(goal="写综述", needs_retrieval=False, steps=steps)
+    state["skill_outputs"] = skill_outputs or []
     return state
 
 
 def test_pending_skill_step_returns_first_unfinished() -> None:
-    steps = [
+    steps: list[PlanStep] = [
         {"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"},
         {"id": "s2", "type": "skill", "description": "提炼", "skill_id": "builtin-takeaways"},
     ]
     state = _state_with_plan(steps)
     assert pending_skill_step(state)["id"] == "s1"  # type: ignore[index]
 
-    state["skill_outputs"] = [  # type: ignore[typeddict-item]
+    state["skill_outputs"] = [
         {
             "skill_id": "builtin-compare",
             "skill_name": "对比分析",
@@ -70,9 +73,11 @@ def test_pending_skill_step_returns_first_unfinished() -> None:
 def test_pending_skill_step_none_when_no_skill_or_all_done() -> None:
     assert pending_skill_step(initial_state("任务", task_id="t1")) is None
 
-    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+    steps: list[PlanStep] = [
+        {"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}
+    ]
     state = _state_with_plan(steps)
-    state["skill_outputs"] = [  # type: ignore[typeddict-item]
+    state["skill_outputs"] = [
         {
             "skill_id": "builtin-compare",
             "skill_name": "对比分析",
@@ -88,7 +93,9 @@ def test_route_after_skills_loops_then_leaves() -> None:
     route = make_route_after_skills()
     assert route(initial_state("任务", task_id="t1")) == "outline"
 
-    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+    steps: list[PlanStep] = [
+        {"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}
+    ]
     assert route(_state_with_plan(steps)) == "skills"
 
 
@@ -96,7 +103,7 @@ def test_render_skill_outputs_renders_blocks() -> None:
     state = initial_state("任务", task_id="t1")
     assert render_skill_outputs(state) == ""
 
-    state["skill_outputs"] = [  # type: ignore[typeddict-item]
+    state["skill_outputs"] = [
         {
             "skill_id": "builtin-compare",
             "skill_name": "对比分析",
@@ -113,7 +120,7 @@ def test_render_skill_outputs_renders_blocks() -> None:
 def test_skill_target_scales_but_is_bounded() -> None:
     def target(chars: int) -> int:
         state = initial_state("任务", task_id="t1")
-        state["task_profile"] = {"target_chars": chars}  # type: ignore[typeddict-item]
+        state["task_profile"] = {"target_chars": chars}
         return skill_output_target_chars(state)
 
     assert target(1500) == 800
@@ -131,7 +138,7 @@ def test_skill_content_is_clipped_at_safety_ceiling() -> None:
 
 def test_render_skill_outputs_caps_context() -> None:
     state = initial_state("任务", task_id="t1")
-    state["skill_outputs"] = [  # type: ignore[typeddict-item]
+    state["skill_outputs"] = [
         {
             "skill_id": "s",
             "skill_name": "长技能",
@@ -153,7 +160,9 @@ async def test_skills_node_continues_once_when_truncated() -> None:
         finish_reasons=["length", "stop"],
     )
     node = make_skills_node(provider, CATALOG)
-    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+    steps: list[PlanStep] = [
+        {"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}
+    ]
 
     update = await node(_state_with_plan(steps))
 
@@ -169,7 +178,9 @@ async def test_skills_node_marks_persistent_truncation() -> None:
         finish_reasons=["length", "length"],
     )
     node = make_skills_node(provider, CATALOG)
-    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+    steps: list[PlanStep] = [
+        {"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}
+    ]
 
     update = await node(_state_with_plan(steps))
 
@@ -181,7 +192,9 @@ async def test_skills_node_marks_persistent_truncation() -> None:
 async def test_skills_node_clips_runaway_output_visibly() -> None:
     provider = ScriptedProvider(default_text="甲" * 6000)
     node = make_skills_node(provider, CATALOG)
-    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+    steps: list[PlanStep] = [
+        {"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}
+    ]
 
     update = await node(_state_with_plan(steps))
 
@@ -201,7 +214,9 @@ async def test_resource_followup_shares_the_single_extra_call_budget() -> None:
         finish_reasons=["length", "stop"],
     )
     node = make_skills_node(provider, _resource_catalog())
-    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+    steps: list[PlanStep] = [
+        {"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}
+    ]
 
     update = await node(_state_with_plan(steps))
 
@@ -213,7 +228,9 @@ async def test_resource_followup_shares_the_single_extra_call_budget() -> None:
 async def test_skills_node_produces_output() -> None:
     provider = ScriptedProvider(default_text="对比结论正文")
     node = make_skills_node(provider, CATALOG)
-    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+    steps: list[PlanStep] = [
+        {"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}
+    ]
 
     update = await node(_state_with_plan(steps))
 
@@ -233,7 +250,9 @@ async def test_skills_node_produces_output() -> None:
 async def test_skills_node_skips_unknown_skill() -> None:
     provider = ScriptedProvider()
     node = make_skills_node(provider, CATALOG)
-    steps = [{"id": "s1", "type": "skill", "description": "未知", "skill_id": "ghost"}]
+    steps: list[PlanStep] = [
+        {"id": "s1", "type": "skill", "description": "未知", "skill_id": "ghost"}
+    ]
 
     update = await node(_state_with_plan(steps))
 
@@ -424,7 +443,9 @@ async def test_skill_output_tells_model_not_to_invent_citations() -> None:
     """技能结论必须避免自造 [编号]，否则正文会引用不存在的来源。"""
     provider = ScriptedProvider(default_text="对比结论")
     node = make_skills_node(provider, CATALOG)
-    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+    steps: list[PlanStep] = [
+        {"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}
+    ]
 
     await node(_state_with_plan(steps))
 
@@ -432,7 +453,7 @@ async def test_skill_output_tells_model_not_to_invent_citations() -> None:
     assert "不要使用 [编号] 形式标注引用" in user_prompt
 
 
-def _resource_catalog() -> list[dict]:
+def _resource_catalog() -> list[CatalogEntry]:
     return [
         {
             "skill_id": "builtin-compare",
@@ -451,7 +472,9 @@ async def test_resource_directory_exposes_names_not_content() -> None:
     """L3：目录只给附件名，正文在请求前不进入提示词。"""
     provider = ScriptedProvider(default_text="对比结论")
     node = make_skills_node(provider, _resource_catalog())
-    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+    steps: list[PlanStep] = [
+        {"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}
+    ]
 
     await node(_state_with_plan(steps))
 
@@ -471,7 +494,9 @@ async def test_requested_resource_is_loaded_once_in_followup() -> None:
         ]
     )
     node = make_skills_node(provider, _resource_catalog())
-    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+    steps: list[PlanStep] = [
+        {"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}
+    ]
 
     update = await node(_state_with_plan(steps))
 
@@ -493,7 +518,9 @@ async def test_repeated_resource_request_does_not_loop() -> None:
         ]
     )
     node = make_skills_node(provider, _resource_catalog())
-    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+    steps: list[PlanStep] = [
+        {"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}
+    ]
 
     update = await node(_state_with_plan(steps))
 
@@ -509,7 +536,9 @@ async def test_multiple_resource_requests_load_only_first() -> None:
         ]
     )
     node = make_skills_node(provider, _resource_catalog())
-    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+    steps: list[PlanStep] = [
+        {"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}
+    ]
 
     await node(_state_with_plan(steps))
 
@@ -521,7 +550,9 @@ async def test_multiple_resource_requests_load_only_first() -> None:
 async def test_unknown_resource_request_is_ignored() -> None:
     provider = ScriptedProvider(default_text="需要资料。[[NEED_RESOURCE: ghost]]")
     node = make_skills_node(provider, _resource_catalog())
-    steps = [{"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}]
+    steps: list[PlanStep] = [
+        {"id": "s1", "type": "skill", "description": "对比", "skill_id": "builtin-compare"}
+    ]
 
     update = await node(_state_with_plan(steps))
 

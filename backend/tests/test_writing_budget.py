@@ -20,13 +20,13 @@ from app.agents.summarizer import make_summarizer_node
 from app.agents.validator import make_validator_node
 from app.agents.writer import make_writer_node
 from app.models.schemas import TaskResponse
-from app.models.state import AgentState, Plan, initial_state
+from app.models.state import AgentState, Plan, RetrievedDocument, initial_state
 from app.models.task_profile import resolve_profile
 from app.rag.tools import source_char_count
 from app.services.task_service import task_result
 
 
-def _doc(content: str, *, chunk_id: str = "c1", filename: str = "a.md") -> dict:
+def _doc(content: str, *, chunk_id: str = "c1", filename: str = "a.md") -> RetrievedDocument:
     return {
         "document_id": "d1",
         "filename": filename,
@@ -40,7 +40,7 @@ def _doc(content: str, *, chunk_id: str = "c1", filename: str = "a.md") -> dict:
 def _state(
     *,
     requested: int = 6000,
-    docs: list[dict] | None = None,
+    docs: list[RetrievedDocument] | None = None,
     needs_retrieval: bool = True,
     outline: int = 2,
 ) -> AgentState:
@@ -75,7 +75,7 @@ def test_no_retrieval_keeps_requested_budget() -> None:
     assert budget["recommended_sections"] == 4
 
 
-def _docs_1000() -> list[dict]:
+def _docs_1000() -> list[RetrievedDocument]:
     return [
         _doc("甲" * 500, chunk_id="c1"),
         _doc("乙" * 500, chunk_id="c2"),
@@ -206,7 +206,7 @@ async def test_writer_no_sources_asks_for_short_honest_answer() -> None:
 async def test_validator_gets_source_limited_context() -> None:
     provider = ScriptedProvider()
     state = _state(docs=_docs_1000())
-    state["sections"][1]["content"] = "已有正文"
+    state.get("sections", [])[1]["content"] = "已有正文"
     node = make_validator_node(provider, max_retries=0, target_total_chars=6000)
 
     await node(state)
@@ -218,8 +218,8 @@ async def test_validator_gets_source_limited_context() -> None:
 
 async def test_summarizer_adds_limitation_note_before_references() -> None:
     state = _state(docs=[_doc("甲" * 500, chunk_id="c1"), _doc("乙" * 500, chunk_id="c2")])
-    state["sections"][0]["content"] = "第一章正文"
-    state["sections"][1]["content"] = "第二章正文"
+    state.get("sections", [])[0]["content"] = "第一章正文"
+    state.get("sections", [])[1]["content"] = "第二章正文"
     node = make_summarizer_node(max_retries=0, target_total_chars=6000)
 
     update = await node(state)

@@ -69,4 +69,4 @@ async def test_stream_hides_internal_error_details() -> None:
 
 def test_service_passes_recursion_limit_config() -> None:
     service = TaskService(ScriptedProvider(), max_retries=3)
-    assert service._config_for("t")["recursion_limit"] == recursion_limit(3)
+    assert service._config_for("t").get("recursion_limit") == recursion_limit(3)
