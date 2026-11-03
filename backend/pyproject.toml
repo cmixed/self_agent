@@ -2,7 +2,9 @@
 name = "self-agent-backend"
 version = "0.1.0"
 description = "基于 RAG 的个人任务型智能体 - 后端（FastAPI + LangGraph）"
-requires-python = ">=3.14"
+# 应用而非库：直接把解释器锁到 3.14 系列。放宽到 >=3.14 会让 uv 选到 3.15，
+# 而 onnxruntime 等依赖尚未发布 cp315 轮子（见 quality.yml 的历史修复）。
+requires-python = "==3.14.*"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
