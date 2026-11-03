@@ -6,8 +6,9 @@ import json
 
 import httpx
 import pytest
+from conftest import make_settings
 
-from app.core.config import Settings, get_settings
+from app.core.config import get_settings
 from app.llm.base import (
     ChatMessage,
     LLMConfigError,
@@ -180,7 +181,7 @@ def test_unconfigured_optional_providers_are_hidden() -> None:
     切换器只应出现真正可用的服务；未配置的灰项容易被误解为"坏了"，
     发现入口统一放在「模型服务」页。
     """
-    settings = Settings(_env_file=None)
+    settings = make_settings()
     configs = provider_configs(settings)
     assert "custom" not in configs
     assert "ollama" not in configs

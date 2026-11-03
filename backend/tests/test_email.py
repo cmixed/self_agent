@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import smtplib
+from typing import Any
 
 import pytest
+from conftest import make_settings
 from fastapi.testclient import TestClient
 
 from app.api.deps import build_task_repository, get_email_service
@@ -25,8 +27,10 @@ from app.services.email_service import (
 )
 
 
-def _settings(**overrides) -> Settings:
-    values: dict[str, object] = {
+def _settings(**overrides: Any) -> Settings:
+    # 值类型写 Any：Settings(**values) 对 object 会逐字段报「不可赋值」，
+    # 而这里的键本身就是运行期配置名，静态检查无法逐个核对。
+    values: dict[str, Any] = {
         "smtp_host": "smtp.example.com",
         "smtp_port": 465,
         "smtp_security": "ssl",
@@ -37,7 +41,7 @@ def _settings(**overrides) -> Settings:
         "email_cooldown_seconds": 0,
     }
     values.update(overrides)
-    return Settings(**values)
+    return make_settings(**values)
 
 
 def _capture_sender() -> tuple[list, EmailService]:

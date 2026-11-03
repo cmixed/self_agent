@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from conftest import make_settings
 from fakes import OUTLINE_JSON, PLAN_JSON, ScriptedProvider
 from fastapi.testclient import TestClient
 
@@ -117,6 +118,5 @@ def test_task_state_returns_503_when_checkpoint_disabled() -> None:
 @pytest.mark.parametrize(("raw", "expected"), [("true", True), ("false", False), ("0", False)])
 def test_checkpoint_enabled_flag_is_parsed(raw: str, expected: bool, monkeypatch) -> None:
     monkeypatch.setenv("CHECKPOINT_ENABLED", raw)
-    from app.core.config import Settings
 
-    assert Settings(_env_file=None).checkpoint_enabled is expected
+    assert make_settings().checkpoint_enabled is expected

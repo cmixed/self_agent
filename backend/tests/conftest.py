@@ -12,11 +12,23 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from app.api.deps import reset_caches
 from app.core.config import Settings, get_settings
+
+
+def make_settings(**overrides: Any) -> Settings:
+    """测试专用 ``Settings``：屏蔽 ``backend/.env``，允许任意字段覆盖。
+
+    刻意做成函数而不是 fixture：多处测试在模块级或 helper 里直接构造，
+    fixture 覆盖不到。
+    """
+    # _env_file 是 pydantic-settings 的运行时参数，.pyi 签名里没有声明；
+    # 忽略范围限定在 call-arg，避免掩盖其他类型问题。
+    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
 
 
 @pytest.fixture(autouse=True)
