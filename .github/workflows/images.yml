@@ -44,7 +44,8 @@ jobs:
             dockerfile: docker/frontend.Dockerfile
 
     steps:
-      - uses: actions/checkout@v4
+      # v5 起改用 Node 24，避免 runner 上的 Node 20 弃用告警。
+      - uses: actions/checkout@v5
 
       # GHCR 要求镜像名全部小写；GitHub 用户名可能含大写。
       - name: Lowercase owner
