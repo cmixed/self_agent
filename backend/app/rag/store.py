@@ -148,9 +148,7 @@ class ChromaStore:
 
     def get_document(self, document_id: str) -> dict[str, Any] | None:
         """返回单个文档的聚合信息；不存在时 None。"""
-        result = self._collection.get(
-            where={"document_id": document_id}, include=["metadatas"]
-        )
+        result = self._collection.get(where={"document_id": document_id}, include=["metadatas"])
         metadatas = [meta for meta in (result.get("metadatas") or []) if meta]
         if not metadatas:
             return None

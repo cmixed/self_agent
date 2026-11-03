@@ -53,9 +53,7 @@ class CheckpointStore:
         """
         if self._saver is None:
             return None
-        checkpoint_tuple = await self._saver.aget_tuple(
-            {"configurable": {"thread_id": thread_id}}
-        )
+        checkpoint_tuple = await self._saver.aget_tuple({"configurable": {"thread_id": thread_id}})
         if checkpoint_tuple is None:
             return None
         checkpoint = checkpoint_tuple.checkpoint or {}

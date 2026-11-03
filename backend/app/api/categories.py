@@ -52,9 +52,7 @@ async def create_category(
     payload: CategoryCreate, service: CategoryService = Depends(get_category_service)
 ) -> CategoryInfo | JSONResponse:
     try:
-        record = await service.create_category(
-            name=payload.name, description=payload.description
-        )
+        record = await service.create_category(name=payload.name, description=payload.description)
     except CategoryNameConflictError as exc:
         return _error(409, "category_name_conflict", str(exc))
     return _info(record)

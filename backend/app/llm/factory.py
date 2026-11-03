@@ -120,6 +120,7 @@ def provider_configs(settings: Settings) -> dict[str, ProviderConfig]:
         configs.setdefault(provider_id, config)
     return configs
 
+
 _provider: LLMProvider | None = None
 _active_provider: str | None = None
 

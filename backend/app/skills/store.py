@@ -79,9 +79,7 @@ def normalize_resource_name(name: str) -> str:
             return parts[0]
         parts = ["resources", parts[0]]
     if parts[0] not in RESOURCE_ROOTS:
-        raise SkillResourceNameConflictError(
-            "附件必须放在 references/、resources/ 或 scripts/ 下"
-        )
+        raise SkillResourceNameConflictError("附件必须放在 references/、resources/ 或 scripts/ 下")
     return "/".join(parts)
 
 
@@ -210,9 +208,7 @@ class SkillFileStore:
         name: str | None = None,
         content: str | None = None,
     ) -> SkillResourceRecord | None:
-        return await asyncio.to_thread(
-            self._update_resource, skill_id, resource_id, name, content
-        )
+        return await asyncio.to_thread(self._update_resource, skill_id, resource_id, name, content)
 
     async def delete_resource(self, skill_id: str, resource_id: str) -> bool:
         return await asyncio.to_thread(self._delete_resource, skill_id, resource_id)

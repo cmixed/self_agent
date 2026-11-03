@@ -89,9 +89,7 @@ def migrate_legacy_skills(database_path: Path, store: SkillFileStore) -> int:
                 )
                 continue
             resources = (
-                _legacy_resources(connection, skill_id)
-                if "skill_resources" in tables
-                else []
+                _legacy_resources(connection, skill_id) if "skill_resources" in tables else []
             )
             store.create_skill_sync(
                 name=str(name),
@@ -112,9 +110,7 @@ def migrate_legacy_skills(database_path: Path, store: SkillFileStore) -> int:
                 connection.execute(f"DROP TABLE IF EXISTS {table}")
         connection.commit()
         marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text(
-            datetime.now(UTC).isoformat(timespec="seconds") + "\n", encoding="utf-8"
-        )
+        marker.write_text(datetime.now(UTC).isoformat(timespec="seconds") + "\n", encoding="utf-8")
         return migrated
     finally:
         connection.close()

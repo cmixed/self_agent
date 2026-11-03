@@ -54,9 +54,7 @@ async def list_remote_models(
 
     started = time.perf_counter()
     try:
-        async with httpx.AsyncClient(
-            timeout=_PROBE_TIMEOUT_SECONDS, transport=transport
-        ) as client:
+        async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT_SECONDS, transport=transport) as client:
             response = await client.get(_models_url(base_url), headers=_headers(api_key))
     except httpx.HTTPError as exc:
         return ProbeResult(ok=False, detail=_network_detail(base_url, exc))
@@ -135,9 +133,7 @@ async def probe_chat(
         )
     except LLMLocalServiceUnavailableError:
         # 本地服务未启动是最常见的失败：给出可操作的具体提示，而不是底层异常文本
-        return ProbeResult(
-            ok=False, detail=f"无法连接 {base_url}（服务未启动或地址/端口不正确）"
-        )
+        return ProbeResult(ok=False, detail=f"无法连接 {base_url}（服务未启动或地址/端口不正确）")
     except LLMTimeoutError:
         return ProbeResult(ok=False, detail=f"连接 {base_url} 超时（{timeout_seconds:.0f}s）")
     except LLMError as exc:

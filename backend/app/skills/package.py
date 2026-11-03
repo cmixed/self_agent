@@ -72,9 +72,7 @@ def _is_symlink(info: zipfile.ZipInfo) -> bool:
 def parse_skill_package(data: bytes, *, filename: str | None = None) -> SkillPackage:
     """解析 zip 技能包；不符合标准目录约定时抛出 :class:`SkillPackageError`。"""
     if len(data) > MAX_PACKAGE_BYTES:
-        raise SkillPackageTooLargeError(
-            f"技能包超过 {MAX_PACKAGE_BYTES // (1024 * 1024)} MB 限制"
-        )
+        raise SkillPackageTooLargeError(f"技能包超过 {MAX_PACKAGE_BYTES // (1024 * 1024)} MB 限制")
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile as exc:
@@ -158,8 +156,7 @@ def parse_skill_package(data: bytes, *, filename: str | None = None) -> SkillPac
             warnings.append("已忽略不在标准目录下的文件：" + "、".join(sorted(ignored)[:8]))
         if scripts:
             warnings.append(
-                "技能包包含脚本文件，系统会保存但不会执行："
-                + "、".join(sorted(scripts)[:8])
+                "技能包包含脚本文件，系统会保存但不会执行：" + "、".join(sorted(scripts)[:8])
             )
 
         name = parsed.name.strip()

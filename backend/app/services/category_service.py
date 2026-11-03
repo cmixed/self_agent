@@ -37,9 +37,7 @@ class CategoryService:
             raise ValueError("类别名不能为空")
         if await self._repository.find_by_name(cleaned) is not None:
             raise CategoryNameConflictError(f"类别已存在：{cleaned}")
-        return await self._repository.create_category(
-            name=cleaned, description=description.strip()
-        )
+        return await self._repository.create_category(name=cleaned, description=description.strip())
 
     async def update_category(
         self,
@@ -69,9 +67,7 @@ class CategoryService:
         if not await self._repository.delete_category(category_id):
             raise CategoryNotFoundError(f"类别不存在：{category_id}")
 
-    async def set_document_categories(
-        self, document_id: str, category_ids: list[str]
-    ) -> list[str]:
+    async def set_document_categories(self, document_id: str, category_ids: list[str]) -> list[str]:
         """整组替换某文档的类别；返回归一化后的类别 id 列表。"""
         unique = list(dict.fromkeys(category_ids))
         for category_id in unique:
@@ -86,9 +82,7 @@ class CategoryService:
     async def purge_document(self, document_id: str) -> None:
         await self._repository.purge_document(document_id)
 
-    async def resolve_scope(
-        self, *, category_ids: list[str], document_ids: list[str]
-    ) -> list[str]:
+    async def resolve_scope(self, *, category_ids: list[str], document_ids: list[str]) -> list[str]:
         return await self._repository.resolve_scope(
             category_ids=list(dict.fromkeys(category_ids)),
             document_ids=list(dict.fromkeys(document_ids)),

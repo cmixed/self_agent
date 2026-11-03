@@ -55,6 +55,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
 
+      # ruff check 只做 lint，不覆盖排版；缺了这一步，format 漂移会一直累积
+      # （2026-11 一次性清掉过 18 处，属于本可避免的返工）。
+      - name: Format check (ruff)
+        run: uv run ruff format --check .
+
       - name: Lint (ruff)
         run: uv run ruff check .
 

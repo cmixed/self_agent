@@ -349,9 +349,7 @@ class KnowledgePackageService:
         for item in documents:
             missing = [value for value in item.category_ids if value not in known_category_ids]
             if missing:
-                warnings.append(
-                    f"《{item.filename}》引用了 {len(missing)} 个未导出的类别，已忽略"
-                )
+                warnings.append(f"《{item.filename}》引用了 {len(missing)} 个未导出的类别，已忽略")
         return categories, documents, warnings
 
     async def _existing_hashes(self) -> set[str]:

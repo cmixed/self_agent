@@ -63,9 +63,7 @@ def citation_issue_text(indices: Sequence[int], *, source_count: int) -> str:
     )
 
 
-def find_chapters_with_dangling(
-    sections: Sequence[Section], *, source_count: int
-) -> list[int]:
+def find_chapters_with_dangling(sections: Sequence[Section], *, source_count: int) -> list[int]:
     """返回存在悬空引用的章节下标（0 基，升序）。
 
     供整篇校验定位到具体章节：这样能给出章级 ``retry_writer``，

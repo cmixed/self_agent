@@ -177,8 +177,7 @@ async def preview_skill_import(
         description=package.description,
         content=package.content,
         resources=[
-            SkillPackageResource(name=item.name, content=item.content)
-            for item in package.resources
+            SkillPackageResource(name=item.name, content=item.content) for item in package.resources
         ],
         warnings=package.warnings,
         suggested_skill_id=package.suggested_skill_id,
