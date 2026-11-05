@@ -47,6 +47,9 @@ class ChromaStore:
         # Chroma 客户端不是为并发访问设计的：所有访问统一串行化，
         # 同时通过 asyncio.to_thread 让出事件循环（见 _run）。
         self._lock = threading.Lock()
+        # 文档列表缓存：知识库页 / 分类页会反复调用，而它需要全量扫 chunk 元数据。
+        # 仅在首次读取后缓存，上传 / 删除文档时失效（见 add_chunks / delete_document）。
+        self._documents_cache: list[dict[str, Any]] | None = None
         self._collection_name = collection_name
         self._client = chromadb.PersistentClient(
             path=str(persist_dir),
@@ -168,6 +171,7 @@ class ChromaStore:
         metadatas: Sequence[dict[str, Any]],
         embeddings: Sequence[Sequence[float]],
     ) -> None:
+        self._documents_cache = None
         for start in range(0, len(ids), _ADD_BATCH_SIZE):
             stop = start + _ADD_BATCH_SIZE
             self._collection.add(
@@ -178,10 +182,14 @@ class ChromaStore:
             )
 
     def delete_document(self, document_id: str) -> None:
+        self._documents_cache = None
         self._collection.delete(where={"document_id": document_id})
 
     def list_documents(self) -> list[dict[str, Any]]:
-        """按 document_id 聚合出已入库文档。"""
+        """按 document_id 聚合出已入库文档（结果缓存，写入/删除时失效）。"""
+        if self._documents_cache is not None:
+            # 返回副本，避免调用方修改缓存内容
+            return [dict(item) for item in self._documents_cache]
         result = self._collection.get(include=["metadatas"])
         aggregated: dict[str, dict[str, Any]] = {}
         for metadata in result.get("metadatas") or []:
@@ -200,7 +208,8 @@ class ChromaStore:
                 },
             )
             entry["chunks"] += 1
-        return sorted(aggregated.values(), key=lambda item: item["filename"])
+        self._documents_cache = sorted(aggregated.values(), key=lambda item: item["filename"])
+        return [dict(item) for item in self._documents_cache]
 
     def query(
         self,
