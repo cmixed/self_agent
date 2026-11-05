@@ -1,5 +1,4 @@
 import {
-  ApiOutlined,
   ClearOutlined,
   DeleteOutlined,
   DownloadOutlined,
@@ -36,7 +35,6 @@ import {
   listPresets,
   previewBackupImport,
 } from '../services/api'
-import { useNav } from '../state/nav'
 import { useTaskRun } from '../state/taskRun'
 import type { ThemeMode } from '../theme/config'
 import type { BackupImportPreview, CategoryInfo, DocumentInfo, TaskDepth } from '../types/api'
@@ -94,7 +92,6 @@ interface SettingsPageProps {
  * 所有数据只写 localStorage，不写入 SQLite `user_preferences`（那里是长期记忆）。
  */
 export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
-  const { navigate } = useNav()
   const { message, modal } = App.useApp()
   const { pillSettings, updatePillSettings, clearAcknowledged } = useTaskRun()
 
@@ -409,18 +406,6 @@ export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
             恢复默认
           </Button>
         </div>
-      </Card>
-
-      <Card title="技能管理">
-        <SettingsRow
-          title="Agent 技能"
-          description="技能是结构化的指令模块（SKILL.md + 附件），任务里按需调用；支持导入导出与自定义。"
-          control={
-            <Button icon={<ApiOutlined />} onClick={() => navigate('skills')}>
-              打开技能页
-            </Button>
-          }
-        />
       </Card>
 
       <Card title="数据备份">
