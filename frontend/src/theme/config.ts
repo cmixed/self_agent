@@ -66,7 +66,8 @@ export const SURFACE = {
     tableHeader: '#1b1f1c',
     text: '#e8ebe8',
     textSecondary: '#9da59e',
-    textTertiary: '#6f776f',
+    // 提亮一档：原 #6f776f 在深色容器上对比度约 3.7:1，低于 WCAG AA(4.5:1)
+    textTertiary: '#858d86',
     textQuaternary: '#565d56',
   },
 } as const

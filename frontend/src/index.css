@@ -18,6 +18,15 @@ html[data-theme='light'] {
 
 html[data-theme='dark'] {
   color-scheme: dark;
+  --ws-shadow-raised: 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+
+/* 尊重系统「减少动态效果」：只把时长归零，不影响颜色/布局 */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ws-motion-fast: 0ms;
+    --ws-motion: 0ms;
+  }
 }
 
 /* 统一滚动条外观（Chromium / Edge / WebKit） */
@@ -89,6 +98,13 @@ html[data-theme='dark'] body {
   --ws-font-metric: 20px;
   --ws-lh-body: 1.6;
   --ws-lh-reading: 1.75;
+
+  /* 动效：统一节奏，避免各处 0.15s / 0.2s / 150ms 混用 */
+  --ws-motion-fast: 120ms;
+  --ws-motion: 160ms;
+  --ws-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* 悬停抬升阴影：与 theme/config.ts 的 boxShadowSecondary 同值 */
+  --ws-shadow-raised: 0 4px 12px rgba(16, 24, 40, 0.08);
 
   /* 尺寸 */
   --ws-sidebar-w: 236px;
@@ -1306,11 +1322,14 @@ html[data-theme='dark'] body {
 /* 读/详情型卡片：整卡可点，hover 提示 */
 .entity-card--clickable {
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition:
+    border-color var(--ws-motion) var(--ws-ease),
+    box-shadow var(--ws-motion) var(--ws-ease);
 }
 
 .entity-card--clickable:hover {
   border-color: var(--ant-color-primary) !important;
+  box-shadow: var(--ws-shadow-raised);
 }
 
 /* 停用等淡化态 */
@@ -1479,11 +1498,14 @@ html[data-theme='dark'] body {
   flex-direction: column;
   height: 100%;
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition:
+    border-color var(--ws-motion) var(--ws-ease),
+    box-shadow var(--ws-motion) var(--ws-ease);
 }
 
 .ws-preset:hover {
   border-color: var(--ant-color-primary) !important;
+  box-shadow: var(--ws-shadow-raised);
 }
 
 /* 「上次任务」固定第一张：强调可再次直接执行 */
@@ -1884,13 +1906,15 @@ html[data-theme='dark'] body {
   text-align: left;
   cursor: pointer;
   transition:
-    border-color 150ms ease,
-    background 150ms ease;
+    border-color var(--ws-motion) var(--ws-ease),
+    background var(--ws-motion) var(--ws-ease),
+    box-shadow var(--ws-motion) var(--ws-ease);
 }
 
 .source-card:hover {
   border-color: var(--ant-color-primary);
   background: var(--ant-color-primary-bg);
+  box-shadow: var(--ws-shadow-raised);
 }
 
 .source-card:focus-visible {
@@ -1998,9 +2022,9 @@ html[data-theme='dark'] body {
   border-left: 2px solid transparent;
   margin-left: -1px;
   transition:
-    color 150ms ease,
-    border-color 150ms ease,
-    background 150ms ease;
+    color var(--ws-motion-fast) var(--ws-ease),
+    border-color var(--ws-motion-fast) var(--ws-ease),
+    background var(--ws-motion-fast) var(--ws-ease);
 }
 
 .md-reader__toc-item button:hover {
@@ -2141,14 +2165,20 @@ html[data-theme='dark'] body {
   text-align: left;
   cursor: pointer;
   transition:
-    background 0.2s,
-    border-color 0.2s,
-    color 0.2s;
+    background var(--ws-motion) var(--ws-ease),
+    border-color var(--ws-motion) var(--ws-ease),
+    color var(--ws-motion) var(--ws-ease);
 }
 
 .kb-category:hover {
   background: var(--ant-color-fill-tertiary);
   color: var(--ant-color-text);
+}
+
+/* 键盘可达性兜底：组件自己定义的焦点环优先级更高，这里只统一默认形态 */
+:where(button, a[href], input, textarea, select, [role='button']):focus-visible {
+  outline: 2px solid var(--ant-color-primary-border, rgba(82, 94, 84, 0.5));
+  outline-offset: 2px;
 }
 
 /* 键盘可达：自定义按钮需要显式焦点环（浏览器默认样式已被 border 重置影响） */
