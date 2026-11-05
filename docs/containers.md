@@ -27,10 +27,10 @@ frontend 容器（nginx）
 
 ## 前置条件
 
-| 方式 | 需要安装 |
-| --- | --- |
+| 方式                          | 需要安装                                                           |
+| ----------------------------- | ------------------------------------------------------------------ |
 | Podman（推荐，本机为 Fedora） | `podman` + `podman-compose`（或较新版本的 `podman compose`） |
-| Docker | Docker Engine + Compose v2（`docker compose`） |
+| Docker                        | Docker Engine + Compose v2（`docker compose`）                   |
 
 ```bash
 # Fedora
@@ -55,14 +55,14 @@ mkdir -p data
 
 `data/` 下的内容与本地开发相同：
 
-| 路径 | 内容 |
-| --- | --- |
-| `data/documents/` | 上传的原始文档 |
-| `data/chroma/` | 向量库 |
-| `data/sqlite/` | 任务记录、长期记忆、LangGraph checkpoint |
-| `data/skills/` | 技能目录 |
-| `data/settings.json` | 运行时模型服务商选择 |
-| `data/hf-cache/` | Embedding 模型缓存（容器内 `HF_HOME`） |
+| 路径                   | 内容                                     |
+| ---------------------- | ---------------------------------------- |
+| `data/documents/`    | 上传的原始文档                           |
+| `data/chroma/`       | 向量库                                   |
+| `data/sqlite/`       | 任务记录、长期记忆、LangGraph checkpoint |
+| `data/skills/`       | 技能目录                                 |
+| `data/settings.json` | 运行时模型服务商选择                     |
+| `data/hf-cache/`     | Embedding 模型缓存（容器内 `HF_HOME`） |
 
 ## 启动 / 停止
 
@@ -74,7 +74,7 @@ podman-compose up -d --build
 docker compose up -d --build
 ```
 
-打开 <http://localhost:8080>。
+打开 [http://localhost:8080](http://localhost:8080)。
 
 ```bash
 # 查看状态 / 日志
@@ -115,12 +115,12 @@ ghcr.io/<owner>/self-agent-backend:<tag>
 ghcr.io/<owner>/self-agent-frontend:<tag>
 ```
 
-| 事件 | 行为 |
-| --- | --- |
+| 事件            | 行为                                            |
+| --------------- | ----------------------------------------------- |
 | push `master` | 构建并推送 `master`、`sha-xxxx`、`latest` |
-| push `v1.0.0` | 构建并推送 `1.0.0`、`1.0`、`sha-xxxx` |
-| Pull Request | 只构建验证，不推送 |
-| 手动触发 | 构建并推送 |
+| push `v1.0.0` | 构建并推送 `1.0.0`、`1.0`、`sha-xxxx`     |
+| Pull Request    | 只构建验证，不推送                              |
+| 手动触发        | 构建并推送                                      |
 
 - PR 构建不登录、不推送，fork 的 PR 也能跑；
 - 缓存按 backend / frontend 分开（`type=gha`），后端依赖层可复用；
@@ -224,27 +224,27 @@ ports:
 
 ### 上传大小
 
-| 位置 | 上限 |
-| --- | --- |
+| 位置                           | 上限                                       |
+| ------------------------------ | ------------------------------------------ |
 | nginx `client_max_body_size` | 300MB（覆盖知识库 100MB 与完整备份 300MB） |
-| 知识库导入 | 100MB（后端校验） |
-| 完整备份导入 | 300MB（后端校验） |
+| 知识库导入                     | 100MB（后端校验）                          |
+| 完整备份导入                   | 300MB（后端校验）                          |
 
 如果前面还有一层反向代理（NAS、云厂商 LB），也要同步调大它的请求体上限。
 
 ## 排错
 
-| 现象 | 排查 |
-| --- | --- |
-| `podman-compose` 提示找不到 `backend/.env` | 先 `cp backend/.env.example backend/.env` |
-| 打开 8080 是 502 | `podman-compose ps` 看 backend 是否 healthy；`logs backend` 看启动错误；若只重建过 backend，重启 frontend 刷新 nginx 的 DNS 解析 |
-| 上传/导入返回 413 | 确认使用的是仓库里的 `docker/nginx.conf`；若外层还有代理，同步调大 |
-| SSE 进度不动、最后一次性出现 | nginx 必须 `proxy_buffering off`；不要在前面再加会缓冲的代理 |
-| 任务执行中途后端重启后显示已取消 | 事件缓冲在进程内存，重启后会把遗留 `running` 标记为 `cancelled`（设计如此） |
-| `data/` 权限错误（Docker） | Docker 下容器以 root 写入，宿主机文件属主会变成 root：`sudo chown -R $(id -u):$(id -g) data` |
-| Fedora SELinux 下 `permission denied` | 给 bind mount 加 SELinux 标签：`./data:/app/data:Z`（Docker / Podman 都支持） |
-| 首次检索很慢 | 正在下载 Embedding 模型；看 `logs backend` 的 `embedding_download`，或配置 `HF_ENDPOINT` |
-| 构建时下载 torch 超时 | 已设置 `UV_HTTP_TIMEOUT=600`；网络仍慢可重试，或先在本机 `uv sync` 后利用缓存 |
+| 现象                                           | 排查                                                                                                                                 |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `podman-compose` 提示找不到 `backend/.env` | 先 `cp backend/.env.example backend/.env`                                                                                          |
+| 打开 8080 是 502                               | `podman-compose ps` 看 backend 是否 healthy；`logs backend` 看启动错误；若只重建过 backend，重启 frontend 刷新 nginx 的 DNS 解析 |
+| 上传/导入返回 413                              | 确认使用的是仓库里的 `docker/nginx.conf`；若外层还有代理，同步调大                                                                 |
+| SSE 进度不动、最后一次性出现                   | nginx 必须 `proxy_buffering off`；不要在前面再加会缓冲的代理                                                                       |
+| 任务执行中途后端重启后显示已取消               | 事件缓冲在进程内存，重启后会把遗留 `running` 标记为 `cancelled`（设计如此）                                                      |
+| `data/` 权限错误（Docker）                   | Docker 下容器以 root 写入，宿主机文件属主会变成 root：`sudo chown -R $(id -u):$(id -g) data`                                       |
+| Fedora SELinux 下 `permission denied`        | 给 bind mount 加 SELinux 标签：`./data:/app/data:Z`（Docker / Podman 都支持）                                                      |
+| 首次检索很慢                                   | 正在下载 Embedding 模型；看 `logs backend` 的 `embedding_download`，或配置 `HF_ENDPOINT`                                       |
+| 构建时下载 torch 超时                          | 已设置 `UV_HTTP_TIMEOUT=600`；网络仍慢可重试，或先在本机 `uv sync` 后利用缓存                                                    |
 
 ### 关于 rootless Podman
 
@@ -254,15 +254,15 @@ rootless Podman 默认把容器 root 映射到当前宿主用户，因此 `./dat
 
 ## 镜像与构建说明
 
-| 文件 | 作用 |
-| --- | --- |
-| `compose.yaml` | 本地构建并启动两个服务、端口、`env_file`、数据挂载、健康检查 |
-| `compose.release.yaml` | 目标机器只拉 GHCR 镜像，不含 `build:` |
-| `.github/workflows/images.yml` | push / tag / PR / 手动触发构建并推送 GHCR |
-| `docker/backend.Dockerfile` | `python:3.14-slim-bookworm` + uv + CPU-only torch |
-| `docker/frontend.Dockerfile` | `node:22-bookworm-slim` 构建 → `nginx:stable-alpine` 运行 |
-| `docker/nginx.conf` | 静态托管、`/api` 反代、SSE、上传上限、gzip、SPA fallback |
-| `.dockerignore` | 排除 `data/`、`.env`、`.venv`、`node_modules`、`dist` 等 |
+| 文件                             | 作用                                                               |
+| -------------------------------- | ------------------------------------------------------------------ |
+| `compose.yaml`                 | 本地构建并启动两个服务、端口、`env_file`、数据挂载、健康检查     |
+| `compose.release.yaml`         | 目标机器只拉 GHCR 镜像，不含 `build:`                            |
+| `.github/workflows/images.yml` | push / tag / PR / 手动触发构建并推送 GHCR                          |
+| `docker/backend.Dockerfile`    | `python:3.14-slim-bookworm` + uv + CPU-only torch                |
+| `docker/frontend.Dockerfile`   | `node:22-bookworm-slim` 构建 → `nginx:stable-alpine` 运行     |
+| `docker/nginx.conf`            | 静态托管、`/api` 反代、SSE、上传上限、gzip、SPA fallback         |
+| `.dockerignore`                | 排除 `data/`、`.env`、`.venv`、`node_modules`、`dist` 等 |
 
 - 后端镜像保持 `/app/backend/app` + `/app/data` 布局，使 `config.py` 推导出的
   数据路径仍是 `/app/data`，无需为容器改业务代码；
