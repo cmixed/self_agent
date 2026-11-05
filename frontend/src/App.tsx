@@ -1,5 +1,4 @@
 import {
-  ApiOutlined,
   CloudServerOutlined,
   BulbOutlined,
   DatabaseOutlined,
@@ -71,7 +70,6 @@ const { Content, Sider } = Layout
 const PAGE_META: Array<{ key: string; label: string; icon: ReactNode }> = [
   { key: 'workspace', label: '工作台', icon: <RocketOutlined /> },
   { key: 'knowledge', label: '知识库', icon: <DatabaseOutlined /> },
-  { key: 'skills', label: '技能', icon: <ApiOutlined /> },
   { key: 'presets', label: '预设任务', icon: <TagsOutlined /> },
   { key: 'history', label: '任务历史', icon: <HistoryOutlined /> },
   { key: 'memory', label: '长期记忆', icon: <BulbOutlined /> },
@@ -183,7 +181,8 @@ function AppShell({
         className="app-menu"
         theme={menuTheme}
         mode="inline"
-        selectedKeys={[page]}
+        // 「技能」页入口在设置页内，进入时仍高亮「设置」，避免侧栏无选中项
+        selectedKeys={[page === 'skills' ? 'settings' : page]}
         items={menuItems}
         onClick={(event) => handleNav(event.key as PageKey)}
       />
