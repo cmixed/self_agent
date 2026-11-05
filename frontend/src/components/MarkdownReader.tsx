@@ -33,6 +33,13 @@ export default function MarkdownReader({
     return content.replace(/(?<!\])\[(\d+)\](?!\()/g, '[$1](#source-$1)')
   }, [content, sources.length])
 
+  // 正文元素本身与 activeId 无关：memo 掉，滚动高亮时不再重新解析整篇 Markdown
+  // （长文 final_answer 可达 150KB+，每换一个章节都重解析会明显卡顿）。
+  const rendered = useMemo(
+    () => <Markdown remarkPlugins={[remarkGfm]}>{prepared}</Markdown>,
+    [prepared],
+  )
+
   // 渲染后收集真实标题，生成目录并补齐锚点
   useEffect(() => {
     const root = articleRef.current
@@ -100,7 +107,7 @@ export default function MarkdownReader({
 
       <div className="md-reader__main">
         <div className="markdown-body" ref={articleRef}>
-          <Markdown remarkPlugins={[remarkGfm]}>{prepared}</Markdown>
+          {rendered}
         </div>
 
         {sources.length > 0 ? (

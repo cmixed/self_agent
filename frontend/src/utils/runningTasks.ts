@@ -406,3 +406,24 @@ export function sliceRunningTasks(
     overflow: tasks.filter((task) => !visible.includes(task)),
   }
 }
+
+/**
+ * 胶囊内容签名：只包含影响顶栏展示的字段。
+ *
+ * 轮询每 5s 拉一次列表；内容没变时用它跳过 `setState`，避免无意义的
+ * 全量重渲染（`useTaskRun` 的消费者会跟着 provider 一起重渲染）。
+ */
+export function pillsSignature(tasks: readonly TaskSummary[]): string {
+  return tasks
+    .map((task) =>
+      [
+        task.task_id,
+        task.status,
+        task.stage ?? '',
+        task.message ?? '',
+        task.finished_at ?? '',
+        task.error_type ?? '',
+      ].join('\u0001'),
+    )
+    .join('\u0002')
+}

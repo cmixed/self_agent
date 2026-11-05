@@ -158,3 +158,31 @@ async def test_migration_adds_attempt_no_to_legacy_db(tmp_path: Path) -> None:
     assert [a.attempt_no for a in attempts] == [1, 2]
     record = await repository.get_task("t1")
     assert record is not None and record.status == "running"
+
+
+async def test_list_tasks_projects_summary_fields_only(repository: TaskRepository) -> None:
+    """列表查询只带 TaskSummary 需要的字段，不解析整份 result_json。
+
+    长文任务的 result_json 可达 150KB+，而前端每 5 秒轮询一次列表；
+    这里锁住投影行为，避免有人改回 ``SELECT result_json`` 造成静默退化。
+    """
+    await repository.start_run(task_id="t1", user_id="u1", query="写综述")
+    await repository.finish_run(
+        task_id="t1",
+        result={
+            "status": "completed",
+            "mode": "longform",
+            "retry_count": 2,
+            "failed_chapters": ["chapter_2"],
+            "final_answer": "# 很长的正文" * 100,
+        },
+    )
+
+    [task] = await repository.list_tasks(user_id="u1")
+
+    assert task.result is not None
+    assert task.result["mode"] == "longform"
+    assert task.result["retry_count"] == 2
+    assert task.result["failed_chapters"] == ["chapter_2"]
+    # 正文不在列表投影里（详情接口才返回）
+    assert "final_answer" not in task.result

@@ -40,6 +40,7 @@ import {
   collectFinishedTasks,
   isTerminalStatus,
   loadAcknowledgedTasks,
+  pillsSignature,
   saveAcknowledgedTasks,
   splitPendingFinished,
 } from '../utils/runningTasks'
@@ -94,6 +95,8 @@ const MAX_CHAPTER_NOTES_PER_CHAPTER = 3
 
 /** 有任务在跑时的列表轮询间隔（毫秒）。 */
 const RUNNING_POLL_MS = 5000
+/** 空闲时的列表轮询间隔：只为接收其它标签页 / 别处启动的任务，没必要 5s 空转。 */
+const IDLE_POLL_MS = 30000
 /** 轮询最近任务数：同时用于运行中胶囊与「完成待查看」差分。 */
 const RECENT_TASKS_LIMIT = 20
 
@@ -312,6 +315,8 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!running) return
     const timer = window.setInterval(() => {
+      // 标签页在后台时不需要刷新「已用时」：省掉每秒一次的全量重渲染
+      if (document.visibilityState === 'hidden') return
       if (startedAtRef.current !== null) {
         setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000))
       }
@@ -397,8 +402,11 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
   const applyTaskList = useCallback(
     (tasks: TaskSummary[], options: { restore?: boolean } = {}) => {
       const running = tasks.filter((task) => task.status === 'running')
+      // 内容没变就跳过 setState：轮询每 5s 一次，无差别重建数组会让
+      // useTaskRun 的所有消费者跟着重渲染。
+      const runningChanged = pillsSignature(running) !== pillsSignature(runningTasksRef.current)
       runningTasksRef.current = running
-      setRunningTasks(running)
+      if (runningChanged) setRunningTasks(running)
 
       const activeId = activeTaskIdRef.current
       const ids = acknowledged()
@@ -423,8 +431,9 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
       // 会话内兜底：非失败任务最多保留用户设定的条数，更早的自动标为已查看
       //（失败任务不参与丢弃，红色提醒不能被静默吞掉）。
       const kept = trimFinished(collected, pillSettingsRef.current.pendingLimit)
+      const finishedChanged = pillsSignature(kept) !== pillsSignature(finishedTasksRef.current)
       finishedTasksRef.current = kept
-      setFinishedTasks(kept)
+      if (finishedChanged) setFinishedTasks(kept)
 
       const signature = `${taskSignature(running)}|${taskSignature(kept)}`
       if (signature !== tasksSignatureRef.current) {
@@ -1095,11 +1104,20 @@ export function TaskRunProvider({ children }: { children: ReactNode }) {
         // 启动恢复失败静默：不阻塞工作台
       }
     }
-    void load(true)
-    const timer = window.setInterval(() => void load(false), RUNNING_POLL_MS)
+    let timer: number | null = null
+    const schedule = () => {
+      if (stopped) return
+      const delay = runningTasksRef.current.length > 0 ? RUNNING_POLL_MS : IDLE_POLL_MS
+      timer = window.setTimeout(() => {
+        void load(false).then(schedule)
+      }, delay)
+    }
+    void load(true).then(() => {
+      if (!stopped) schedule()
+    })
     return () => {
       stopped = true
-      window.clearInterval(timer)
+      if (timer !== null) window.clearTimeout(timer)
       // 卸载（应用关闭 / 测试清理）：断开订阅，但后端任务继续执行
       observeRef.current?.abort()
       observeRef.current = null

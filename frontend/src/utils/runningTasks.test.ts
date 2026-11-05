@@ -15,6 +15,7 @@ import {
   modeLabel,
   overflowSummary,
   pillCounts,
+  pillsSignature,
   pillStatusLabel,
   runningTaskStage,
   runningTaskTitle,
@@ -359,5 +360,25 @@ describe('groupTaskPills / pillCounts', () => {
     expect(overflowSummary(tasks)).toBe(
       '另有 3 个任务未显示：1 个执行中、2 个待查看（含 1 个失败）',
     )
+  })
+})
+
+describe('pillsSignature', () => {
+  it('只对影响展示的字段敏感：相同内容得到相同签名', () => {
+    const base = [task('a', { status: 'running', stage: 'writer_started', message: '写作中' })]
+    expect(pillsSignature(base)).toBe(pillsSignature(base.map((item) => ({ ...item }))))
+  })
+
+  it('状态、阶段或消息变化时签名变化（轮询需要触发重渲染）', () => {
+    const running = task('a', { status: 'running', stage: 'writer_started' })
+    expect(pillsSignature([running])).not.toBe(
+      pillsSignature([{ ...running, stage: 'validator_started' }]),
+    )
+    expect(pillsSignature([running])).not.toBe(pillsSignature([{ ...running, status: 'completed' }]))
+  })
+
+  it('仅 query 等不参与展示的字段变化时签名不变（避免无谓重渲染）', () => {
+    const one = task('a', { status: 'running', query: '写一篇综述' })
+    expect(pillsSignature([one])).toBe(pillsSignature([{ ...one, query: '换个措辞' }]))
   })
 })
