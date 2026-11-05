@@ -65,6 +65,20 @@
 - [uv](https://docs.astral.sh/uv/)
 - Node.js 22+ 与 npm
 
+> **Python 3.14 由 uv 自己准备**：`backend/pyproject.toml` 里已写
+> `[tool.uv] python-downloads = "automatic"`。因此即使系统 Python 已升级到 3.15
+> （Fedora / RHEL 新版本常见），`uv sync` 也会自动装一个受管的 3.14 来建 `.venv`，
+> 不需要手动 `uv python install`——这是项目级配置覆盖发行版 uv 默认
+> `python-downloads="manual"` 的效果。
+>
+> 本项目锁 3.14 而不是 `>=3.14`：`chromadb` 依赖的 `onnxruntime` 等尚无 cp315 轮子。
+> 若下载 Python 失败（默认源是 `github.com`，被代理拦截时很常见），可换镜像：
+>
+> ```bash
+> UV_PYTHON_INSTALL_MIRROR=https://registry.npmmirror.com/-/binary/python-build-standalone \
+>   uv sync
+> ```
+
 > **慢网络安装提示**：`uv` 默认 HTTP 超时只有 30s，而本仓库要下载 torch（约 187MB）
 > 等较大的轮子。uv 是「边下载边解包」，传输中途超时会被报成
 > `Failed to extract archive ... network timeout`（看起来像包损坏，实际是网络读超时）。

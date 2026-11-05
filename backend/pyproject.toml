@@ -52,6 +52,13 @@ build-backend = "hatchling.build"
 # 适度降并发，慢链路下更稳（本表其余项均为合法字段）
 concurrent-downloads = 4
 
+# 由项目自己决定「没有 3.14 时自动下载受管解释器」。
+# 发行版打包的 uv（如 Fedora 的 /etc/uv/uv.toml）默认 python-downloads="manual"，
+# 而系统 Python 可能已升级到 3.15（本项目锁 3.14：onnxruntime 等暂无 cp315 轮子），
+# 那样 `uv sync` 会直接报 "No interpreter found for Python ==3.14.*"。
+# 项目级配置优先级高于系统配置，这里显式打开自动下载，`uv sync` 即可自备 3.14。
+python-downloads = "automatic"
+
 # 本项目不使用 GPU，PyTorch 走 CPU-only 源，避免下载 CUDA/triton 的巨大依赖。
 [[tool.uv.index]]
 name = "pytorch-cpu"
