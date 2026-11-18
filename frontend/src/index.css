@@ -539,6 +539,10 @@ html[data-theme='dark'] body {
   margin-bottom: var(--ws-space-5);
 }
 
+.page-header--actions-only {
+  justify-content: flex-end;
+}
+
 .page-header-text {
   min-width: 0;
 }
@@ -2668,4 +2672,94 @@ html[data-theme='dark'] body {
 
 .login-code-row .ant-input-affix-wrapper {
   flex: 1;
+}
+
+/* --- 顶栏板块标题 ---------------------------------------------------------- */
+.app-header-title {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.app-header-title__name {
+  flex: 0 0 auto;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ant-color-text);
+  white-space: nowrap;
+}
+
+.app-header-title__desc {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ant-color-text-tertiary);
+  font-size: var(--ws-font-secondary);
+}
+
+@media (max-width: 900px) {
+  .app-header-title__desc {
+    display: none;
+  }
+}
+
+/* --- 侧栏底部：模型 / 账号 ------------------------------------------------ */
+.sider-provider .app-header-provider {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+
+.sider-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: var(--ws-space-2);
+  border-top: 1px solid var(--ant-color-border);
+}
+
+.sider-account-avatar {
+  flex: 0 0 auto;
+}
+
+.sider-account-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+
+.sider-account-name {
+  font-size: var(--ws-font-secondary);
+  color: var(--ant-color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sider-account-role {
+  font-size: var(--ws-font-caption);
+  color: var(--ant-color-text-tertiary);
+}
+
+.app-sider.ant-layout-sider-collapsed .sider-provider,
+.app-sider.ant-layout-sider-collapsed .sider-account-meta,
+.app-sider.ant-layout-sider-collapsed .sider-account .ant-btn {
+  display: none;
+}
+
+.app-sider.ant-layout-sider-collapsed .sider-account {
+  justify-content: center;
+  padding-top: var(--ws-space-2);
+}
+
+/* --- 页面右上角操作按钮：统一尺寸与间距 ---------------------------------- */
+.page-header--actions-only .ant-btn {
+  height: 30px;
+  padding: 0 12px;
+  font-size: var(--ws-font-secondary);
 }

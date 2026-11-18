@@ -42,12 +42,12 @@ describe('NavProvider', () => {
     expect(PAGES).toEqual([
       'workspace',
       'knowledge',
-      'skills',
       'presets',
-      'providers',
       'history',
+      'skills',
       'memory',
-      'members',
+      'team',
+      'providers',
       'settings',
     ])
   })

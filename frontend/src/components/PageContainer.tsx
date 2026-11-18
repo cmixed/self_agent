@@ -1,11 +1,11 @@
-import { Space, Typography } from 'antd'
 import type { ReactNode } from 'react'
 
-const { Title, Text } = Typography
-
 interface PageContainerProps {
+  /**
+   * 页面元信息保留在调用处，供后续统一读取；
+   * 标题与说明已上移到顶栏，此处不再渲染（见 App.tsx PAGE_META）。
+   */
   title: string
-  /** 区域小标题（工作台 / 知识库 …） */
   eyebrow?: string
   description?: ReactNode
   /** 页头右侧操作区 */
@@ -15,32 +15,17 @@ interface PageContainerProps {
 }
 
 /**
- * 统一页面容器：页头（区域 + 标题 + 说明 + 操作）+ 内容区垂直间距。
+ * 统一页面容器：只保留操作区与内容区。
+ * 板块标题 / 说明由顶栏统一展示，避免同屏重复。
  */
 export default function PageContainer({
-  title,
-  eyebrow,
-  description,
   extra,
   maxWidth = 1200,
   children,
 }: PageContainerProps) {
   return (
     <div className="page-container" style={{ maxWidth }}>
-      <div className="page-header">
-        <div className="page-header-text">
-          {eyebrow ? <span className="page-eyebrow">{eyebrow}</span> : null}
-          <Title level={4} className="page-title">
-            {title}
-          </Title>
-          {description ? (
-            <Text type="secondary" className="page-description">
-              {description}
-            </Text>
-          ) : null}
-        </div>
-        {extra ? <Space size="small">{extra}</Space> : null}
-      </div>
+      {extra ? <div className="page-header page-header--actions-only">{extra}</div> : null}
       <div className="page-body">{children}</div>
     </div>
   )

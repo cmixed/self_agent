@@ -69,7 +69,7 @@ const { Text, Paragraph } = Typography
 const { Dragger } = Upload
 
 const PAGE_EYEBROW = '知识库'
-const PAGE_TITLE = '上传资料，构建你的个人知识库'
+const PAGE_TITLE = '上传资料，构建你的知识库'
 const PAGE_DESCRIPTION =
   '支持 PDF / TXT / Markdown；上传后自动解析、分块并写入向量库。可用类别自由组织，任务里按范围检索。'
 const PAGE_MAX_WIDTH = 1200

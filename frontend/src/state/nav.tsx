@@ -4,12 +4,12 @@ import type { ReactNode } from 'react'
 export const PAGES = [
   'workspace',
   'knowledge',
-  'skills',
   'presets',
-  'providers',
   'history',
+  'skills',
   'memory',
-  'members',
+  'team',
+  'providers',
   'settings',
 ] as const
 export type PageKey = (typeof PAGES)[number]

@@ -706,7 +706,7 @@ export default function TaskPage() {
   const currentFacts: string[] = []
   if (activeStage?.key === 'answer') {
     if (profile?.reason) currentFacts.push(profile.reason)
-    if (profile?.needs_retrieval) currentFacts.push('会先检索个人知识库')
+    if (profile?.needs_retrieval) currentFacts.push('会先检索团队知识库')
     if (profile?.estimated_calls) currentFacts.push(`预计 ${profile.estimated_calls} 次模型调用`)
   }
   if (activeStage?.key === 'planner' && plan?.goal) currentFacts.push(plan.goal)

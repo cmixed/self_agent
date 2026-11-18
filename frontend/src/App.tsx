@@ -18,6 +18,7 @@ import {
 } from '@ant-design/icons'
 import {
   App as AntApp,
+  Avatar,
   Badge,
   Button,
   ConfigProvider,
@@ -54,7 +55,7 @@ const PresetsPage = lazy(() => import('./pages/Presets'))
 const ProvidersPage = lazy(() => import('./pages/Providers'))
 const HistoryPage = lazy(() => import('./pages/History'))
 const MemoryPage = lazy(() => import('./pages/Memory'))
-const MembersPage = lazy(() => import('./pages/Members'))
+const TeamPage = lazy(() => import('./pages/Members'))
 const SettingsPage = lazy(() => import('./pages/Settings'))
 const LoginPage = lazy(() => import('./pages/Login'))
 
@@ -73,16 +74,80 @@ function PageFallback() {
 
 const { Content, Sider } = Layout
 
-const PAGE_META: Array<{ key: string; label: string; icon: ReactNode }> = [
-  { key: 'workspace', label: '工作台', icon: <RocketOutlined /> },
-  { key: 'knowledge', label: '知识库', icon: <DatabaseOutlined /> },
-  { key: 'skills', label: '技能', icon: <ApiOutlined /> },
-  { key: 'presets', label: '预设任务', icon: <TagsOutlined /> },
-  { key: 'history', label: '任务历史', icon: <HistoryOutlined /> },
-  { key: 'memory', label: '长期记忆', icon: <BulbOutlined /> },
-  { key: 'members', label: '成员', icon: <TeamOutlined /> },
-  { key: 'providers', label: '模型服务', icon: <CloudServerOutlined /> },
-  { key: 'settings', label: '设置', icon: <SettingOutlined /> },
+interface PageMeta {
+  key: string
+  label: string
+  icon: ReactNode
+  /** 顶栏主标题：加粗提亮 */
+  title: string
+  /** 顶栏副标题：一句话说明该板块 */
+  description: string
+}
+
+const PAGE_META: PageMeta[] = [
+  {
+    key: 'workspace',
+    label: '工作台',
+    icon: <RocketOutlined />,
+    title: '工作台',
+    description: '让 Agent 基于你的资料完成一个复杂任务。Agent 会规划任务、检索你的知识库，再分章节撰写并进行自我校验。',
+  },
+  {
+    key: 'knowledge',
+    label: '知识库',
+    icon: <DatabaseOutlined />,
+    title: '知识库',
+    description: '上传资料，构建你的知识库；按类别组织，任务里按范围检索。',
+  },
+  {
+    key: 'presets',
+    label: '预设任务',
+    icon: <TagsOutlined />,
+    title: '预设任务',
+    description: '管理工作台的快捷任务；点击卡片填入输入框，「直接运行」立即执行。',
+  },
+  {
+    key: 'history',
+    label: '任务历史',
+    icon: <HistoryOutlined />,
+    title: '任务历史',
+    description: '查看过去任务的执行状态与结果；点击任务可查看正文、来源与校验结论。',
+  },
+  {
+    key: 'skills',
+    label: '技能',
+    icon: <ApiOutlined />,
+    title: '技能',
+    description: '让 Agent 在任务中调用你的技能；技能以标准 SKILL.md 目录保存。',
+  },
+  {
+    key: 'memory',
+    label: '长期记忆',
+    icon: <BulbOutlined />,
+    title: '长期记忆',
+    description: '管理跨任务保留的偏好与信息；偏好会在后续任务中按模式生效。',
+  },
+  {
+    key: 'team',
+    label: '团队管理',
+    icon: <TeamOutlined />,
+    title: '团队管理',
+    description: '同一团队共享知识库；成员、权限与对外接口集中管理。',
+  },
+  {
+    key: 'providers',
+    label: '模型服务',
+    icon: <CloudServerOutlined />,
+    title: '模型服务',
+    description: '接入你自己的模型接口；支持 OpenAI 兼容端点与本地 Ollama。',
+  },
+  {
+    key: 'settings',
+    label: '设置',
+    icon: <SettingOutlined />,
+    title: '设置',
+    description: '管理长期偏好与提醒；偏好只保存在当前浏览器。',
+  },
 ]
 
 export default function App() {
@@ -197,7 +262,12 @@ function AppShell({
 
   // 成员管理只对管理员开放：非管理员不显示入口（后端仍会二次校验）
   const visiblePages = PAGE_META.filter(
-    (item) => item.key !== 'members' || getCachedUser()?.role === 'admin',
+    (item) => item.key !== 'team' || getCachedUser()?.role === 'admin',
+  )
+  // 「团队管理 / 模型服务 / 设置」属于配置类页面，整组放在分隔线下方；
+  // 非管理员看不到团队管理时，线自动上移到「模型服务」之前。
+  const configGroupStart = visiblePages.findIndex(
+    (item) => item.key === 'team' || item.key === 'providers' || item.key === 'settings',
   )
   const menuItems: MenuProps['items'] = visiblePages.flatMap((item, index) => {
     const entry: NonNullable<MenuProps['items']>[number] = {
@@ -213,8 +283,8 @@ function AppShell({
           item.icon
         ),
     }
-    // 「设置」与功能页面分组：前面加一条分隔线
-    return index === visiblePages.length - 1 ? [{ type: 'divider' as const }, entry] : [entry]
+    // 配置类页面整组之前加一条分隔线
+    return index === configGroupStart ? [{ type: 'divider' as const }, entry] : [entry]
   })
 
   const handleNav = (key: PageKey) => {
@@ -242,6 +312,16 @@ function AppShell({
         onClick={(event) => handleNav(event.key as PageKey)}
       />
       <div className="sider-footer">
+        {healthy ? (
+          <div className="sider-provider">
+            <ProviderSwitch
+              activeProvider={health?.llm_provider ?? ''}
+              // 任一任务在跑时禁止切换模型：避免同一次运行混用两个 Provider
+              running={running || runningTasks.length > 0}
+              onSwitched={reload}
+            />
+          </div>
+        ) : null}
         <Tooltip title={healthDetail} placement="right">
           <div className="health-row">
             <Badge status={healthColor} />
@@ -255,6 +335,26 @@ function AppShell({
             />
           </div>
         </Tooltip>
+        <div className="sider-account">
+          <Avatar size={28} className="sider-account-avatar">
+            {(getCachedUser()?.display_name || '?').slice(0, 1).toUpperCase()}
+          </Avatar>
+          <div className="sider-account-meta">
+            <span className="sider-account-name">{getCachedUser()?.display_name || '成员'}</span>
+            <span className="sider-account-role">
+              {getCachedUser()?.role === 'admin' ? '管理员' : '成员'}
+            </span>
+          </div>
+          <Tooltip title="退出登录">
+            <Button
+              type="text"
+              size="small"
+              aria-label="退出登录"
+              icon={<LogoutOutlined />}
+              onClick={onLogout}
+            />
+          </Tooltip>
+        </div>
         <div className="sider-version">{APP_VERSION}</div>
       </div>
     </>
@@ -303,16 +403,16 @@ function AppShell({
               onClick={() => setCollapsed((prev) => !prev)}
             />
           )}
+          <div className="app-header-title">
+            <span className="app-header-title__name">
+              {PAGE_META.find((item) => item.key === page)?.title}
+            </span>
+            <span className="app-header-title__desc">
+              {PAGE_META.find((item) => item.key === page)?.description}
+            </span>
+          </div>
           <div className="app-header-actions">
             <RunningTasks />
-            {healthy ? (
-              <ProviderSwitch
-                activeProvider={health?.llm_provider ?? ''}
-                // 任一任务在跑时禁止切换模型：避免同一次运行混用两个 Provider
-                running={running || runningTasks.length > 0}
-                onSwitched={reload}
-              />
-            ) : null}
             <Tooltip
               title={
                 mode === 'system'
@@ -330,15 +430,6 @@ function AppShell({
                 onClick={toggleMode}
               />
             </Tooltip>
-            <Tooltip title="退出登录">
-              <Button
-                type="text"
-                size="small"
-                aria-label="退出登录"
-                icon={<LogoutOutlined />}
-                onClick={onLogout}
-              />
-            </Tooltip>
           </div>
         </div>
 
@@ -354,7 +445,7 @@ function AppShell({
                 {page === 'providers' && <ProvidersPage />}
                 {page === 'history' && <HistoryPage />}
                 {page === 'memory' && <MemoryPage />}
-                {page === 'members' && <MembersPage />}
+                {page === 'team' && <TeamPage />}
                 {page === 'settings' && <SettingsPage mode={mode} setMode={setMode} />}
               </Suspense>
             </div>
