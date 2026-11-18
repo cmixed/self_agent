@@ -31,7 +31,7 @@ import {
 import type { MenuProps } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import type { ReactNode } from 'react'
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 
 import ErrorBoundary from './components/ErrorBoundary'
 import { fetchMe, getCachedUser, getToken, logout, onUnauthorized } from './services/auth'
@@ -250,6 +250,13 @@ function AppShell({
       }`
     : '无法连接后端（请确认 FastAPI 已启动）'
 
+  // 侧栏底部唯一的刷新入口：同时重拉健康状态和当前页数据，
+  // 不再在顶栏和状态卡片里各放一个，避免同一个动作出现两处按钮
+  const refreshAll = useCallback(() => {
+    reload()
+    window.dispatchEvent(new CustomEvent('app:refresh'))
+  }, [reload])
+
   // 成员管理只对管理员开放：非管理员不显示入口（后端仍会二次校验）
   const visiblePages = PAGE_META.filter(
     (item) => item.key !== 'team' || getCachedUser()?.role === 'admin',
@@ -302,31 +309,24 @@ function AppShell({
         onClick={(event) => handleNav(event.key as PageKey)}
       />
       <div className="sider-footer">
-        <Tooltip title={healthDetail} placement="topLeft">
-          <div className="sider-system">
-            <div className="sider-system__status">
+        {/* 一条：左侧模型（点击切换）+ 右侧连接状态小点，悬停看详情 */}
+        <div className="sider-system">
+          {healthy ? (
+            <ProviderSwitch
+              activeProvider={health?.llm_provider ?? ''}
+              // 任一任务在跑时禁止切换模型：避免同一次运行混用两个 Provider
+              running={running || runningTasks.length > 0}
+              onSwitched={reload}
+            />
+          ) : (
+            <span className="sider-system__offline">{healthText}</span>
+          )}
+          <Tooltip title={healthDetail} placement="topLeft">
+            <span className="sider-system__dot" aria-label={healthDetail}>
               <Badge status={healthColor} />
-              <span className="health-text">{healthText}</span>
-              <Button
-                type="text"
-                size="small"
-                aria-label="重新检查后端状态"
-                icon={<ReloadOutlined />}
-                onClick={reload}
-              />
-            </div>
-            {healthy ? (
-              <div className="sider-system__provider">
-                <ProviderSwitch
-                  activeProvider={health?.llm_provider ?? ''}
-                  // 任一任务在跑时禁止切换模型：避免同一次运行混用两个 Provider
-                  running={running || runningTasks.length > 0}
-                  onSwitched={reload}
-                />
-              </div>
-            ) : null}
-          </div>
-        </Tooltip>
+            </span>
+          </Tooltip>
+        </div>
         <div className="sider-account">
           <Avatar size={28} className="sider-account-avatar">
             {(getCachedUser()?.display_name || '?').slice(0, 1).toUpperCase()}
@@ -337,6 +337,15 @@ function AppShell({
               {getCachedUser()?.role === 'admin' ? '管理员' : '成员'}
             </span>
           </div>
+          <Tooltip title="刷新（状态与当前页数据）">
+            <Button
+              type="text"
+              size="small"
+              aria-label="刷新"
+              icon={<ReloadOutlined />}
+              onClick={refreshAll}
+            />
+          </Tooltip>
           <Tooltip title="退出登录">
             <Button
               type="text"
@@ -404,17 +413,9 @@ function AppShell({
           </div>
           <div className="app-header-actions">
             <RunningTasks />
-            {/* 页面操作按钮（刷新 / 导入 / 导出 / 新增）统一挂在顶栏右上角 */}
+            {/* 页面操作按钮（导入 / 导出 / 新增）统一挂在顶栏右上角；
+                刷新入口在侧栏底部（退出登录左侧），此处不再重复 */}
             <div className="app-header-page-actions" data-page-actions-slot={page} />
-            <Tooltip title="刷新当前页面">
-              <Button
-                type="text"
-                size="small"
-                aria-label="刷新当前页面"
-                icon={<ReloadOutlined />}
-                onClick={() => window.dispatchEvent(new CustomEvent('app:refresh'))}
-              />
-            </Tooltip>
             <Tooltip
               title={
                 mode === 'system'

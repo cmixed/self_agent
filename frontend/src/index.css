@@ -258,11 +258,6 @@ html[data-theme='dark'] body {
   gap: 8px;
 }
 
-.health-text {
-  font-size: var(--ws-font-caption);
-  color: var(--ant-color-text-secondary);
-}
-
 .sider-version {
   font-size: var(--ws-font-caption);
   color: var(--ant-color-text-quaternary);
@@ -275,14 +270,15 @@ html[data-theme='dark'] body {
 }
 
 .app-sider.ant-layout-sider-collapsed .brand-text,
-.app-sider.ant-layout-sider-collapsed .health-text,
 .app-sider.ant-layout-sider-collapsed .sider-version {
   display: none;
 }
 
-.app-sider.ant-layout-sider-collapsed .sider-system,
-.app-sider.ant-layout-sider-collapsed .sider-system__status {
+.app-sider.ant-layout-sider-collapsed .sider-system {
   justify-content: center;
+  padding: 4px 0;
+  border-color: transparent;
+  background: transparent;
 }
 
 .app-header {
@@ -488,7 +484,7 @@ html[data-theme='dark'] body {
   color: var(--ant-color-primary);
 }
 
-/* 顶栏模型服务商切换器：宽度随当前模型名自适应（不再固定 118px 导致模型名被截断），
+/* 模型服务商切换器（现位于侧栏底部一条内）：宽度随当前模型名自适应，
    上限 240px，超长时由 antd 省略号处理，悬停 Tooltip 可看完整模型名 */
 .app-header-provider {
   flex: 0 0 auto;
@@ -2601,14 +2597,6 @@ html[data-theme='dark'] body {
   }
 }
 
-@media (max-width: 640px) {
-  /* 窄屏给标题留空间：切换器收窄，模型名仍可悬停查看 */
-  .app-header-provider {
-    min-width: 104px;
-    max-width: 168px;
-  }
-}
-
 /* --- 打印（答辩导出 PDF 用） ---------------------------------------------- */
 @media print {
   .app-sider,
@@ -2703,36 +2691,60 @@ html[data-theme='dark'] body {
   }
 }
 
-/* --- 侧栏底部：模型 / 账号 ------------------------------------------------ */
+/* --- 侧栏底部：模型与连接状态一条 / 账号 -------------------------------- */
 .sider-system {
+  display: flex;
+  align-items: center;
+  gap: var(--ws-space-2);
+  min-width: 0;
+  padding: 2px 4px 2px 2px;
   border: 1px solid var(--ant-color-border);
   border-radius: var(--ws-radius);
   background: var(--ant-color-bg-layout);
-  overflow: hidden;
 }
 
-.sider-system__status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px 2px;
-}
-
-.sider-system__provider {
-  padding: 2px 8px 6px;
-}
-
-.sider-system__provider .app-header-provider {
-  width: 100%;
+/* 下拉本体不再画边框、不再填底色：整条只有一个框，模型名占满左侧，状态点贴右端。
+   antd 6 的边框与底色画在 .ant-select 根节点上（不是 .ant-select-selector） */
+.sider-system .app-header-provider {
+  flex: 1 1 auto;
+  width: auto;
   min-width: 0;
   max-width: none;
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  font-size: var(--ws-font-secondary);
 }
 
-.sider-system__health {
-  display: flex;
+.sider-system .app-header-provider:hover,
+.sider-system .app-header-provider.ant-select-open {
+  background: var(--ant-color-fill-tertiary) !important;
+}
+
+.sider-system__offline {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-left: 6px;
+  font-size: var(--ws-font-secondary);
+  color: var(--ant-color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sider-system__dot {
+  flex: 0 0 auto;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 0;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  cursor: default;
+}
+
+.sider-system__dot .ant-badge-status-dot {
+  width: 8px;
+  height: 8px;
 }
 
 .sider-account {
@@ -2768,9 +2780,9 @@ html[data-theme='dark'] body {
   color: var(--ant-color-text-tertiary);
 }
 
-.app-sider.ant-layout-sider-collapsed .sider-system__provider,
-.app-sider.ant-layout-sider-collapsed .health-text,
-.app-sider.ant-layout-sider-collapsed .sider-system__status .ant-btn,
+/* 折叠态：模型名、离线提示、成员信息与操作按钮都放不下，只留状态点 + 头像 */
+.app-sider.ant-layout-sider-collapsed .sider-system .app-header-provider,
+.app-sider.ant-layout-sider-collapsed .sider-system__offline,
 .app-sider.ant-layout-sider-collapsed .sider-account-meta,
 .app-sider.ant-layout-sider-collapsed .sider-account .ant-btn {
   display: none;
