@@ -268,8 +268,9 @@ class KnowledgePackageService:
     def ttl_seconds(self) -> float:
         return self._previews.ttl_seconds
 
-    async def export_all(self) -> bytes:
-        documents = await self._documents.list_documents()
+    async def export_all(self, *, user_id: str | None = None, is_admin: bool = False) -> bytes:
+        """导出知识库；按导出者的可见范围过滤（管理员导出全部）。"""
+        documents = await self._documents.list_documents(user_id=user_id, is_admin=is_admin)
         mapping = await self._categories.document_category_map()
         category_records = await self._categories.list_categories()
         for document in documents:
@@ -365,7 +366,8 @@ class KnowledgePackageService:
                 continue
         return hashes
 
-    async def confirm(self, token: str) -> KnowledgeImportResult:
+    async def confirm(self, token: str, *, owner_id: str | None = None) -> KnowledgeImportResult:
+        """确认导入；导入的文档归属为执行导入的成员，默认团队共享。"""
         preview = await self._previews.pop(
             token, expired_message="导入预览已过期，请重新上传知识库包"
         )
@@ -387,7 +389,9 @@ class KnowledgePackageService:
                     continue
                 try:
                     content = archive.read(item.member)
-                    document = await self._documents.ingest(filename=item.filename, content=content)
+                    document = await self._documents.ingest(
+                        filename=item.filename, content=content, owner_id=owner_id
+                    )
                 except Exception as exc:
                     message = str(exc) if isinstance(exc, DocumentError) else "导入失败"
                     failed.append(KnowledgeImportFailure(filename=item.filename, message=message))

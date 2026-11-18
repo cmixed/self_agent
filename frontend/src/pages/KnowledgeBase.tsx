@@ -27,6 +27,7 @@ import {
   Modal,
   Popconfirm,
   Progress,
+  Segmented,
   Space,
   Spin,
   Table,
@@ -51,8 +52,11 @@ import {
   deleteDocument,
   exportKnowledgeBase,
   listCategories,
+  getDocumentPreferences,
   listDocuments,
   previewKnowledgeImport,
+  setDocumentPreferences,
+  setDocumentVisibility,
   setDocumentCategories,
   updateCategory,
   uploadDocument,
@@ -93,6 +97,8 @@ export default function KnowledgeBasePage() {
   const [categories, setCategories] = useState<CategoryInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [uploadingCount, setUploadingCount] = useState(0)
+  // 上传时的可见范围：默认取成员偏好（团队共享 / 仅自己）
+  const [uploadVisibility, setUploadVisibility] = useState<'team' | 'private'>('team')
   const [uploadProgress, setUploadProgress] = useState<{ name: string; percent: number } | null>(
     null,
   )
@@ -133,6 +139,14 @@ export default function KnowledgeBasePage() {
     void refresh()
   }, [refresh])
 
+  useEffect(() => {
+    void getDocumentPreferences()
+      .then((preference) => setUploadVisibility(preference.default_visibility))
+      .catch(() => {
+        // 偏好读取失败不影响上传，退化为团队共享
+      })
+  }, [])
+
   const categoryNames = useMemo(
     () => Object.fromEntries(categories.map((item) => [item.category_id, item.name])),
     [categories],
@@ -157,13 +171,36 @@ export default function KnowledgeBasePage() {
     (item) => (item.category_ids ?? []).length === 0,
   ).length
 
+  const handleToggleVisibility = async (record: DocumentInfo) => {
+    const next = (record.visibility ?? 'team') === 'private' ? 'team' : 'private'
+    try {
+      await setDocumentVisibility(record.document_id, next)
+      message.success(next === 'team' ? '已改为团队共享' : '已改为仅自己可见')
+      await refresh()
+    } catch (err) {
+      message.error(err instanceof ApiError ? err.message : '修改可见范围失败')
+    }
+  }
+
+  const saveDefaultVisibility = async () => {
+    try {
+      await setDocumentPreferences(uploadVisibility)
+      message.success(
+        uploadVisibility === 'team' ? '以后上传默认团队共享' : '以后上传默认仅自己可见',
+      )
+    } catch (err) {
+      message.error(err instanceof ApiError ? err.message : '保存默认范围失败')
+    }
+  }
+
   const runUpload = async (file: File) => {
     setUploadProgress({ name: file.name, percent: 0 })
     setError(null)
     try {
-      const info = await uploadDocument(file, (percent) =>
-        setUploadProgress({ name: file.name, percent }),
-      )
+      const info = await uploadDocument(file, {
+        visibility: uploadVisibility,
+        onProgress: (percent) => setUploadProgress({ name: file.name, percent }),
+      })
       message.success(`已索引《${info.filename}》，切分为 ${info.chunks} 个文本块`)
       await refresh()
     } catch (err) {
@@ -617,6 +654,30 @@ export default function KnowledgeBasePage() {
                   },
                   { title: '标题', dataIndex: 'title', key: 'title' },
                   {
+                    title: '可见范围',
+                    key: 'visibility',
+                    width: 150,
+                    render: (_, record) => {
+                      const isPrivate = (record.visibility ?? 'team') === 'private'
+                      return (
+                        <Space size={4}>
+                          <Tag color={isPrivate ? 'orange' : 'green'}>
+                            {isPrivate ? '私有' : '共享'}
+                          </Tag>
+                          {record.can_manage ? (
+                            <Button
+                              type="link"
+                              size="small"
+                              onClick={() => void handleToggleVisibility(record)}
+                            >
+                              {isPrivate ? '改为共享' : '改为私有'}
+                            </Button>
+                          ) : null}
+                        </Space>
+                      )
+                    },
+                  },
+                  {
                     title: '类别',
                     key: 'categories',
                     render: (_, record) => {
@@ -691,6 +752,26 @@ export default function KnowledgeBasePage() {
             )}
           </Card>
           <Card title="上传知识文档">
+            <Space direction="vertical" size={4} style={{ marginBottom: 12 }}>
+              <Space size={8} wrap>
+                <Text type="secondary">可见范围</Text>
+                <Segmented
+                  size="small"
+                  value={uploadVisibility}
+                  onChange={(value: string | number) => setUploadVisibility(value as 'team' | 'private')}
+                  options={[
+                    { label: '团队共享', value: 'team' },
+                    { label: '仅自己', value: 'private' },
+                  ]}
+                />
+                <Button type="link" size="small" onClick={() => void saveDefaultVisibility()}>
+                  设为默认
+                </Button>
+              </Space>
+              <Text type="secondary">
+                团队共享的文档所有成员都能检索；私有的只有你和管理员可见、可检索。
+              </Text>
+            </Space>
             <Dragger {...uploadProps}>
               <p className="ant-upload-drag-icon">
                 <InboxOutlined />

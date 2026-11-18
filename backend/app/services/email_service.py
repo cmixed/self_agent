@@ -284,6 +284,54 @@ class EmailService:
         )
         return subject
 
+    async def send_reset_code(self, *, to: str, code: str, minutes: int) -> None:
+        """发送密码重置验证码（纯文本，无附件）。"""
+        settings = self._settings
+        if not settings.smtp_configured:
+            raise EmailNotConfiguredError(
+                "邮件发送尚未配置：请在 backend/.env 中填写 "
+                "SMTP_HOST、SMTP_USERNAME、SMTP_PASSWORD 与 SMTP_FROM"
+            )
+        recipient = normalize_recipient(to)
+
+        message = EmailMessage()
+        message["Subject"] = f"【{settings.smtp_from_name}】密码重置验证码"
+        message["From"] = formataddr(
+            (_clean_header(settings.smtp_from_name, limit=40, fallback="Agent"), settings.effective_smtp_from)
+        )
+        message["To"] = recipient
+        message.set_content(
+            "\n".join(
+                [
+                    "你正在重置「团队知识库助手」的登录密码。",
+                    "",
+                    f"验证码：{code}",
+                    f"有效期：{minutes} 分钟；连续输错 5 次将作废。",
+                    "",
+                    "如果这不是你本人的操作，请忽略本邮件，并联系管理员检查账号。",
+                ]
+            )
+        )
+
+        try:
+            await asyncio.to_thread(self._deliver, message)
+        except EmailError:
+            raise
+        except smtplib.SMTPAuthenticationError as exc:
+            raise EmailAuthFailedError(
+                "SMTP 认证失败：请检查 SMTP_USERNAME / SMTP_PASSWORD"
+                "（多数邮箱需要「授权码」而不是登录密码）"
+            ) from exc
+        except smtplib.SMTPRecipientsRefused as exc:
+            raise EmailRecipientRejectedError("收件邮箱被邮件服务器拒收，请确认地址是否正确") from exc
+        except (smtplib.SMTPException, TimeoutError, OSError, ssl.SSLError) as exc:
+            raise EmailDeliveryError("邮件发送失败：请检查 SMTP 配置与网络连接") from exc
+
+        logger.info(
+            "验证码已发送",
+            extra={"event": "email_reset_code_sent", "status": "ok", "to": mask_email(recipient)},
+        )
+
     async def _reserve(self, key: tuple[str, str, str]) -> None:
         cooldown = self._settings.email_cooldown_seconds
         if cooldown <= 0:

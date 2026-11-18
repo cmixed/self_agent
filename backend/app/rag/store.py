@@ -161,6 +161,8 @@ class ChromaStore:
             "filename": first.get("filename", ""),
             "title": first.get("title", ""),
             "chunks": len(metadatas),
+            "owner_id": first.get("owner_id"),
+            "visibility": first.get("visibility") or "team",
         }
 
     def add_chunks(
@@ -180,6 +182,24 @@ class ChromaStore:
                 metadatas=[dict(meta) for meta in metadatas[start:stop]],
                 embeddings=[list(vector) for vector in embeddings[start:stop]],
             )
+
+    def set_document_metadata(self, document_id: str, updates: dict[str, Any]) -> int:
+        """把某文档所有切片的元数据合并更新（切换可见范围 / 转移归属）。
+
+        返回受影响的切片数；文档不存在时返回 0。
+        """
+        result = self._collection.get(where={"document_id": document_id}, include=["metadatas"])
+        ids = list(result.get("ids") or [])
+        if not ids:
+            return 0
+        metadatas = [dict(meta or {}) for meta in (result.get("metadatas") or [])]
+        merged = [{**meta, **updates} for meta in metadatas]
+        self._collection.update(ids=ids, metadatas=merged)
+        self._documents_cache = None
+        return len(ids)
+
+    async def aset_document_metadata(self, document_id: str, updates: dict[str, Any]) -> int:
+        return await self._run(self.set_document_metadata, document_id, updates)
 
     def delete_document(self, document_id: str) -> None:
         self._documents_cache = None
@@ -205,6 +225,8 @@ class ChromaStore:
                     "filename": metadata.get("filename", ""),
                     "title": metadata.get("title", ""),
                     "chunks": 0,
+                    "owner_id": metadata.get("owner_id"),
+                    "visibility": metadata.get("visibility") or "team",
                 },
             )
             entry["chunks"] += 1

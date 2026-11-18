@@ -9,10 +9,11 @@ Embedding 模型加载。
 
 from __future__ import annotations
 
-from fastapi import Depends, Header
+from fastapi import Depends, Header, HTTPException
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from app.agents.skills import CatalogEntry
+from app.auth.service import AuthService
 from app.core import task_registry as core_task_registry
 from app.core.checkpoint import CheckpointStore
 from app.core.config import get_settings
@@ -20,11 +21,14 @@ from app.core.task_registry import TaskRegistry
 from app.embedding.factory import get_embedding_provider
 from app.llm.base import LLMProvider
 from app.llm.factory import get_llm
+from app.memory.api_keys import ApiKeyRepository
 from app.memory.repository import MemoryRepository, TaskRepository
 from app.memory.sqlite import SqliteDatabase
+from app.memory.users import ROLE_ADMIN, STATUS_ACTIVE, UserRecord, UserRepository
 from app.rag.retriever import Retriever
 from app.rag.store import ChromaStore
 from app.rag.tools import RagTool
+from app.services.api_key_service import ApiKeyService
 from app.services.backup_service import BackupService
 from app.services.category_service import CategoryService
 from app.services.document_service import DocumentService
@@ -51,6 +55,8 @@ _skill_package_service: SkillPackageService | None = None
 _database: SqliteDatabase | None = None
 _checkpoint_store: CheckpointStore | None = None
 _email_service: EmailService | None = None
+_auth_service: AuthService | None = None
+_api_key_service: ApiKeyService | None = None
 _preset_package_service: PresetPackageService | None = None
 _memory_package_service: MemoryPackageService | None = None
 _knowledge_package_service: KnowledgePackageService | None = None
@@ -212,11 +218,103 @@ def build_provider_service() -> ProviderService:
     return ProviderService(build_database())
 
 
-def get_user_id(x_user_id: str | None = Header(default=None, alias="X-User-Id")) -> str:
-    """无复杂用户系统（§31）：默认单用户，可通过请求头覆盖。"""
+def build_user_repository() -> UserRepository:
+    return UserRepository(build_database())
+
+
+def build_auth_service() -> AuthService:
+    """登录服务：令牌解析、成员管理、邮箱验证码重置。"""
+    global _auth_service
+    if _auth_service is None:
+        _auth_service = AuthService(
+            build_user_repository(), get_settings(), email_service=build_email_service()
+        )
+    return _auth_service
+
+
+def build_api_key_repository() -> ApiKeyRepository:
+    return ApiKeyRepository(build_database())
+
+
+def build_api_key_service() -> ApiKeyService:
+    """对外接口密钥：签发 / 吊销 / 校验。"""
+    global _api_key_service
+    if _api_key_service is None:
+        _api_key_service = ApiKeyService(build_api_key_repository(), build_user_repository())
+    return _api_key_service
+
+
+def get_api_key_user(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> UserRecord:
+    """对外接口鉴权：密钥所属成员即当前身份（可见范围照旧生效）。"""
+    user = build_api_key_service().authenticate(x_api_key or "")
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="无效或已吊销的 API Key",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+    return user
+
+
+def _bearer_token(authorization: str | None) -> str:
+    if not authorization:
+        return ""
+    scheme, _, token = authorization.partition(" ")
+    return token.strip() if scheme.lower() == "bearer" else ""
+
+
+def get_current_user(
+    authorization: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+) -> UserRecord:
+    """当前成员：优先 Bearer 令牌；过渡期允许 X-User-Id 头（见 allow_header_user）。"""
     settings = get_settings()
-    candidate = (x_user_id or "").strip()
-    return candidate or settings.default_user_id
+    token = _bearer_token(authorization)
+    if token:
+        user = build_auth_service().resolve_token(token)
+        if user is None:
+            raise HTTPException(
+                status_code=401,
+                detail="登录已过期，请重新登录",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return user
+
+    if not settings.allow_header_user:
+        raise HTTPException(
+            status_code=401,
+            detail="请先登录",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 过渡路径：未登录时沿用旧行为（单机调试 / 既有测试）
+    candidate = (x_user_id or "").strip() or settings.default_user_id
+    existing = build_user_repository().get_by_id(candidate)
+    if existing is not None:
+        return existing
+    return UserRecord(
+        user_id=candidate,
+        username=None,
+        display_name=candidate,
+        email=None,
+        role=ROLE_ADMIN if candidate == settings.default_user_id else "member",
+        status=STATUS_ACTIVE,
+        created_at="",
+        last_login_at=None,
+    )
+
+
+def require_admin(user: UserRecord = Depends(get_current_user)) -> UserRecord:
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return user
+
+
+def get_user_id(current: UserRecord = Depends(get_current_user)) -> str:
+    """成员 id：供各业务路由做数据隔离（团队版由登录态决定）。"""
+    return current.user_id
 
 
 async def get_task_service(provider: LLMProvider = Depends(get_llm_provider)) -> TaskService:
@@ -371,7 +469,7 @@ def reset_caches() -> None:
     global _store, _task_repository, _memory_repository
     global _skill_store, _skill_package_service, _database, _email_service
     global _preset_package_service, _memory_package_service, _knowledge_package_service
-    global _backup_service
+    global _backup_service, _auth_service, _api_key_service
     _store = None
     _task_repository = None
     _memory_repository = None
@@ -383,3 +481,5 @@ def reset_caches() -> None:
     _memory_package_service = None
     _knowledge_package_service = None
     _backup_service = None
+    _auth_service = None
+    _api_key_service = None

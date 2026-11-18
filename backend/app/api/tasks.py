@@ -20,6 +20,8 @@ from fastapi.responses import StreamingResponse
 from app.api.deps import (
     get_category_service,
     get_checkpoint_store,
+    get_current_user,
+    get_document_service,
     get_memory_service,
     get_task_registry,
     get_task_repository,
@@ -31,6 +33,7 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.task_registry import TaskRegistry
 from app.memory.repository import TaskRepository
+from app.memory.users import UserRecord
 from app.memory.selection import select_memories
 from app.memory.signals import memory_signal
 from app.models.schemas import (
@@ -46,6 +49,7 @@ from app.models.schemas import (
 )
 from app.models.state import RetrievalMode, RetrievalScope
 from app.services.category_service import CategoryService
+from app.services.document_service import DocumentService
 from app.services.memory_service import MemoryService
 from app.services.task_service import TaskService, task_result
 from app.services.verbatim_service import (
@@ -63,6 +67,8 @@ async def _resolve_retrieval(
     scope: TaskScope | None,
     categories: CategoryService,
     mode: RetrievalMode | None,
+    *,
+    visible_ids: set[str] | None = None,
 ) -> tuple[RetrievalMode, RetrievalScope | None]:
     """解析检索模式与范围。
 
@@ -72,14 +78,33 @@ async def _resolve_retrieval(
       覆盖 1 篇文档，否则返回 409，绝不静默退化为「全部」。
 
     ``mode`` 缺省时兼容旧客户端：scope 非空按 selected，否则 all。
+
+    ``visible_ids`` 是当前成员可检索的文档集合（None 表示不设限，如管理员）：
+    - all → 冻结为该成员的可见集合（成员不再有机会检索到别人的私有文档）；
+    - selected → 与用户选择取交集，交集为空直接 409，绝不静默放开。
     """
     category_ids = list(dict.fromkeys(scope.category_ids)) if scope else []
     document_ids = list(dict.fromkeys(scope.document_ids)) if scope else []
     has_scope = bool(category_ids or document_ids)
     effective: RetrievalMode = mode or ("selected" if has_scope else "all")
 
-    if effective in {"all", "none"}:
-        return effective, None
+    if effective == "none":
+        return "none", None
+
+    if effective == "all":
+        if visible_ids is None:
+            return "all", None
+        if not visible_ids:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="知识库里还没有你可访问的文档，请先上传或请同事共享",
+            )
+        return "selected", {
+            "document_ids": sorted(visible_ids),
+            "category_ids": [],
+            "selected_document_ids": [],
+            "label": f"全部可访问文档（{len(visible_ids)} 篇）",
+        }
 
     if not has_scope:
         raise HTTPException(
@@ -88,6 +113,8 @@ async def _resolve_retrieval(
         )
 
     resolved = await categories.resolve_scope(category_ids=category_ids, document_ids=document_ids)
+    if visible_ids is not None:
+        resolved = [item for item in resolved if item in visible_ids]
     if not resolved:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -233,9 +260,12 @@ async def create_task(
     memory_service: MemoryService = Depends(get_memory_service),
     repository: TaskRepository = Depends(get_task_repository),
     user_id: str = Depends(get_user_id),
+    user: UserRecord = Depends(get_current_user),
+    documents: DocumentService = Depends(get_document_service),
 ) -> TaskResponse:
+    visible_ids = await documents.visible_document_ids(user_id=user.user_id, is_admin=user.is_admin)
     retrieval_mode, retrieval_scope = await _resolve_retrieval(
-        payload.scope, categories, payload.retrieval_mode
+        payload.scope, categories, payload.retrieval_mode, visible_ids=visible_ids
     )
 
     # 先生成 task_id 并写入 request.state：失败时错误响应也会带上它，
@@ -562,6 +592,8 @@ async def stream_task(
     repository: TaskRepository = Depends(get_task_repository),
     registry: TaskRegistry = Depends(get_task_registry),
     user_id: str = Depends(get_user_id),
+    user: UserRecord = Depends(get_current_user),
+    documents: DocumentService = Depends(get_document_service),
 ) -> StreamingResponse:
     """以 SSE 推送 Agent 执行进度。
 
@@ -571,8 +603,9 @@ async def stream_task(
     task_id = str(uuid4())
     request.state.task_id = task_id
 
+    visible_ids = await documents.visible_document_ids(user_id=user.user_id, is_admin=user.is_admin)
     retrieval_mode, retrieval_scope = await _resolve_retrieval(
-        payload.scope, categories, payload.retrieval_mode
+        payload.scope, categories, payload.retrieval_mode, visible_ids=visible_ids
     )
 
     # 直接输出原文：只推送「查找文档 → 读取原文」，不进入 Agent Graph。
@@ -697,6 +730,8 @@ async def rerun_task(
     memory_service: MemoryService = Depends(get_memory_service),
     registry: TaskRegistry = Depends(get_task_registry),
     user_id: str = Depends(get_user_id),
+    user: UserRecord = Depends(get_current_user),
+    documents: DocumentService = Depends(get_document_service),
 ) -> StreamingResponse:
     """用同一 query **重新生成**：新建一次运行（新 task_id），原任务记录保持不变。
 
@@ -730,6 +765,9 @@ async def rerun_task(
     # 重跑按原任务的范围**重新解析**：类别里新增的文档会被纳入（新一次运行）
     rerun_scope = None
     if rerun_retrieval_mode == "selected" and previous_scope:
+        rerun_visible = await documents.visible_document_ids(
+            user_id=user.user_id, is_admin=user.is_admin
+        )
         _, rerun_scope = await _resolve_retrieval(
             TaskScope(
                 category_ids=list(previous_scope.get("category_ids") or []),
@@ -737,6 +775,7 @@ async def rerun_task(
             ),
             categories,
             "selected",
+            visible_ids=rerun_visible,
         )
 
     previous_mode = previous.get("mode")

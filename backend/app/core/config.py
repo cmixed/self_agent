@@ -55,8 +55,21 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     # 逗号分隔的前端来源，用于 CORS
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
-    # 无复杂用户系统（§31）：默认用户，可通过 X-User-Id 头覆盖
+    # 旧版单用户默认 id；团队版仍用它承载首个管理员，历史数据不丢
     default_user_id: str = "local-user"
+
+    # --- 团队版：成员与登录 ---
+    # 过渡开关：True 时仍接受 X-User-Id 请求头（前端尚未接入 token 时保持兼容）；
+    # 全员改用账号密码登录后应置为 False，关闭「改个头就是别人」的口子。
+    allow_header_user: bool = True
+    auth_token_ttl_hours: int = 72
+    # 首次启动自动创建的管理员（旧默认用户会被就地升级为管理员，历史数据不丢）
+    auth_admin_username: str = "admin"
+    auth_admin_password: SecretStr = SecretStr("admin12345")
+    auth_admin_email: str = ""
+    # 邮箱验证码重置：有效期与最大错误次数
+    reset_code_ttl_minutes: int = 10
+    reset_code_max_attempts: int = 5
 
     # --- 持久化 ---
     sqlite_path: Path = _REPO_ROOT / "data" / "sqlite" / "app.db"

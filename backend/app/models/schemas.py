@@ -530,6 +530,23 @@ class DocumentInfo(BaseModel):
     chunks: int
     # 所属类别（多标签）：列表接口一次性带出，避免前端逐文档查询
     category_ids: list[str] = Field(default_factory=list)
+    # 团队版：归属与可见范围。team = 团队共享（默认）；private = 仅上传者与管理员
+    owner_id: str | None = None
+    visibility: str = "team"
+    # 当前请求者能否改可见范围 / 删除（上传者或管理员）
+    can_manage: bool = False
+
+
+class DocumentVisibilityUpdate(BaseModel):
+    """切换文档可见范围：team = 团队共享，private = 仅自己。"""
+
+    visibility: Literal["team", "private"]
+
+
+class DocumentPreferencesUpdate(BaseModel):
+    """成员级文档偏好：上传时的默认可见范围。"""
+
+    default_visibility: Literal["team", "private"]
 
 
 class TaskSummaryOut(BaseModel):

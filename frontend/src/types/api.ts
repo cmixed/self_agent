@@ -475,6 +475,8 @@ export interface TaskState {
   sources_count: number
 }
 
+export type DocumentVisibility = 'team' | 'private'
+
 export interface DocumentInfo {
   document_id: string
   filename: string
@@ -482,6 +484,12 @@ export interface DocumentInfo {
   chunks: number
   /** 所属类别（多标签），由列表接口一次性带出 */
   category_ids: string[]
+  /** 归属成员；旧数据为空 */
+  owner_id?: string | null
+  /** team = 团队共享（默认）；private = 仅自己 */
+  visibility?: DocumentVisibility
+  /** 当前用户能否改可见范围 / 删除 */
+  can_manage?: boolean
 }
 
 export interface KnowledgeImportDocument {

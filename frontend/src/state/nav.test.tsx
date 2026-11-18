@@ -47,6 +47,7 @@ describe('NavProvider', () => {
       'providers',
       'history',
       'memory',
+      'members',
       'settings',
     ])
   })

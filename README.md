@@ -1,6 +1,6 @@
-# 基于 RAG 的个人任务型智能体
+# 基于 RAG 的团队知识库助手智能体
 
-面向毕业设计的个人知识库**任务型 Agent**。目标不是做一个“万能 AI”，而是把传统的
+面向毕业设计的团队知识库**任务型 Agent**。目标不是做一个“万能 AI”，而是把传统的
 
 `用户提问 → RAG 检索 → LLM 回答`
 
@@ -568,7 +568,7 @@ uv run python -m app.evaluation.run --suite compare --real --top-k 5 \
 - 检索评估报告：`docs/evaluation-report.md`
 - 对比实验报告：`docs/evaluation-comparison.md`（含**指标局限**说明，不夸大结论）
 
-> 评估在**临时向量库**中进行，不会污染个人知识库。
+> 评估在**临时向量库**中进行，不会污染团队知识库。
 
 ## 知识库分类与任务检索范围
 
@@ -611,7 +611,7 @@ SMTP_SECURITY=ssl
 SMTP_USERNAME=your@qq.com
 SMTP_PASSWORD=你的授权码
 SMTP_FROM=your@qq.com
-SMTP_FROM_NAME=个人知识库 Agent
+SMTP_FROM_NAME=团队知识库 Agent
 ```
 
 - Gmail：`SMTP_HOST=smtp.gmail.com`、`SMTP_PORT=587`、`SMTP_SECURITY=starttls`，

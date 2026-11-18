@@ -13,6 +13,8 @@ import {
   SettingOutlined,
   SunOutlined,
   TagsOutlined,
+  TeamOutlined,
+  LogoutOutlined,
 } from '@ant-design/icons'
 import {
   App as AntApp,
@@ -28,9 +30,10 @@ import {
 import type { MenuProps } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import type { ReactNode } from 'react'
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 
 import ErrorBoundary from './components/ErrorBoundary'
+import { fetchMe, getCachedUser, getToken, logout, onUnauthorized } from './services/auth'
 import ProviderSwitch, { providerLabelOf } from './components/ProviderSwitch'
 import RunningTasks from './components/RunningTasks'
 import { ViewStackProvider, useViewStack } from './components/ViewStack'
@@ -51,7 +54,9 @@ const PresetsPage = lazy(() => import('./pages/Presets'))
 const ProvidersPage = lazy(() => import('./pages/Providers'))
 const HistoryPage = lazy(() => import('./pages/History'))
 const MemoryPage = lazy(() => import('./pages/Memory'))
+const MembersPage = lazy(() => import('./pages/Members'))
 const SettingsPage = lazy(() => import('./pages/Settings'))
+const LoginPage = lazy(() => import('./pages/Login'))
 
 const DocumentView = lazy(() => import('./components/DocumentView'))
 const SkillView = lazy(() => import('./components/SkillView'))
@@ -75,29 +80,72 @@ const PAGE_META: Array<{ key: string; label: string; icon: ReactNode }> = [
   { key: 'presets', label: '预设任务', icon: <TagsOutlined /> },
   { key: 'history', label: '任务历史', icon: <HistoryOutlined /> },
   { key: 'memory', label: '长期记忆', icon: <BulbOutlined /> },
+  { key: 'members', label: '成员', icon: <TeamOutlined /> },
   { key: 'providers', label: '模型服务', icon: <CloudServerOutlined /> },
   { key: 'settings', label: '设置', icon: <SettingOutlined /> },
 ]
 
 export default function App() {
   const { mode, resolvedMode, setMode, toggleMode } = useUiPreferences()
+  // null = 正在校验登录态；false = 未登录（显示登录页）
+  const [authed, setAuthed] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    onUnauthorized(() => {
+      if (alive) setAuthed(false)
+    })
+    const bootstrap = async () => {
+      if (!getToken()) {
+        if (alive) setAuthed(false)
+        return
+      }
+      try {
+        await fetchMe()
+        if (alive) setAuthed(true)
+      } catch {
+        if (alive) setAuthed(false)
+      }
+    }
+    void bootstrap()
+    return () => {
+      alive = false
+      onUnauthorized(null)
+    }
+  }, [])
+
+  const handleLogout = async () => {
+    await logout()
+    setAuthed(false)
+  }
 
   return (
     <ConfigProvider locale={zhCN} theme={buildThemeConfig(resolvedMode)}>
       <AntApp>
-        {/* 任务运行状态提升到 App 层：切换页面不丢进度，任务继续在后台执行 */}
-        <NavProvider>
-          <TaskRunProvider>
-            <ViewStackProvider>
-              <AppShell
-                mode={mode}
-                resolvedMode={resolvedMode}
-                setMode={setMode}
-                toggleMode={toggleMode}
-              />
-            </ViewStackProvider>
-          </TaskRunProvider>
-        </NavProvider>
+        {authed === null ? (
+          <div className="app-loading">
+            <Spin />
+          </div>
+        ) : authed === false ? (
+          <Suspense fallback={<PageFallback />}>
+            <LoginPage onSuccess={() => setAuthed(true)} />
+          </Suspense>
+        ) : (
+          /* 任务运行状态提升到 App 层：切换页面不丢进度，任务继续在后台执行 */
+          <NavProvider>
+            <TaskRunProvider>
+              <ViewStackProvider>
+                <AppShell
+                  mode={mode}
+                  resolvedMode={resolvedMode}
+                  setMode={setMode}
+                  toggleMode={toggleMode}
+                  onLogout={() => void handleLogout()}
+                />
+              </ViewStackProvider>
+            </TaskRunProvider>
+          </NavProvider>
+        )}
       </AntApp>
     </ConfigProvider>
   )
@@ -108,11 +156,13 @@ function AppShell({
   resolvedMode,
   setMode,
   toggleMode,
+  onLogout,
 }: {
   mode: ThemeMode
   resolvedMode: ResolvedTheme
   setMode: (mode: ThemeMode) => void
   toggleMode: () => void
+  onLogout: () => void
 }) {
   const { page, navigate } = useNav()
   const [collapsed, setCollapsed] = useState(false)
@@ -145,7 +195,11 @@ function AppShell({
         : '后端正常，但尚未配置模型 API Key'
     : '无法连接后端（请确认 FastAPI 已启动）'
 
-  const menuItems: MenuProps['items'] = PAGE_META.flatMap((item, index) => {
+  // 成员管理只对管理员开放：非管理员不显示入口（后端仍会二次校验）
+  const visiblePages = PAGE_META.filter(
+    (item) => item.key !== 'members' || getCachedUser()?.role === 'admin',
+  )
+  const menuItems: MenuProps['items'] = visiblePages.flatMap((item, index) => {
     const entry: NonNullable<MenuProps['items']>[number] = {
       key: item.key,
       label: item.label,
@@ -160,7 +214,7 @@ function AppShell({
         ),
     }
     // 「设置」与功能页面分组：前面加一条分隔线
-    return index === PAGE_META.length - 1 ? [{ type: 'divider' as const }, entry] : [entry]
+    return index === visiblePages.length - 1 ? [{ type: 'divider' as const }, entry] : [entry]
   })
 
   const handleNav = (key: PageKey) => {
@@ -276,6 +330,15 @@ function AppShell({
                 onClick={toggleMode}
               />
             </Tooltip>
+            <Tooltip title="退出登录">
+              <Button
+                type="text"
+                size="small"
+                aria-label="退出登录"
+                icon={<LogoutOutlined />}
+                onClick={onLogout}
+              />
+            </Tooltip>
           </div>
         </div>
 
@@ -291,6 +354,7 @@ function AppShell({
                 {page === 'providers' && <ProvidersPage />}
                 {page === 'history' && <HistoryPage />}
                 {page === 'memory' && <MemoryPage />}
+                {page === 'members' && <MembersPage />}
                 {page === 'settings' && <SettingsPage mode={mode} setMode={setMode} />}
               </Suspense>
             </div>

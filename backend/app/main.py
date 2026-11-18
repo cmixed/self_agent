@@ -15,21 +15,26 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api import (
+    api_keys,
+    auth,
     backup,
     categories,
     chat,
     documents,
     email,
     health,
+    members,
     memory,
     presets,
     providers,
     providers_crud,
+    public,
     skills,
     tasks,
 )
 from app.api import settings as settings_api
 from app.api.deps import (
+    build_auth_service,
     build_checkpoint_store,
     build_chroma_store,
     build_database,
@@ -55,6 +60,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     configure_logging()
     settings = get_settings()
     await asyncio.to_thread(build_database().initialize)
+    # 团队版：确保存在管理员账号（旧默认用户会被就地升级，历史数据不丢）
+    try:
+        admin = await asyncio.to_thread(build_auth_service().bootstrap)
+        logger.info(
+            f"成员体系就绪，管理员账号：{admin.username or admin.user_id}",
+            extra={"event": "auth_bootstrap", "status": "ok"},
+        )
+    except Exception as exc:  # pragma: no cover - 初始化失败不应阻塞启动
+        logger.warning(f"管理员初始化失败：{exc}", extra={"event": "auth_bootstrap_failed"})
     # 装载 UI 管理的自定义 Provider 到内存注册表（工厂同步读取，见 llm/registry.py）
     try:
         await build_provider_service().refresh_registry()
@@ -115,7 +129,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
-        title="基于 RAG 的个人任务型智能体",
+        title="基于 RAG 的团队知识库助手智能体",
         version=__version__,
         lifespan=lifespan,
     )
@@ -127,6 +141,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(health.router)
+    app.include_router(auth.router)
+    app.include_router(members.router)
+    app.include_router(api_keys.router)
+    app.include_router(public.router)
     app.include_router(settings_api.router)
     app.include_router(skills.router)
     app.include_router(presets.router)

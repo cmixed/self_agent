@@ -26,6 +26,19 @@ from app.rag.store import ChromaStore
 
 logger = get_logger(__name__)
 
+# 可见范围：team = 团队共享（默认），private = 仅上传者与管理员
+VISIBILITY_TEAM = "team"
+VISIBILITY_PRIVATE = "private"
+VISIBLE_SCOPES = (VISIBILITY_TEAM, VISIBILITY_PRIVATE)
+
+
+class DocumentNotFoundError(Exception):
+    """文档不存在。"""
+
+
+class DocumentPermissionError(Exception):
+    """当前成员无权操作该文档。"""
+
 
 class DocumentService:
     """知识库文档管理。"""
@@ -47,7 +60,14 @@ class DocumentService:
         self._chunk_overlap = chunk_overlap
         self._embed_batch_size = embed_batch_size
 
-    async def ingest(self, *, filename: str, content: bytes) -> DocumentInfo:
+    async def ingest(
+        self,
+        *,
+        filename: str,
+        content: bytes,
+        owner_id: str | None = None,
+        visibility: str = VISIBILITY_TEAM,
+    ) -> DocumentInfo:
         """保存并索引一份文档。失败时回滚，不留下半成品数据。"""
         suffix = Path(filename).suffix.lower()
         if suffix not in SUPPORTED_SUFFIXES:
@@ -83,7 +103,10 @@ class DocumentService:
             await self._store.aadd_chunks(
                 ids=[self._chunk_id(document_id, chunk) for chunk in chunks],
                 documents=texts,
-                metadatas=[self._metadata(document_id, filename, title, chunk) for chunk in chunks],
+                metadatas=[
+                    self._metadata(document_id, filename, title, chunk, owner_id, visibility)
+                    for chunk in chunks
+                ],
                 embeddings=vectors,
             )
         except Exception:
@@ -100,11 +123,78 @@ class DocumentService:
             },
         )
         return DocumentInfo(
-            document_id=document_id, filename=filename, title=title, chunks=len(chunks)
+            document_id=document_id,
+            filename=filename,
+            title=title,
+            chunks=len(chunks),
+            owner_id=owner_id,
+            visibility=visibility,
+            can_manage=True,
         )
 
-    async def list_documents(self) -> list[DocumentInfo]:
-        return [DocumentInfo(**item) for item in await self._store.alist_documents()]
+    async def list_documents(
+        self, *, user_id: str | None = None, is_admin: bool = False
+    ) -> list[DocumentInfo]:
+        """列出当前成员可见的文档（团队共享 + 自己的私有）。"""
+        documents: list[DocumentInfo] = []
+        for item in await self._store.alist_documents():
+            if not (is_admin or user_id is None or self.is_visible(item, user_id)):
+                continue
+            documents.append(
+                DocumentInfo(**item, can_manage=self.can_manage(item, user_id, is_admin))
+            )
+        return documents
+
+    @staticmethod
+    def is_visible(item: dict[str, Any], user_id: str | None) -> bool:
+        """团队共享对所有人可见；私有只对上传者（管理员另行放行）。"""
+        if (item.get("visibility") or VISIBILITY_TEAM) == VISIBILITY_TEAM:
+            return True
+        return bool(user_id) and item.get("owner_id") == user_id
+
+    @staticmethod
+    def can_manage(item: dict[str, Any], user_id: str | None, is_admin: bool) -> bool:
+        """改可见范围 / 删除：上传者本人或管理员。"""
+        if is_admin:
+            return True
+        return bool(user_id) and item.get("owner_id") == user_id
+
+    async def visible_document_ids(self, *, user_id: str, is_admin: bool) -> set[str] | None:
+        """当前成员可检索的文档集合；None 表示不设限（管理员）。"""
+        if is_admin:
+            return None
+        return {
+            str(item["document_id"])
+            for item in await self._store.alist_documents()
+            if self.is_visible(item, user_id)
+        }
+
+    async def set_visibility(
+        self, document_id: str, visibility: str, *, user_id: str, is_admin: bool
+    ) -> DocumentInfo:
+        """切换可见范围；仅上传者或管理员可改。"""
+        if visibility not in VISIBLE_SCOPES:
+            raise ValueError(f"不支持的可见范围：{visibility}")
+        info = await self._store.aget_document(document_id)
+        if info is None:
+            raise DocumentNotFoundError(document_id)
+        if not self.can_manage(info, user_id, is_admin):
+            raise DocumentPermissionError(document_id)
+        await self._store.aset_document_metadata(document_id, {"visibility": visibility})
+        refreshed = await self._store.aget_document(document_id)
+        assert refreshed is not None
+        return DocumentInfo(**refreshed, can_manage=True)
+
+    async def get_visible_document(
+        self, document_id: str, *, user_id: str | None = None, is_admin: bool = False
+    ) -> dict[str, Any] | None:
+        """按权限读取文档元信息；不可见与不存在一律返回 None（不泄露存在性）。"""
+        info = await self._store.aget_document(document_id)
+        if info is None:
+            return None
+        if is_admin or user_id is None:
+            return info
+        return info if self.is_visible(info, user_id) else None
 
     async def document_file(self, document_id: str) -> tuple[Path, str] | None:
         """返回文档原文件的 ``(路径, 原始文件名)``；文档不存在或原文件缺失时返回 ``None``。"""
@@ -138,9 +228,15 @@ class DocumentService:
             return None
         return filename, title, text
 
-    async def delete_document(self, document_id: str) -> bool:
-        if await self._store.aget_document(document_id) is None:
+    async def delete_document(
+        self, document_id: str, *, user_id: str | None = None, is_admin: bool = False
+    ) -> bool:
+        info = await self._store.aget_document(document_id)
+        if info is None:
             return False
+        # 传了身份就校验权限；不传（内部调用 / 测试）保持旧行为
+        if user_id is not None and not self.can_manage(info, user_id, is_admin):
+            raise DocumentPermissionError(document_id)
         await self._store.adelete_document(document_id)
         for path in self._documents_dir.glob(f"{document_id}.*"):
             self._remove_file(path)
@@ -151,7 +247,14 @@ class DocumentService:
         return f"{document_id}:{chunk.index}"
 
     @staticmethod
-    def _metadata(document_id: str, filename: str, title: str, chunk: Chunk) -> dict[str, Any]:
+    def _metadata(
+        document_id: str,
+        filename: str,
+        title: str,
+        chunk: Chunk,
+        owner_id: str | None = None,
+        visibility: str = VISIBILITY_TEAM,
+    ) -> dict[str, Any]:
         """§11 约定的 metadata；page 未知时省略（Chroma 不接受 None）。"""
         metadata: dict[str, Any] = {
             "document_id": document_id,
@@ -159,7 +262,10 @@ class DocumentService:
             "chunk_id": f"{document_id}:{chunk.index}",
             "source": filename,
             "title": title,
+            "visibility": visibility,
         }
+        if owner_id:
+            metadata["owner_id"] = owner_id
         if chunk.page is not None:
             metadata["page"] = chunk.page
         return metadata

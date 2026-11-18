@@ -17,10 +17,53 @@ from contextlib import contextmanager
 from pathlib import Path
 
 SCHEMA = """
+-- 团队成员（方案A：单团队多成员）。username/password_hash 为团队版新增，
+-- 旧库通过 MIGRATIONS 补列；旧默认用户会被升级为首个管理员。
 CREATE TABLE IF NOT EXISTS users (
-    user_id      TEXT PRIMARY KEY,
-    display_name TEXT,
-    created_at   TEXT NOT NULL
+    user_id       TEXT PRIMARY KEY,
+    display_name  TEXT,
+    created_at    TEXT NOT NULL,
+    username      TEXT,
+    email         TEXT,
+    password_hash TEXT,
+    role          TEXT NOT NULL DEFAULT 'member',
+    status        TEXT NOT NULL DEFAULT 'active',
+    last_login_at TEXT
+);
+
+-- 登录令牌：只存 sha256 摘要，退出/改密/停用时删除
+CREATE TABLE IF NOT EXISTS auth_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_auth_tokens_expires ON auth_tokens(expires_at);
+
+-- 邮箱验证码重置：一账号一条，发新码即作废旧码
+-- 对外接口密钥：只存 sha256 摘要；吊销后保留记录便于追溯
+CREATE TABLE IF NOT EXISTS api_keys (
+    key_id       TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL,
+    label        TEXT NOT NULL DEFAULT '',
+    key_hash     TEXT NOT NULL UNIQUE,
+    created_at   TEXT NOT NULL,
+    last_used_at TEXT,
+    revoked_at   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
+
+
+CREATE TABLE IF NOT EXISTS password_reset_codes (
+    user_id    TEXT PRIMARY KEY,
+    code_hash  TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at    TEXT,
+    attempts   INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS user_preferences (
@@ -180,6 +223,13 @@ MIGRATIONS: tuple[tuple[str, str, str], ...] = (
         "output_mode",
         "ALTER TABLE tasks ADD COLUMN output_mode TEXT NOT NULL DEFAULT 'generate'",
     ),
+    # 团队版：成员账号字段（旧库就地补列，旧数据保留）
+    ("users", "username", "ALTER TABLE users ADD COLUMN username TEXT"),
+    ("users", "email", "ALTER TABLE users ADD COLUMN email TEXT"),
+    ("users", "password_hash", "ALTER TABLE users ADD COLUMN password_hash TEXT"),
+    ("users", "role", "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member'"),
+    ("users", "status", "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"),
+    ("users", "last_login_at", "ALTER TABLE users ADD COLUMN last_login_at TEXT"),
 )
 
 # 一次性回填：把明显指向 Ollama 的既有配置标成原生协议（否则它们的"关闭思考"
@@ -215,6 +265,12 @@ class SqliteDatabase:
             if column not in columns:
                 connection.execute(ddl)
         connection.execute(_BACKFILL_OLLAMA_FLAVOR)
+        # 用户名唯一：必须在补列之后建（旧库此时才有该列）；NULL 允许重复
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)"
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_users_status ON users(status)")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:

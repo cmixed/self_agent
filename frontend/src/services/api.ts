@@ -40,6 +40,8 @@ import type {
   TaskState,
 } from '../types/api'
 
+import { authFetch, getToken } from './auth'
+
 const API_BASE = '/api'
 
 export class ApiError extends Error {
@@ -67,7 +69,7 @@ async function toApiError(response: Response): Promise<ApiError> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await authFetch(`${API_BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   })
@@ -82,7 +84,7 @@ async function uploadForPreview<T>(path: string, file: File): Promise<T> {
   const body = new FormData()
   body.append('file', file)
   // 不要手动设置 Content-Type：浏览器需要自己生成 multipart boundary
-  const response = await fetch(`${API_BASE}${path}`, { method: 'POST', body })
+  const response = await authFetch(`${API_BASE}${path}`, { method: 'POST', body })
   if (!response.ok) {
     throw await toApiError(response)
   }
@@ -91,7 +93,7 @@ async function uploadForPreview<T>(path: string, file: File): Promise<T> {
 
 /** 统一导出流程：下载后端打包好的文件，并保留响应中的文件名。 */
 async function downloadPackage(path: string): Promise<{ blob: Blob; filename: string }> {
-  const response = await fetch(`${API_BASE}${path}`)
+  const response = await authFetch(`${API_BASE}${path}`)
   if (!response.ok) {
     throw await toApiError(response)
   }
@@ -267,7 +269,7 @@ async function streamSse(
   // headers 可能是 HeadersInit（数组/Headers/对象），用 Headers 归一化后再覆盖
   const headers = new Headers(init.headers)
   headers.set('Accept', 'text/event-stream')
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await authFetch(`${API_BASE}${path}`, {
     ...init,
     headers,
     signal,
@@ -312,19 +314,58 @@ export function deleteDocument(documentId: string): Promise<{ status: string }> 
   return request<{ status: string }>(`/documents/${documentId}`, { method: 'DELETE' })
 }
 
+/** 切换文档可见范围（上传者或管理员）。 */
+export function setDocumentVisibility(
+  documentId: string,
+  visibility: 'team' | 'private',
+): Promise<DocumentInfo> {
+  return request<DocumentInfo>(`/documents/${documentId}/visibility`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ visibility }),
+  })
+}
+
+/** 当前成员的默认可见范围（上传时预选）。 */
+export function getDocumentPreferences(): Promise<{ default_visibility: 'team' | 'private' }> {
+  return request<{ default_visibility: 'team' | 'private' }>('/documents/preferences')
+}
+
+export function setDocumentPreferences(
+  defaultVisibility: 'team' | 'private',
+): Promise<{ default_visibility: 'team' | 'private' }> {
+  return request<{ default_visibility: 'team' | 'private' }>('/documents/preferences', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ default_visibility: defaultVisibility }),
+  })
+}
+
 /** 上传并索引文档（multipart：不要手动设置 Content-Type，交给浏览器带 boundary）。
  *
  * 用 XHR 而不是 fetch：只有 XHR 能拿到上传进度（大 PDF 时前端需要真实反馈）。
  */
+export interface DocumentUploadOptions {
+  /** 可见范围：team = 团队共享（默认），private = 仅自己 */
+  visibility?: 'team' | 'private'
+  onProgress?: (percent: number) => void
+}
+
 export function uploadDocument(
   file: File,
-  onProgress?: (percent: number) => void,
+  options: DocumentUploadOptions = {},
 ): Promise<DocumentInfo> {
+  const { visibility = 'team', onProgress } = options
   return new Promise((resolve, reject) => {
     const form = new FormData()
     form.append('file', file)
+    form.append('visibility', visibility)
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${API_BASE}/documents/upload`)
+    const token = getToken()
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    }
     if (onProgress) {
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
@@ -422,7 +463,7 @@ export function updateSkill(
 }
 
 export async function deleteSkill(skillId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/skills/${encodeURIComponent(skillId)}`, {
+  const response = await authFetch(`${API_BASE}/skills/${encodeURIComponent(skillId)}`, {
     method: 'DELETE',
   })
   if (!response.ok) {
@@ -456,7 +497,7 @@ export function updateSkillResource(
 }
 
 export async function deleteSkillResource(skillId: string, resourceId: string): Promise<void> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/skills/${encodeURIComponent(skillId)}/resources/${encodeURIComponent(resourceId)}`,
     { method: 'DELETE' },
   )
@@ -472,7 +513,7 @@ export async function previewSkillImport(file: File): Promise<SkillImportPreview
   const body = new FormData()
   body.append('file', file)
   // 注意：不要设置 Content-Type，浏览器需要自己带 multipart boundary
-  const response = await fetch(`${API_BASE}/skills/import/preview`, { method: 'POST', body })
+  const response = await authFetch(`${API_BASE}/skills/import/preview`, { method: 'POST', body })
   if (!response.ok) {
     throw await toApiError(response)
   }
@@ -489,7 +530,7 @@ export function confirmSkillImport(token: string): Promise<SkillInfo> {
 
 /** 导出标准技能包（zip）。 */
 export async function exportSkillPackage(skillId: string): Promise<Blob> {
-  const response = await fetch(`${API_BASE}/skills/${encodeURIComponent(skillId)}/export`)
+  const response = await authFetch(`${API_BASE}/skills/${encodeURIComponent(skillId)}/export`)
   if (!response.ok) {
     throw await toApiError(response)
   }
@@ -547,7 +588,7 @@ export function updatePreset(
 }
 
 export async function deletePreset(presetId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/presets/${encodeURIComponent(presetId)}`, {
+  const response = await authFetch(`${API_BASE}/presets/${encodeURIComponent(presetId)}`, {
     method: 'DELETE',
   })
   if (!response.ok) {
@@ -618,7 +659,7 @@ export function updateProvider(
 }
 
 export async function deleteProvider(providerId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/providers/${encodeURIComponent(providerId)}`, {
+  const response = await authFetch(`${API_BASE}/providers/${encodeURIComponent(providerId)}`, {
     method: 'DELETE',
   })
   if (!response.ok) {
@@ -676,7 +717,7 @@ export function updateCategory(
 }
 
 export async function deleteCategory(categoryId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/categories/${encodeURIComponent(categoryId)}`, {
+  const response = await authFetch(`${API_BASE}/categories/${encodeURIComponent(categoryId)}`, {
     method: 'DELETE',
   })
   if (!response.ok) {
@@ -722,7 +763,7 @@ export function addMemory(kind: string, content: string): Promise<MemoryRecord> 
 }
 
 export async function deleteMemory(memoryId: number): Promise<void> {
-  const response = await fetch(`${API_BASE}/memory/memories/${memoryId}`, { method: 'DELETE' })
+  const response = await authFetch(`${API_BASE}/memory/memories/${memoryId}`, { method: 'DELETE' })
   if (!response.ok) {
     throw await toApiError(response)
   }

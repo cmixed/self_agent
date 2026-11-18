@@ -2631,3 +2631,41 @@ html[data-theme='dark'] body {
     max-width: none;
   }
 }
+
+/* --- 登录页 ---------------------------------------------------------------- */
+.login-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--ant-color-bg-layout, #f5f5f5);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.login-links {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.login-code-row {
+  display: flex;
+  gap: 8px;
+}
+
+.login-code-row .ant-input-affix-wrapper {
+  flex: 1;
+}
