@@ -95,10 +95,14 @@ async def _resolve_retrieval(
         if visible_ids is None:
             return "all", None
         if not visible_ids:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="知识库里还没有你可访问的文档，请先上传或请同事共享",
+            # 该成员没有任何可访问文档：确实没东西可检索，按「不检索」执行。
+            # 这里不能报 409——新人首次使用、或只想问概念问题时会直接被挡住。
+            # 也不能退化回「不过滤」，否则会检索到别人的私有文档。
+            logger.info(
+                "成员无可访问文档，本次按不检索执行",
+                extra={"event": "retrieval_no_visible_documents", "status": "ok"},
             )
+            return "none", None
         return "selected", {
             "document_ids": sorted(visible_ids),
             "category_ids": [],

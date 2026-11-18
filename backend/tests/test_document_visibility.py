@@ -168,6 +168,16 @@ async def test_retrieval_all_freezes_visible_set() -> None:
 
 
 @pytest.mark.anyio
+async def test_retrieval_all_with_no_visible_documents_skips_retrieval() -> None:
+    """成员一篇文档都看不到时不该被 409 挡住：按不检索执行，且不能退化成全库。"""
+    mode, scope = await _resolve_retrieval(
+        None, cast(CategoryService, _StubCategories([])), "all", visible_ids=set()
+    )
+    assert mode == "none"
+    assert scope is None
+
+
+@pytest.mark.anyio
 async def test_retrieval_selected_intersects_visible() -> None:
     stub = _StubCategories(["d1", "d2", "d3"])
     requested = TaskScope(category_ids=[], document_ids=["d1", "d2", "d3"])
