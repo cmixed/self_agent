@@ -7,7 +7,7 @@ import {
   login,
   requestPasswordReset,
 } from '../services/auth'
-import { BRAND_NAME, BRAND_SUBTITLE } from '../theme/config'
+import { APP_VERSION, BRAND_NAME } from '../theme/config'
 
 interface LoginValues {
   account: string
@@ -90,7 +90,7 @@ export default function LoginPage({ onSuccess }: { onSuccess: () => void }) {
             <Typography.Title level={3} style={{ margin: 0 }}>
               {BRAND_NAME}
             </Typography.Title>
-            <Typography.Text type="secondary">{BRAND_SUBTITLE}</Typography.Text>
+            <Typography.Text type="secondary">{APP_VERSION}</Typography.Text>
           </div>
         </div>
 

@@ -10,7 +10,6 @@ import {
   ImportOutlined,
   InboxOutlined,
   PlusOutlined,
-  ReloadOutlined,
   SearchOutlined,
   TagsOutlined,
 } from '@ant-design/icons'
@@ -40,6 +39,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useViewStack } from '../components/ViewStack'
 import EmptyState from '../components/EmptyState'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import ErrorNotice from '../components/ErrorNotice'
 import ImportPreviewModal from '../components/ImportPreviewModal'
 import PageContainer from '../components/PageContainer'
@@ -134,6 +134,8 @@ export default function KnowledgeBasePage() {
       setLoading(false)
     }
   }, [])
+
+  usePageRefresh(refresh)
 
   useEffect(() => {
     void refresh()
@@ -450,9 +452,6 @@ export default function KnowledgeBasePage() {
       maxWidth={PAGE_MAX_WIDTH}
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
-            刷新
-          </Button>
           <Upload
             accept=".zip"
             showUploadList={false}

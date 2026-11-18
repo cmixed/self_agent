@@ -4,7 +4,6 @@ import {
   EditOutlined,
   ImportOutlined,
   PlusOutlined,
-  ReloadOutlined,
 } from '@ant-design/icons'
 import {
   App,
@@ -24,6 +23,7 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import ErrorNotice from '../components/ErrorNotice'
 import ImportPreviewModal from '../components/ImportPreviewModal'
 import PageContainer from '../components/PageContainer'
@@ -92,6 +92,8 @@ export default function MemoryPage() {
       setLoading(false)
     }
   }, [])
+
+  usePageRefresh(refresh)
 
   useEffect(() => {
     void refresh()
@@ -248,9 +250,6 @@ export default function MemoryPage() {
       maxWidth={PAGE_MAX_WIDTH}
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
-            刷新
-          </Button>
           <Upload
             accept=".json"
             showUploadList={false}

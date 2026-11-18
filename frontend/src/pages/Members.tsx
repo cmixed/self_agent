@@ -2,7 +2,6 @@ import {
   ApartmentOutlined,
   KeyOutlined,
   PlusOutlined,
-  ReloadOutlined,
   TeamOutlined,
   UserSwitchOutlined,
 } from '@ant-design/icons'
@@ -28,6 +27,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import PageContainer from '../components/PageContainer'
 import {
   createApiKey,
@@ -81,6 +81,8 @@ export default function TeamPage() {
       setLoading(false)
     }
   }, [])
+
+  usePageRefresh(load)
 
   useEffect(() => {
     void load()
@@ -459,9 +461,6 @@ export default function TeamPage() {
         <>
           <Button icon={<ApartmentOutlined />} onClick={() => setArchOpen(true)}>
             查看架构
-          </Button>
-          <Button icon={<ReloadOutlined />} onClick={() => void load()} disabled={loading}>
-            刷新
           </Button>
         </>
       }

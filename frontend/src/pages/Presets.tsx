@@ -5,7 +5,6 @@ import {
   HolderOutlined,
   ImportOutlined,
   PlusOutlined,
-  ReloadOutlined,
 } from '@ant-design/icons'
 import {
   App,
@@ -41,6 +40,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import ErrorNotice from '../components/ErrorNotice'
 import ImportPreviewModal from '../components/ImportPreviewModal'
 import PageContainer from '../components/PageContainer'
@@ -234,6 +234,8 @@ export default function PresetsPage() {
     }
   }, [])
 
+  usePageRefresh(refresh)
+
   useEffect(() => {
     void refresh()
   }, [refresh])
@@ -422,9 +424,6 @@ export default function PresetsPage() {
       maxWidth={PAGE_MAX_WIDTH}
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
-            刷新
-          </Button>
           <Upload
             accept=".json"
             showUploadList={false}

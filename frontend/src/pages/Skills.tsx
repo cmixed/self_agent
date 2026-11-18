@@ -6,7 +6,6 @@ import {
   ImportOutlined,
   PaperClipOutlined,
   PlusOutlined,
-  ReloadOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
 import {
@@ -32,6 +31,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import ErrorNotice from '../components/ErrorNotice'
 import PageContainer from '../components/PageContainer'
 import { useViewStack } from '../components/ViewStack'
@@ -147,6 +147,8 @@ export default function SkillsPage() {
       setLoading(false)
     }
   }, [])
+
+  usePageRefresh(refresh)
 
   useEffect(() => {
     void refresh()
@@ -473,9 +475,6 @@ export default function SkillsPage() {
       maxWidth={PAGE_MAX_WIDTH}
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
-            刷新
-          </Button>
           <Tooltip title="导出全部技能（zip 集合，便于分享 / 归档；恢复请用单个技能包或设置页完整备份）">
             <Button
               icon={<DownloadOutlined />}

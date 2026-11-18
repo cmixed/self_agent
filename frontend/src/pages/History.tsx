@@ -1,8 +1,8 @@
-import { ReloadOutlined } from '@ant-design/icons'
 import { Button, Card, Input, Segmented, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import ErrorNotice from '../components/ErrorNotice'
 import PageContainer from '../components/PageContainer'
 import StatusTag from '../components/StatusTag'
@@ -50,6 +50,8 @@ export default function HistoryPage() {
     void refresh()
   }, [refresh])
 
+  usePageRefresh(refresh)
+
   // 任务开始 / 结束（tasksVersion 变化）时静默刷新，无需手动点刷新
   const versioned = useRef(false)
   useEffect(() => {
@@ -95,9 +97,6 @@ export default function HistoryPage() {
               { label: '原文输出', value: 'verbatim' },
             ]}
           />
-          <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
-            刷新
-          </Button>
         </Space>
       }
     >

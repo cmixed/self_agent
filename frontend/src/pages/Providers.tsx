@@ -6,7 +6,6 @@ import {
   ExperimentOutlined,
   HddOutlined,
   PlusOutlined,
-  ReloadOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
 import {
@@ -30,6 +29,7 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import ErrorNotice from '../components/ErrorNotice'
 import PageContainer from '../components/PageContainer'
 import {
@@ -133,6 +133,8 @@ export default function ProvidersPage() {
       setLoading(false)
     }
   }, [])
+
+  usePageRefresh(refresh)
 
   useEffect(() => {
     void refresh()
@@ -329,9 +331,6 @@ export default function ProvidersPage() {
       maxWidth={PAGE_MAX_WIDTH}
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>
-            刷新
-          </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             添加模型服务
           </Button>

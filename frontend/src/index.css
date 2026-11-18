@@ -280,12 +280,9 @@ html[data-theme='dark'] body {
   display: none;
 }
 
-.app-sider.ant-layout-sider-collapsed .health-row {
+.app-sider.ant-layout-sider-collapsed .sider-system,
+.app-sider.ant-layout-sider-collapsed .sider-system__status {
   justify-content: center;
-}
-
-.app-sider.ant-layout-sider-collapsed .health-row .ant-btn {
-  display: none;
 }
 
 .app-header {
@@ -2707,10 +2704,35 @@ html[data-theme='dark'] body {
 }
 
 /* --- 侧栏底部：模型 / 账号 ------------------------------------------------ */
-.sider-provider .app-header-provider {
+.sider-system {
+  border: 1px solid var(--ant-color-border);
+  border-radius: var(--ws-radius);
+  background: var(--ant-color-bg-layout);
+  overflow: hidden;
+}
+
+.sider-system__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 2px;
+}
+
+.sider-system__provider {
+  padding: 2px 8px 6px;
+}
+
+.sider-system__provider .app-header-provider {
   width: 100%;
   min-width: 0;
   max-width: none;
+}
+
+.sider-system__health {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
 }
 
 .sider-account {
@@ -2746,7 +2768,9 @@ html[data-theme='dark'] body {
   color: var(--ant-color-text-tertiary);
 }
 
-.app-sider.ant-layout-sider-collapsed .sider-provider,
+.app-sider.ant-layout-sider-collapsed .sider-system__provider,
+.app-sider.ant-layout-sider-collapsed .health-text,
+.app-sider.ant-layout-sider-collapsed .sider-system__status .ant-btn,
 .app-sider.ant-layout-sider-collapsed .sider-account-meta,
 .app-sider.ant-layout-sider-collapsed .sider-account .ant-btn {
   display: none;
@@ -2762,4 +2786,100 @@ html[data-theme='dark'] body {
   height: 30px;
   padding: 0 12px;
   font-size: var(--ws-font-secondary);
+}
+
+/* --- 顶栏右上角：页面操作区 ---------------------------------------------- */
+.app-header-page-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.app-header-page-actions__inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 46vw;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.app-header-page-actions__inner::-webkit-scrollbar {
+  display: none;
+}
+
+.app-header-page-actions .ant-btn {
+  height: 30px;
+  padding: 0 12px;
+  font-size: var(--ws-font-secondary);
+  white-space: nowrap;
+}
+
+.app-header-page-actions .ant-segmented {
+  font-size: var(--ws-font-secondary);
+}
+
+@media (max-width: 720px) {
+  .app-header-page-actions__inner {
+    max-width: 34vw;
+  }
+}
+
+/* --- 小屏顶栏：把空间尽量让给页面操作按钮 -------------------------------- */
+@media (max-width: 768px) {
+  .app-header-title {
+    flex: 0 1 auto;
+  }
+
+  .app-header-title__name {
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 13px;
+  }
+
+  .run-pills-slot {
+    flex: 0 0 auto;
+  }
+
+  .run-pill__title,
+  .run-pill__meta {
+    display: none;
+  }
+
+  .run-pill {
+    padding-inline: 6px;
+  }
+
+  .app-header-page-actions {
+    flex: 1 1 auto;
+  }
+
+  .app-header-page-actions__inner {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+@media (max-width: 520px) {
+  /* 极窄屏只留图标，靠图标语义识别；四个操作按钮可同屏显示 */
+  .app-header-page-actions .ant-btn {
+    width: 32px;
+    padding: 0;
+    font-size: 0;
+  }
+
+  .app-header-page-actions .ant-btn .anticon {
+    font-size: 15px;
+    margin-inline: 0 !important;
+  }
+
+  .app-header-page-actions__inner {
+    gap: 6px;
+  }
+}
+
+/* 品牌区版本号居中 */
+.brand-subtitle {
+  text-align: center;
 }

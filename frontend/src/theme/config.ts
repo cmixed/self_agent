@@ -9,7 +9,6 @@ export type ResolvedTheme = 'dark' | 'light'
 export const THEME_STORAGE_KEY = 'self-agent.theme'
 
 export const BRAND_NAME = '团队知识库助手智能体'
-export const BRAND_SUBTITLE = 'RAG Agent Workspace'
 export const APP_VERSION = 'v0.1.0'
 
 /** 布局尺寸（与 index.css 的 --ws-* 保持一致）。 */

@@ -35,7 +35,7 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 
 import ErrorBoundary from './components/ErrorBoundary'
 import { fetchMe, getCachedUser, getToken, logout, onUnauthorized } from './services/auth'
-import ProviderSwitch, { providerLabelOf } from './components/ProviderSwitch'
+import ProviderSwitch from './components/ProviderSwitch'
 import RunningTasks from './components/RunningTasks'
 import { ViewStackProvider, useViewStack } from './components/ViewStack'
 import { useHealth } from './hooks/useHealth'
@@ -43,7 +43,7 @@ import { useIsNarrow } from './hooks/useIsNarrow'
 import { NavProvider, useNav } from './state/nav'
 import type { PageKey } from './state/nav'
 import { TaskRunProvider, useTaskRun } from './state/taskRun'
-import { APP_VERSION, BRAND_NAME, BRAND_SUBTITLE, LAYOUT, buildThemeConfig } from './theme/config'
+import { APP_VERSION, BRAND_NAME, LAYOUT, buildThemeConfig } from './theme/config'
 import type { ResolvedTheme, ThemeMode } from './theme/config'
 import { useUiPreferences } from './theme/useUiPreferences'
 
@@ -241,23 +241,13 @@ function AppShell({
   const menuTheme = resolvedMode === 'dark' ? 'dark' : 'light'
   const healthy = health?.status === 'ok'
   const healthColor = !loaded ? 'default' : healthy ? 'success' : 'error'
-  // 展示「模型名」而不是内部 provider id（如 custom-ba45f8fa）
-  const displayName =
-    health?.llm_model || health?.llm_label || providerLabelOf(health?.llm_provider ?? '')
   const isLocalModel = Boolean(health?.llm_local)
-  const healthText = !loaded
-    ? '检查中…'
-    : healthy
-      ? `${isLocalModel ? '本地 · ' : ''}${displayName} 已连接`
-      : '后端未连接'
+  // 模型名只在上方选择器显示一次；状态行只说连接结论，避免重复
+  const healthText = !loaded ? '检查中…' : healthy ? '已连接' : '后端未连接'
   const healthDetail = healthy
-    ? health?.llm_configured
-      ? isLocalModel
-        ? '本地模型服务已就绪（无需 API Key）'
-        : '后端与模型配置正常'
-      : isLocalModel
-        ? '本地模型服务尚未选择模型，请到「模型服务」页设置'
-        : '后端正常，但尚未配置模型 API Key'
+    ? `${isLocalModel ? '本地 · ' : ''}${health?.llm_model || health?.llm_label || '模型'} 已连接。${
+        health?.llm_configured ? '模型服务已就绪' : '尚未配置 API Key'
+      }`
     : '无法连接后端（请确认 FastAPI 已启动）'
 
   // 成员管理只对管理员开放：非管理员不显示入口（后端仍会二次校验）
@@ -300,7 +290,7 @@ function AppShell({
         <div className="brand-logo">AI</div>
         <div className="brand-text">
           <div className="brand-name">{BRAND_NAME}</div>
-          <div className="brand-subtitle">{BRAND_SUBTITLE}</div>
+          <div className="brand-subtitle">{APP_VERSION}</div>
         </div>
       </div>
       <Menu
@@ -312,27 +302,29 @@ function AppShell({
         onClick={(event) => handleNav(event.key as PageKey)}
       />
       <div className="sider-footer">
-        {healthy ? (
-          <div className="sider-provider">
-            <ProviderSwitch
-              activeProvider={health?.llm_provider ?? ''}
-              // 任一任务在跑时禁止切换模型：避免同一次运行混用两个 Provider
-              running={running || runningTasks.length > 0}
-              onSwitched={reload}
-            />
-          </div>
-        ) : null}
-        <Tooltip title={healthDetail} placement="right">
-          <div className="health-row">
-            <Badge status={healthColor} />
-            <span className="health-text">{healthText}</span>
-            <Button
-              type="text"
-              size="small"
-              aria-label="重新检查后端状态"
-              icon={<ReloadOutlined />}
-              onClick={reload}
-            />
+        <Tooltip title={healthDetail} placement="topLeft">
+          <div className="sider-system">
+            <div className="sider-system__status">
+              <Badge status={healthColor} />
+              <span className="health-text">{healthText}</span>
+              <Button
+                type="text"
+                size="small"
+                aria-label="重新检查后端状态"
+                icon={<ReloadOutlined />}
+                onClick={reload}
+              />
+            </div>
+            {healthy ? (
+              <div className="sider-system__provider">
+                <ProviderSwitch
+                  activeProvider={health?.llm_provider ?? ''}
+                  // 任一任务在跑时禁止切换模型：避免同一次运行混用两个 Provider
+                  running={running || runningTasks.length > 0}
+                  onSwitched={reload}
+                />
+              </div>
+            ) : null}
           </div>
         </Tooltip>
         <div className="sider-account">
@@ -355,7 +347,6 @@ function AppShell({
             />
           </Tooltip>
         </div>
-        <div className="sider-version">{APP_VERSION}</div>
       </div>
     </>
   )
@@ -413,6 +404,17 @@ function AppShell({
           </div>
           <div className="app-header-actions">
             <RunningTasks />
+            {/* 页面操作按钮（刷新 / 导入 / 导出 / 新增）统一挂在顶栏右上角 */}
+            <div className="app-header-page-actions" data-page-actions-slot={page} />
+            <Tooltip title="刷新当前页面">
+              <Button
+                type="text"
+                size="small"
+                aria-label="刷新当前页面"
+                icon={<ReloadOutlined />}
+                onClick={() => window.dispatchEvent(new CustomEvent('app:refresh'))}
+              />
+            </Tooltip>
             <Tooltip
               title={
                 mode === 'system'
