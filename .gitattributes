@@ -1,0 +1,28 @@
+# 行尾统一为 LF。
+#
+# 背景：同一个工作区会被两套 Git 读写——Windows 侧（Git for Windows，
+# core.autocrlf=true）与 WSL 侧（Linux，core.autocrlf=false）。没有这个文件时
+# 两边对"有没有改动"判断不一致：一边说干净、另一边一直提示可提交，
+# 提交时还会把整文件当成改动（行尾差异）。
+#
+# 显式声明后，检出与提交都按 LF 处理，编辑器即便存成 CRLF 也会在入库时归一化。
+* text=auto eol=lf
+
+# 二进制：不做行尾转换，也不参与 diff 文本处理
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.db binary
+*.sqlite binary
+*.whl binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+*.otf binary
+*.mp4 binary
