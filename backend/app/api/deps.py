@@ -269,7 +269,11 @@ def get_current_user(
     authorization: str | None = Header(default=None),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ) -> UserRecord:
-    """当前成员：优先 Bearer 令牌；过渡期允许 X-User-Id 头（见 allow_header_user）。"""
+    """当前成员：只认 Bearer 令牌。
+
+    ``allow_header_user`` 为 True 时才接受 X-User-Id 头——该开关默认关闭，
+    仅测试与单机排障使用（否则改个头就能冒充任何人）。
+    """
     settings = get_settings()
     token = _bearer_token(authorization)
     if token:
@@ -289,7 +293,7 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # 过渡路径：未登录时沿用旧行为（单机调试 / 既有测试）
+    # 例外路径：仅在 allow_header_user=True 时可达（测试 / 单机排障）
     candidate = (x_user_id or "").strip() or settings.default_user_id
     existing = build_user_repository().get_by_id(candidate)
     if existing is not None:

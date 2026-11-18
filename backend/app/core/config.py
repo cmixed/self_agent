@@ -59,9 +59,10 @@ class Settings(BaseSettings):
     default_user_id: str = "local-user"
 
     # --- 团队版：成员与登录 ---
-    # 过渡开关：True 时仍接受 X-User-Id 请求头（前端尚未接入 token 时保持兼容）；
-    # 全员改用账号密码登录后应置为 False，关闭「改个头就是别人」的口子。
-    allow_header_user: bool = True
+    # 是否接受 X-User-Id 请求头直接指定身份。
+    # 生产必须为 False：否则任何人改个请求头就是别人（含管理员）。
+    # 仅测试与单机排障可临时开启（tests/conftest.py 会显式打开）。
+    allow_header_user: bool = False
     auth_token_ttl_hours: int = 72
     # 首次启动自动创建的管理员（旧默认用户会被就地升级为管理员，历史数据不丢）
     auth_admin_username: str = "admin"

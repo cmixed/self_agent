@@ -49,6 +49,9 @@ def _isolate_settings(
     # 运行时 Provider 选择也指向临时目录，避免读写真实 data/settings.json
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    # 测试沿用 X-User-Id 头指定身份（免去为每个用例签发令牌）；
+    # 生产默认关闭，见 Settings.allow_header_user。
+    monkeypatch.setenv("ALLOW_HEADER_USER", "true")
     # 单元测试默认不自动提取长期记忆：避免任何用例在后台访问真实模型。
     # 需要验证提取的用例在测试体内重新打开并清理 settings 缓存。
     monkeypatch.setenv("MEMORY_AUTO_EXTRACT", "false")
