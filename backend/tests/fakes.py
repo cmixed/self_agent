@@ -148,6 +148,27 @@ class FailingEmbeddingProvider(EmbeddingProvider):
         raise EmbeddingError("模拟向量化失败")
 
 
+def document_service_for(store, tmp_path, *, access=None):
+    """基于已 seed 的 store 构造 DocumentService（给接口测试覆盖依赖用）。
+
+    不传 ``access`` 时不做权限过滤：接口测试关心的是检索链路，
+    权限矩阵由 ``test_kb_access.py`` 专门覆盖。
+    """
+    from pathlib import Path
+
+    from app.services.document_service import DocumentService
+
+    provider = FakeEmbeddingProvider()
+    return DocumentService(
+        provider_factory=lambda: provider,
+        store=store,
+        documents_dir=Path(tmp_path) / "documents",
+        access=access,
+        chunk_size=200,
+        chunk_overlap=20,
+    )
+
+
 async def seed_knowledge_base(tmp_path, *, text: str, top_k: int = 3):
     """建一个临时知识库并写入一段文本，返回 (store, rag_tool)。"""
     from pathlib import Path

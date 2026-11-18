@@ -21,6 +21,8 @@ function document(id: string, categoryIds: string[] = []): DocumentInfo {
     title: id,
     chunks: 1,
     category_ids: categoryIds,
+    kb_id: 'kb-team',
+    caps: { search: true, list: true, read: true, write: false },
   }
 }
 

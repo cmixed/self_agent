@@ -28,6 +28,7 @@ from pathlib import Path, PurePosixPath
 from app.core.logging import get_logger
 from app.models.schemas import DocumentInfo
 from app.rag.loader import SUPPORTED_SUFFIXES, DocumentError
+from app.services.access import TEAM_KB_ID
 from app.services.category_service import CategoryNameConflictError, CategoryService
 from app.services.document_service import DocumentService
 from app.transfer.errors import ImportPackageError, ImportPackageTooLargeError
@@ -366,8 +367,11 @@ class KnowledgePackageService:
                 continue
         return hashes
 
-    async def confirm(self, token: str, *, owner_id: str | None = None) -> KnowledgeImportResult:
-        """确认导入；导入的文档归属为执行导入的成员，默认团队共享。"""
+    async def confirm(
+        self, token: str, *, owner_id: str | None = None, kb_id: str | None = None
+    ) -> KnowledgeImportResult:
+        """确认导入；文档归属为执行导入的成员，放进指定的知识库。"""
+        target_kb = kb_id or TEAM_KB_ID
         preview = await self._previews.pop(
             token, expired_message="导入预览已过期，请重新上传知识库包"
         )
@@ -390,7 +394,10 @@ class KnowledgePackageService:
                 try:
                     content = archive.read(item.member)
                     document = await self._documents.ingest(
-                        filename=item.filename, content=content, owner_id=owner_id
+                        filename=item.filename,
+                        content=content,
+                        owner_id=owner_id,
+                        kb_id=target_kb,
                     )
                 except Exception as exc:
                     message = str(exc) if isinstance(exc, DocumentError) else "导入失败"

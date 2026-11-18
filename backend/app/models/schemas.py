@@ -523,6 +523,15 @@ class TaskEmailResponse(BaseModel):
     subject: str
 
 
+class DocumentCaps(BaseModel):
+    """当前成员对该文档的 4 项能力（组合式权限的对外形状）。"""
+
+    search: bool = False
+    list: bool = False
+    read: bool = False
+    write: bool = False
+
+
 class DocumentInfo(BaseModel):
     document_id: str
     filename: str
@@ -530,23 +539,18 @@ class DocumentInfo(BaseModel):
     chunks: int
     # 所属类别（多标签）：列表接口一次性带出，避免前端逐文档查询
     category_ids: list[str] = Field(default_factory=list)
-    # 团队版：归属与可见范围。team = 团队共享（默认）；private = 仅上传者与管理员
+    # 所属知识库：文档不再自带 team/private 开关，可见性由知识库的共享关系决定
+    kb_id: str = "kb-team"
     owner_id: str | None = None
-    visibility: str = "team"
-    # 当前请求者能否改可见范围 / 删除（上传者或管理员）
+    # 当前请求者能否增删改（等价于 caps.write）
     can_manage: bool = False
+    caps: DocumentCaps = Field(default_factory=DocumentCaps)
 
 
-class DocumentVisibilityUpdate(BaseModel):
-    """切换文档可见范围：team = 团队共享，private = 仅自己。"""
+class DocumentMoveRequest(BaseModel):
+    """把文档移动到另一个知识库。"""
 
-    visibility: Literal["team", "private"]
-
-
-class DocumentPreferencesUpdate(BaseModel):
-    """成员级文档偏好：上传时的默认可见范围。"""
-
-    default_visibility: Literal["team", "private"]
+    kb_id: str
 
 
 class TaskSummaryOut(BaseModel):

@@ -162,6 +162,8 @@ class ChromaStore:
             "title": first.get("title", ""),
             "chunks": len(metadatas),
             "owner_id": first.get("owner_id"),
+            # 旧数据没有 kb_id：交由上层按团队知识库处理（见 access.TEAM_KB_ID）
+            "kb_id": first.get("kb_id"),
             "visibility": first.get("visibility") or "team",
         }
 
@@ -226,6 +228,7 @@ class ChromaStore:
                     "title": metadata.get("title", ""),
                     "chunks": 0,
                     "owner_id": metadata.get("owner_id"),
+                    "kb_id": metadata.get("kb_id"),
                     "visibility": metadata.get("visibility") or "team",
                 },
             )

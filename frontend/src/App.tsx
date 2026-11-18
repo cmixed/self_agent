@@ -97,7 +97,7 @@ const PAGE_META: PageMeta[] = [
     label: '知识库',
     icon: <DatabaseOutlined />,
     title: '知识库',
-    description: '上传资料，构建你的知识库；按类别组织，任务里按范围检索。',
+    description: '上传资料构建知识库；按类别组织，按库共享给分组，任务里按范围检索。',
   },
   {
     key: 'presets',
@@ -132,7 +132,7 @@ const PAGE_META: PageMeta[] = [
     label: '团队管理',
     icon: <TeamOutlined />,
     title: '团队管理',
-    description: '同一团队共享知识库；成员、权限与对外接口集中管理。',
+    description: '成员、分组与共享审批集中管理；共享按「库 × 一批人 × 一组能力」组合生效。',
   },
   {
     key: 'providers',

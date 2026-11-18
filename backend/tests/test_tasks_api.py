@@ -12,6 +12,7 @@ from fakes import (
     PLAN_JSON,
     PLAN_PAYLOAD,
     ScriptedProvider,
+    document_service_for,
     seed_knowledge_base,
 )
 from fastapi.testclient import TestClient
@@ -19,6 +20,7 @@ from fastapi.testclient import TestClient
 from app.api.deps import (
     build_memory_repository,
     build_task_repository,
+    get_document_service,
     get_memory_service,
     get_task_service,
 )
@@ -34,11 +36,15 @@ def make_client(
     *,
     max_retries: int = 0,
     memory_provider: ScriptedProvider | None = None,
+    document_service: object | None = None,
 ) -> TestClient:
     """用假的 LLM 与（可选的）临时知识库构建客户端。
 
     长期记忆服务默认不接 LLM（提取为 no-op），确保测试完全离线；
     需要验证自动提取时传入 ``memory_provider``。
+
+    ``document_service`` 用于把「可检索范围」指向临时知识库：
+    团队版的任务检索会按成员能力冻结文档集合，不再默认放行全库。
     """
     app = create_app()
     app.dependency_overrides[get_task_service] = lambda: TaskService(
@@ -50,6 +56,8 @@ def make_client(
     app.dependency_overrides[get_memory_service] = lambda: MemoryService(
         build_memory_repository(), memory_provider
     )
+    if document_service is not None:
+        app.dependency_overrides[get_document_service] = lambda: document_service
     return TestClient(app)
 
 
@@ -89,12 +97,15 @@ def test_create_task_returns_plan_outline_and_answer() -> None:
 
 
 def test_create_task_with_retrieval_returns_sources(tmp_path: Path) -> None:
-    _, tool = asyncio.run(
+    store, tool = asyncio.run(
         seed_knowledge_base(tmp_path, text="# RAG\n\n检索增强生成使用向量数据库。")
     )
     provider = _provider()
+    documents = document_service_for(store, tmp_path)
 
-    with make_client(provider, rag_tool_provider=lambda: tool) as client:
+    with make_client(
+        provider, rag_tool_provider=lambda: tool, document_service=documents
+    ) as client:
         response = client.post("/api/tasks", json={"query": "写一篇 RAG 综述"})
 
     assert response.status_code == 200

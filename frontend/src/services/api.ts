@@ -4,8 +4,12 @@ import type {
   CategoryInfo,
   CategoryListResponse,
   ChatResponse,
+  DocumentCaps,
   DocumentInfo,
+  GroupItem,
   HealthResponse,
+  KnowledgeBase,
+  KnowledgeBaseDetail,
   KnowledgeImportPreview,
   KnowledgeImportResult,
   MemoryImportPreview,
@@ -25,6 +29,8 @@ import type {
   ProviderProbeResponse,
   RetrievalMode,
   SettingsResponse,
+  ShareGraphData,
+  ShareItem,
   SkillGenerateResponse,
   SkillImportPreview,
   SkillInfo,
@@ -306,38 +312,179 @@ async function streamSse(
 
 // --- 知识库文档 ---
 
-export function listDocuments(): Promise<{ documents: DocumentInfo[] }> {
-  return request<{ documents: DocumentInfo[] }>('/documents')
+export function listDocuments(kbId?: string): Promise<{ documents: DocumentInfo[] }> {
+  const query = kbId ? `?kb_id=${encodeURIComponent(kbId)}` : ''
+  return request<{ documents: DocumentInfo[] }>(`/documents${query}`)
 }
 
 export function deleteDocument(documentId: string): Promise<{ status: string }> {
   return request<{ status: string }>(`/documents/${documentId}`, { method: 'DELETE' })
 }
 
-/** 切换文档可见范围（上传者或管理员）。 */
-export function setDocumentVisibility(
-  documentId: string,
-  visibility: 'team' | 'private',
-): Promise<DocumentInfo> {
-  return request<DocumentInfo>(`/documents/${documentId}/visibility`, {
+/** 把文档移动到另一个知识库（源库与目标库都需要编辑能力）。 */
+export function moveDocument(documentId: string, kbId: string): Promise<DocumentInfo> {
+  return request<DocumentInfo>(`/documents/${documentId}/kb`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ visibility }),
+    body: JSON.stringify({ kb_id: kbId }),
   })
 }
 
-/** 当前成员的默认可见范围（上传时预选）。 */
-export function getDocumentPreferences(): Promise<{ default_visibility: 'team' | 'private' }> {
-  return request<{ default_visibility: 'team' | 'private' }>('/documents/preferences')
+// --- 知识库（一等公民）---
+
+export function listKnowledgeBases(): Promise<{ items: KnowledgeBase[] }> {
+  return request<{ items: KnowledgeBase[] }>('/kb')
 }
 
-export function setDocumentPreferences(
-  defaultVisibility: 'team' | 'private',
-): Promise<{ default_visibility: 'team' | 'private' }> {
-  return request<{ default_visibility: 'team' | 'private' }>('/documents/preferences', {
-    method: 'PUT',
+export function getKnowledgeBase(kbId: string): Promise<KnowledgeBaseDetail> {
+  return request<KnowledgeBaseDetail>(`/kb/${kbId}`)
+}
+
+export function createKnowledgeBase(payload: {
+  name: string
+  description?: string
+  kind?: 'personal' | 'team'
+}): Promise<KnowledgeBaseDetail> {
+  return request<KnowledgeBaseDetail>('/kb', {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ default_visibility: defaultVisibility }),
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateKnowledgeBase(
+  kbId: string,
+  payload: { name?: string; description?: string },
+): Promise<KnowledgeBaseDetail> {
+  return request<KnowledgeBaseDetail>(`/kb/${kbId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteKnowledgeBase(
+  kbId: string,
+): Promise<{ kb_id: string; status: string; documents_removed: number }> {
+  return request<{ kb_id: string; status: string; documents_removed: number }>(`/kb/${kbId}`, {
+    method: 'DELETE',
+  })
+}
+
+// --- 共享与审批 ---
+
+export interface CreateSharePayload {
+  subject_type: 'user' | 'group' | 'team'
+  subject_id: string
+  caps: DocumentCaps
+  document_ids?: string[]
+  reason?: string
+}
+
+export function createShare(kbId: string, payload: CreateSharePayload): Promise<ShareItem> {
+  return request<ShareItem>(`/kb/${kbId}/shares`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function listShares(
+  view: 'mine' | 'pending' | 'all' = 'mine',
+): Promise<{ items: ShareItem[]; pending_count: number }> {
+  return request<{ items: ShareItem[]; pending_count: number }>(`/shares?view=${view}`)
+}
+
+export function decideShare(shareId: string, approve: boolean, note = ''): Promise<ShareItem> {
+  return request<ShareItem>(`/shares/${shareId}/decide`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approve, note }),
+  })
+}
+
+export function revokeShare(shareId: string): Promise<void> {
+  return request<void>(`/shares/${shareId}`, { method: 'DELETE' })
+}
+
+export function updateShare(shareId: string, caps: DocumentCaps): Promise<ShareItem> {
+  return request<ShareItem>(`/shares/${shareId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ caps }),
+  })
+}
+
+export function getShareGraph(): Promise<ShareGraphData> {
+  return request<ShareGraphData>('/kb/graph')
+}
+
+// --- 分组 ---
+
+export function listGroups(): Promise<{ items: GroupItem[] }> {
+  return request<{ items: GroupItem[] }>('/groups')
+}
+
+export function createGroup(name: string, description = ''): Promise<GroupItem> {
+  return request<GroupItem>('/groups', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description }),
+  })
+}
+
+export function updateGroup(
+  groupId: string,
+  payload: { name?: string; description?: string },
+): Promise<GroupItem> {
+  return request<GroupItem>(`/groups/${groupId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteGroup(groupId: string): Promise<void> {
+  return request<void>(`/groups/${groupId}`, { method: 'DELETE' })
+}
+
+export function addGroupMember(
+  groupId: string,
+  userId: string,
+  role: 'manager' | 'member' = 'member',
+): Promise<GroupItem> {
+  return request<GroupItem>(`/groups/${groupId}/members`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, role }),
+  })
+}
+
+export function joinGroup(groupId: string): Promise<GroupItem> {
+  return request<GroupItem>(`/groups/${groupId}/join`, { method: 'POST' })
+}
+
+export function decideGroupMember(
+  groupId: string,
+  userId: string,
+  approve: boolean,
+): Promise<GroupItem> {
+  return request<GroupItem>(`/groups/${groupId}/members/${userId}/decide?approve=${approve}`, {
+    method: 'POST',
+  })
+}
+
+export function removeGroupMember(groupId: string, userId: string): Promise<void> {
+  return request<void>(`/groups/${groupId}/members/${userId}`, { method: 'DELETE' })
+}
+
+export function setGroupMemberRole(
+  groupId: string,
+  userId: string,
+  role: 'manager' | 'member',
+): Promise<GroupItem> {
+  return request<GroupItem>(`/groups/${groupId}/members/${userId}?role=${role}`, {
+    method: 'PATCH',
   })
 }
 
@@ -346,8 +493,8 @@ export function setDocumentPreferences(
  * 用 XHR 而不是 fetch：只有 XHR 能拿到上传进度（大 PDF 时前端需要真实反馈）。
  */
 export interface DocumentUploadOptions {
-  /** 可见范围：team = 团队共享（默认），private = 仅自己 */
-  visibility?: 'team' | 'private'
+  /** 目标知识库；不传则进自己的个人知识库 */
+  kbId?: string
   onProgress?: (percent: number) => void
 }
 
@@ -355,11 +502,11 @@ export function uploadDocument(
   file: File,
   options: DocumentUploadOptions = {},
 ): Promise<DocumentInfo> {
-  const { visibility = 'team', onProgress } = options
+  const { kbId, onProgress } = options
   return new Promise((resolve, reject) => {
     const form = new FormData()
     form.append('file', file)
-    form.append('visibility', visibility)
+    if (kbId) form.append('kb_id', kbId)
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${API_BASE}/documents/upload`)
     const token = getToken()

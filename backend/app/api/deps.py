@@ -22,18 +22,23 @@ from app.embedding.factory import get_embedding_provider
 from app.llm.base import LLMProvider
 from app.llm.factory import get_llm
 from app.memory.api_keys import ApiKeyRepository
+from app.memory.groups import GroupRepository
+from app.memory.knowledge import KnowledgeRepository
 from app.memory.repository import MemoryRepository, TaskRepository
 from app.memory.sqlite import SqliteDatabase
 from app.memory.users import ROLE_ADMIN, STATUS_ACTIVE, UserRecord, UserRepository
 from app.rag.retriever import Retriever
 from app.rag.store import ChromaStore
 from app.rag.tools import RagTool
+from app.services.access import AccessService
 from app.services.api_key_service import ApiKeyService
 from app.services.backup_service import BackupService
 from app.services.category_service import CategoryService
 from app.services.document_service import DocumentService
 from app.services.email_service import EmailService
+from app.services.group_service import GroupService
 from app.services.knowledge_package_service import KnowledgePackageService
+from app.services.knowledge_service import KnowledgeService
 from app.services.memory_package_service import MemoryPackageService
 from app.services.memory_service import MemoryService
 from app.services.preset_package_service import PresetPackageService
@@ -99,9 +104,38 @@ def build_document_service() -> DocumentService:
         provider_factory=get_embedding_provider,
         store=build_chroma_store(),
         documents_dir=settings.documents_dir,
+        access=build_access_service(),
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
         embed_batch_size=settings.embedding_batch_size,
+    )
+
+
+def build_knowledge_repository() -> KnowledgeRepository:
+    return KnowledgeRepository(build_database())
+
+
+def build_group_repository() -> GroupRepository:
+    return GroupRepository(build_database())
+
+
+def build_access_service() -> AccessService:
+    """能力解析：一次请求内按成员身份把共享关系并成能力集合。"""
+    return AccessService(build_knowledge_repository(), build_group_repository())
+
+
+def build_knowledge_service() -> KnowledgeService:
+    return KnowledgeService(
+        build_knowledge_repository(),
+        build_group_repository(),
+        build_user_repository(),
+        build_document_service,
+    )
+
+
+def build_group_service() -> GroupService:
+    return GroupService(
+        build_group_repository(), build_user_repository(), build_knowledge_repository()
     )
 
 
@@ -122,6 +156,14 @@ def get_retriever() -> Retriever:
 
 def get_document_service() -> DocumentService:
     return build_document_service()
+
+
+def get_knowledge_service() -> KnowledgeService:
+    return build_knowledge_service()
+
+
+def get_group_service() -> GroupService:
+    return build_group_service()
 
 
 def build_database() -> SqliteDatabase:

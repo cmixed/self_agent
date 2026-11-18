@@ -222,12 +222,38 @@ query 出现明确长期信号（“记住…”“以后都…”“我的研�
 - 公共错误与限制在 `app/transfer/`；前端统一使用 `ImportPreviewModal`
   与 `downloadBlob`。
 
+### 4.12 知识库与共享：组合优于继承
+
+权限不用角色树（管理员 / 成员 / 读者…），而是四项目录**能力**的组合：
+
+```text
+Caps = (search, list, read, write)
+write ⇒ read ⇒ list ⇒ search      # 高能力自动补齐低能力
+最终能力 = 库主? 全能力 : ∪ 命中的所有共享记录
+```
+
+- **知识库是一等公民**（`knowledge_bases`）：`kind=team` 是团队库（唯一、不可删），
+  `kind=personal` 是个人库（每个成员一个，新建文档默认落在自己的库）。
+- **共享是一条组合记录**（`kb_shares`）：`知识库（或其中若干文件）× 主体（人 / 分组 / 全团队）
+  × 能力集`。多条记录**按并集叠加**，撤销一条只收回这条带来的能力。
+- **分组只装人、不带权限**（`team_groups` + `team_group_members`）：建组人自动成为
+  组内编辑者，可拉人、可审批入组；管理员可建组、拉人、审批、改任何分组。
+  把库共享给分组，才产生访问能力。
+- **审批是一条状态机**：库主与管理员发起的共享直接 `active`；其他有读能力的成员提交的
+  申请进 `pending`，由管理员批准或驳回，驳回保留记录便于追溯。
+- **管理员看关系不看内容**：能看全部知识库元数据与 `/api/kb/graph` 的关系图，
+  但内容访问仍只按能力判定——列表为空、原文 404。
+- **存量迁移幂等**：启动时 `bootstrap()` 建团队库、给全员一条只读共享，并把没有
+  `kb_id` 的旧文档按原 `visibility` 归入团队库或上传者个人库。
+- 前端不再有「改文档可见范围」这类开关：能力从知识库页的「共享」进入，
+  以「库 × 一批人 × 一组能力」的方式授予。
+
 ## 5. 存储职责
 
 | 存储 | 内容 | 不存什么 |
 | --- | --- | --- |
-| ChromaDB | 文档 chunk、向量、source metadata | 任务状态、用户偏好 |
-| SQLite | 任务 / `task_runs` 尝试记录 / 长期记忆 / 类别映射 / checkpoint | 技能内容、原始文档 |
+| ChromaDB | 文档 chunk、向量、source metadata（含 `kb_id`） | 任务状态、用户偏好 |
+| SQLite | 任务 / `task_runs` 尝试记录 / 长期记忆 / 类别映射 / checkpoint / 知识库与共享（`knowledge_bases`、`team_groups`、`team_group_members`、`kb_shares`） | 技能内容、原始文档 |
 | `data/skills/` | `SKILL.md` + 附件 + sidecar state | 运行期状态 |
 | `data/documents/` | 上传的原文件 | 向量 |
 

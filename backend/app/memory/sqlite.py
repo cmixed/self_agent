@@ -173,6 +173,73 @@ CREATE TABLE IF NOT EXISTS document_categories (
 
 CREATE INDEX IF NOT EXISTS idx_document_categories_doc ON document_categories(document_id);
 
+-- 知识库：一等公民。文档归属到某个知识库，是否可见由「共享关系」组合决定，
+-- 不再用单一的 team/private 开关（那相当于把权限写死在文档上）。
+-- kind：team = 团队公共库（由管理员维护）；personal = 成员自己的库
+CREATE TABLE IF NOT EXISTS knowledge_bases (
+    kb_id       TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    owner_id    TEXT NOT NULL,
+    kind        TEXT NOT NULL DEFAULT 'personal',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_kb_name ON knowledge_bases(name);
+
+-- 团队分组（「一批人」）：共享的载体，而不是权限继承的层级
+CREATE TABLE IF NOT EXISTS team_groups (
+    group_id    TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_by  TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_name ON team_groups(name);
+
+-- 组成员：role=manager 可审批入组申请（默认由组内编辑者同意），admin 也可直接拉人
+CREATE TABLE IF NOT EXISTS team_group_members (
+    group_id  TEXT NOT NULL REFERENCES team_groups(group_id) ON DELETE CASCADE,
+    user_id   TEXT NOT NULL,
+    role      TEXT NOT NULL DEFAULT 'member',
+    status    TEXT NOT NULL DEFAULT 'active',
+    added_by  TEXT NOT NULL DEFAULT '',
+    joined_at TEXT NOT NULL,
+    PRIMARY KEY (group_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_group_members_user ON team_group_members(user_id, status);
+
+-- 共享：组合关系的核心表。一条记录 = 「某个知识库（可限定若干文件）
+-- 以某组能力授予某主体」。能力拆成 4 个独立开关（检索 / 列表 / 原文 / 编辑），
+-- 多个主体命中的能力取并集（组合优于继承：不看角色层级，只看叠加了哪些能力）。
+CREATE TABLE IF NOT EXISTS kb_shares (
+    share_id      TEXT PRIMARY KEY,
+    kb_id         TEXT NOT NULL REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE,
+    -- user = 指定成员；group = 分组；team = 全团队
+    subject_type  TEXT NOT NULL,
+    subject_id    TEXT NOT NULL,
+    can_search    INTEGER NOT NULL DEFAULT 1,
+    can_list      INTEGER NOT NULL DEFAULT 0,
+    can_read      INTEGER NOT NULL DEFAULT 0,
+    can_write     INTEGER NOT NULL DEFAULT 0,
+    -- 共享的文件子集（JSON 数组）；空数组 = 整个知识库
+    document_ids  TEXT NOT NULL DEFAULT '[]',
+    -- pending = 成员提案待管理员审批；active = 生效；rejected = 驳回
+    status        TEXT NOT NULL DEFAULT 'pending',
+    requested_by  TEXT NOT NULL,
+    reason        TEXT NOT NULL DEFAULT '',
+    decided_by    TEXT,
+    decided_at    TEXT,
+    decision_note TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_kb_shares_kb ON kb_shares(kb_id, status);
+CREATE INDEX IF NOT EXISTS idx_kb_shares_subject ON kb_shares(subject_type, subject_id, status);
+
 -- 轻量元数据（如「默认预设是否已写入」）：让「删空预设」不会被重启后重新 seed
 CREATE TABLE IF NOT EXISTS app_meta (
     key   TEXT PRIMARY KEY,

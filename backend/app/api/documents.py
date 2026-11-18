@@ -9,11 +9,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.api.deps import (
-    build_memory_repository,
     get_category_service,
     get_current_user,
     get_document_service,
     get_knowledge_package_service,
+    get_knowledge_service,
 )
 from app.core.logging import get_logger
 from app.memory.users import UserRecord
@@ -22,8 +22,7 @@ from app.models.schemas import (
     DocumentCategoriesUpdate,
     DocumentInfo,
     DocumentListResponse,
-    DocumentPreferencesUpdate,
-    DocumentVisibilityUpdate,
+    DocumentMoveRequest,
     ErrorResponse,
     ImportConfirmRequest,
     KnowledgeImportDocumentOut,
@@ -33,7 +32,6 @@ from app.models.schemas import (
 )
 from app.services.category_service import CategoryNotFoundError, CategoryService
 from app.services.document_service import (
-    VISIBLE_SCOPES,
     DocumentNotFoundError,
     DocumentPermissionError,
     DocumentService,
@@ -42,6 +40,7 @@ from app.services.knowledge_package_service import (
     MAX_PACKAGE_BYTES,
     KnowledgePackageService,
 )
+from app.services.knowledge_service import KnowledgeError, KnowledgeService
 from app.transfer.errors import (
     ImportPackageError,
     ImportPackageTooLargeError,
@@ -51,8 +50,6 @@ from app.transfer.package import export_filename
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
-# 成员级偏好：默认可见范围（team / private）
-DEFAULT_VISIBILITY_KEY = "doc.default_visibility"
 logger = get_logger(__name__)
 
 # 显式映射，保证浏览器按文本内联渲染（而不是下载）
@@ -69,54 +66,51 @@ def _media_type(path: Path) -> str:
     return _MEDIA_TYPES.get(path.suffix.lower()) or guessed or "application/octet-stream"
 
 
-@router.get("/preferences", response_model=None)
-async def get_document_preferences(
-    user: UserRecord = Depends(get_current_user),
-) -> dict[str, str]:
-    """当前成员的文档偏好（默认可见范围）。"""
-    preferences = await build_memory_repository().get_preferences(user.user_id)
-    value = preferences.get(DEFAULT_VISIBILITY_KEY, "team")
-    return {"default_visibility": value if value in VISIBLE_SCOPES else "team"}
-
-
-@router.put("/preferences", response_model=None)
-async def set_document_preferences(
-    payload: DocumentPreferencesUpdate,
-    user: UserRecord = Depends(get_current_user),
-) -> dict[str, str]:
-    if payload.default_visibility not in VISIBLE_SCOPES:
-        raise HTTPException(status_code=422, detail="default_visibility 只能是 team 或 private")
-    await build_memory_repository().set_preference(
-        user.user_id, DEFAULT_VISIBILITY_KEY, payload.default_visibility
-    )
-    return {"default_visibility": payload.default_visibility}
-
-
 @router.post("/upload", response_model=DocumentInfo)
 async def upload_document(
     file: UploadFile = File(...),
-    visibility: str = Form(default="team"),
+    kb_id: str | None = Form(default=None),
     service: DocumentService = Depends(get_document_service),
+    knowledge: KnowledgeService = Depends(get_knowledge_service),
     user: UserRecord = Depends(get_current_user),
 ) -> DocumentInfo:
-    if visibility not in VISIBLE_SCOPES:
-        raise HTTPException(status_code=422, detail="visibility 只能是 team 或 private")
+    """上传文档到指定知识库；不指定时放进自己的个人知识库。
+
+    没有该知识库的编辑能力会被拒绝——团队知识库默认对全员只读，
+    成员贡献内容走「个人库 → 申请共享」的路径。
+    """
+    target = kb_id
+    if not target:
+        target = (await knowledge.ensure_personal_kb(user)).kb_id
+    else:
+        try:
+            knowledge.get_kb(target)
+        except KnowledgeError as exc:
+            raise HTTPException(status_code=exc.status, detail=exc.message) from exc
     content = await file.read()
-    return await service.ingest(
-        filename=file.filename or "unnamed",
-        content=content,
-        owner_id=user.user_id,
-        visibility=visibility,
-    )
+    try:
+        return await service.ingest(
+            filename=file.filename or "unnamed",
+            content=content,
+            owner_id=user.user_id,
+            kb_id=target,
+        )
+    except DocumentPermissionError as exc:
+        raise HTTPException(
+            status_code=403, detail="你没有该知识库的编辑权限，请在自己的知识库里上传"
+        ) from exc
 
 
 @router.get("", response_model=DocumentListResponse)
 async def list_documents(
+    kb_id: str | None = Query(default=None, description="只看某个知识库的文档"),
     service: DocumentService = Depends(get_document_service),
     categories: CategoryService = Depends(get_category_service),
     user: UserRecord = Depends(get_current_user),
 ) -> DocumentListResponse:
-    documents = await service.list_documents(user_id=user.user_id, is_admin=user.is_admin)
+    documents = await service.list_documents(
+        user_id=user.user_id, is_admin=user.is_admin, kb_id=kb_id
+    )
     mapping = await categories.document_category_map()
     for document in documents:
         document.category_ids = mapping.get(document.document_id, [])
@@ -181,14 +175,16 @@ async def preview_knowledge_import(
 async def confirm_knowledge_import(
     payload: ImportConfirmRequest,
     service: KnowledgePackageService = Depends(get_knowledge_package_service),
+    knowledge: KnowledgeService = Depends(get_knowledge_service),
     user: UserRecord = Depends(get_current_user),
 ) -> KnowledgeImportResultOut | JSONResponse:
     """确认导入；文档会重新解析、切分并建立向量索引，可能耗时较长。
 
-    导入的文档归属为执行导入的成员（管理员导入则归管理员），默认团队共享。
+    导入的文档放进执行导入者的个人知识库（可再申请共享给分组）。
     """
+    target = (await knowledge.ensure_personal_kb(user)).kb_id
     try:
-        result = await service.confirm(payload.token, owner_id=user.user_id)
+        result = await service.confirm(payload.token, owner_id=user.user_id, kb_id=target)
     except ImportPreviewExpiredError as exc:
         return _import_error(409, exc.error_type, exc.message)
     return KnowledgeImportResultOut(
@@ -211,13 +207,15 @@ async def get_document_content(
 ) -> FileResponse:
     """返回知识库文档的原文件，供在线查看或下载。
 
-    只读取本地上传目录中该文档的原始文件；不读取向量库内容、不触发模型。
+    需要 **read** 能力：只有「仅检索」或「可看列表」权限的成员拿不到原文。
     """
-    info = await service.get_visible_document(
-        document_id, user_id=user.user_id, is_admin=user.is_admin
+    info = await service.get_document(
+        document_id, user_id=user.user_id, is_admin=user.is_admin, need="read"
     )
     if info is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在或你无权访问")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在或你无权阅读原文"
+        )
     found = await service.document_file(document_id)
     if found is None:
         raise HTTPException(
@@ -232,22 +230,29 @@ async def get_document_content(
     )
 
 
-@router.patch("/{document_id}/visibility", response_model=DocumentInfo)
-async def update_document_visibility(
+@router.patch("/{document_id}/kb", response_model=DocumentInfo)
+async def move_document(
     document_id: str,
-    payload: DocumentVisibilityUpdate,
+    payload: DocumentMoveRequest,
     service: DocumentService = Depends(get_document_service),
+    knowledge: KnowledgeService = Depends(get_knowledge_service),
     user: UserRecord = Depends(get_current_user),
 ) -> DocumentInfo:
-    """切换团队共享 / 仅自己可见（上传者或管理员）。"""
+    """把文档移动到另一个知识库（源库与目标库都需要编辑能力）。"""
     try:
-        return await service.set_visibility(
-            document_id, payload.visibility, user_id=user.user_id, is_admin=user.is_admin
+        knowledge.get_kb(payload.kb_id)
+    except KnowledgeError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
+    try:
+        return await service.move_document(
+            document_id, kb_id=payload.kb_id, user_id=user.user_id, is_admin=user.is_admin
         )
     except DocumentNotFoundError as exc:
         raise HTTPException(status_code=404, detail="文档不存在") from exc
     except DocumentPermissionError as exc:
-        raise HTTPException(status_code=403, detail="只有上传者或管理员可以修改可见范围") from exc
+        raise HTTPException(
+            status_code=403, detail="需要在源知识库和目标知识库都有编辑权限"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -264,7 +269,9 @@ async def delete_document(
             document_id, user_id=user.user_id, is_admin=user.is_admin
         )
     except DocumentPermissionError as exc:
-        raise HTTPException(status_code=403, detail="只有上传者或管理员可以删除该文档") from exc
+        raise HTTPException(
+            status_code=403, detail="你没有该知识库的编辑权限，无法删除这篇文档"
+        ) from exc
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
     # 文档已删除，顺手清理其分类映射（类别本身保留）

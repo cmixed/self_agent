@@ -43,6 +43,8 @@ function document(id: string): DocumentInfo {
     title: id,
     chunks: 1,
     category_ids: [],
+    kb_id: 'kb-team',
+    caps: { search: true, list: true, read: true, write: false },
   }
 }
 

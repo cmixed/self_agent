@@ -18,6 +18,7 @@ from app.agents.skills import MAX_VERBATIM_STEPS, _run_verbatim_skill
 from app.agents.summarizer import inject_verbatim
 from app.api.deps import (
     build_memory_repository,
+    get_document_service,
     get_memory_service,
     get_task_repository,
     get_task_service,
@@ -50,7 +51,7 @@ class FakeDocumentService(DocumentService):
         self._documents = documents
 
     async def list_documents(
-        self, *, user_id: str | None = None, is_admin: bool = False
+        self, *, user_id: str | None = None, is_admin: bool = False, kb_id: str | None = None
     ) -> list[DocumentInfo]:
         return [
             DocumentInfo(
@@ -61,6 +62,12 @@ class FakeDocumentService(DocumentService):
             )
             for document_id, (filename, title, _) in self._documents.items()
         ]
+
+    async def visible_document_ids(
+        self, *, user_id: str, is_admin: bool = False, kb_id: str | None = None
+    ) -> set[str]:
+        """假服务没有能力体系：所有文档都可检索（团队版可见性由专门测试覆盖）。"""
+        return set(self._documents)
 
     async def read_document_text(self, document_id: str) -> tuple[str, str, str] | None:
         return self._documents.get(document_id)
@@ -422,6 +429,9 @@ def _direct_app(documents: dict[str, tuple[str, str, str]] | None = None):
         max_retries=0,
     )
     app.dependency_overrides[get_task_service] = lambda: service
+    # 任务接口会按成员能力冻结可检索集合；这里用同一个假文档服务，
+    # 否则真实（空的）向量库会让「直接输出原文」被 409 挡住
+    app.dependency_overrides[get_document_service] = lambda: FakeDocumentService(docs)
     return app
 
 

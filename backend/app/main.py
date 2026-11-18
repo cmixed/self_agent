@@ -22,7 +22,9 @@ from app.api import (
     chat,
     documents,
     email,
+    groups,
     health,
+    knowledge,
     members,
     memory,
     presets,
@@ -38,6 +40,7 @@ from app.api.deps import (
     build_checkpoint_store,
     build_chroma_store,
     build_database,
+    build_knowledge_service,
     build_preset_service,
     build_provider_service,
     build_skill_service,
@@ -69,6 +72,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         )
     except Exception as exc:  # pragma: no cover - 初始化失败不应阻塞启动
         logger.warning(f"管理员初始化失败：{exc}", extra={"event": "auth_bootstrap_failed"})
+    # 团队知识库就位 + 历史文档归位（旧文档没有 kb_id：team → 团队库，
+    # private → 上传者的个人库），幂等；失败不阻塞启动，首次访问再报错
+    try:
+        await asyncio.to_thread(build_chroma_store)
+        await build_knowledge_service().bootstrap()
+    except Exception as exc:  # pragma: no cover - 迁移失败不应阻塞启动
+        logger.warning(f"知识库初始化失败：{exc}", extra={"event": "kb_bootstrap_failed"})
     # 装载 UI 管理的自定义 Provider 到内存注册表（工厂同步读取，见 llm/registry.py）
     try:
         await build_provider_service().refresh_registry()
@@ -156,6 +166,9 @@ def create_app() -> FastAPI:
     app.include_router(email.router)
     app.include_router(backup.router)
     app.include_router(documents.router)
+    app.include_router(knowledge.router)
+    app.include_router(knowledge.share_router)
+    app.include_router(groups.router)
     app.include_router(memory.router)
     register_exception_handlers(app)
     return app

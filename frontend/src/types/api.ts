@@ -475,7 +475,16 @@ export interface TaskState {
   sources_count: number
 }
 
-export type DocumentVisibility = 'team' | 'private'
+/**
+ * 四项能力（组合式权限）：文档不再自带 team/private 开关，
+ * 能不能检索 / 列表 / 读原文 / 编辑，取决于命中的共享记录取并集。
+ */
+export interface DocumentCaps {
+  search: boolean
+  list: boolean
+  read: boolean
+  write: boolean
+}
 
 export interface DocumentInfo {
   document_id: string
@@ -484,12 +493,108 @@ export interface DocumentInfo {
   chunks: number
   /** 所属类别（多标签），由列表接口一次性带出 */
   category_ids: string[]
+  /** 所属知识库 */
+  kb_id: string
   /** 归属成员；旧数据为空 */
   owner_id?: string | null
-  /** team = 团队共享（默认）；private = 仅自己 */
-  visibility?: DocumentVisibility
-  /** 当前用户能否改可见范围 / 删除 */
+  /** 当前查询者能否增删改（等价于 caps.write） */
   can_manage?: boolean
+  caps: DocumentCaps
+}
+
+export type KnowledgeBaseKind = 'team' | 'personal'
+
+export interface KnowledgeBase {
+  kb_id: string
+  name: string
+  description: string
+  kind: KnowledgeBaseKind
+  owner_id: string
+  owner_name: string
+  document_count: number
+  share_count: number
+  pending_count: number
+  my_caps: DocumentCaps
+  my_caps_label: string
+  can_manage: boolean
+}
+
+export interface KnowledgeBaseDetail extends KnowledgeBase {
+  created_at: string
+  updated_at: string
+  shares: ShareItem[]
+}
+
+export interface ShareItem {
+  share_id: string
+  kb_id: string
+  kb_name: string
+  subject_type: 'user' | 'group' | 'team'
+  subject_id: string
+  subject_name: string
+  caps: DocumentCaps
+  caps_label: string
+  document_ids: string[]
+  status: 'pending' | 'active' | 'rejected'
+  reason: string
+  requested_by: string
+  requested_by_name: string
+  decided_by?: string | null
+  decided_at?: string | null
+  decision_note: string
+  created_at: string
+}
+
+export interface GroupMember {
+  user_id: string
+  display_name: string
+  role: 'manager' | 'member'
+  status: 'active' | 'pending'
+  added_by: string
+  joined_at: string
+}
+
+export interface GroupItem {
+  group_id: string
+  name: string
+  description: string
+  created_by: string
+  created_by_name: string
+  member_count: number
+  pending_count: number
+  my_role: 'manager' | 'member' | 'pending' | null
+  can_manage: boolean
+  members: GroupMember[]
+}
+
+export interface GraphNode {
+  id: string
+  type: 'user' | 'group' | 'kb' | 'team'
+  label: string
+  kind?: string | null
+  is_me?: boolean
+  member_count?: number
+  document_count?: number
+  owner_name?: string
+  my_caps?: DocumentCaps | null
+}
+
+export interface GraphEdge {
+  id: string
+  source: string
+  target: string
+  kind: 'member' | 'share'
+  status: string
+  label: string
+  caps?: DocumentCaps | null
+  document_ids?: string[]
+  requested_by_name?: string
+}
+
+export interface ShareGraphData {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  pending_count: number
 }
 
 export interface KnowledgeImportDocument {

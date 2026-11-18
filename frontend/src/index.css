@@ -2260,6 +2260,141 @@ html[data-theme='dark'] body {
   line-height: var(--ws-lh-body);
 }
 
+/* 知识库列表项：两行（名称 + 元信息），选中时整块高亮并描边。
+   用按钮实现，保证键盘可聚焦（Tab 走一遍就能切换库）。 */
+.kb-item {
+  display: flex;
+  align-items: center;
+  gap: var(--ws-space-2);
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--ws-radius);
+  background: transparent;
+  color: var(--ant-color-text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--ws-motion) var(--ws-ease),
+    border-color var(--ws-motion) var(--ws-ease);
+}
+
+.kb-item:hover {
+  background: var(--ant-color-fill-tertiary);
+}
+
+.kb-item.is-active {
+  border-color: var(--ant-color-primary-border);
+  background: var(--ant-color-primary-bg);
+}
+
+.kb-item__main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kb-item__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--ws-font-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kb-item__name .anticon {
+  flex: 0 0 auto;
+  color: var(--ant-color-text-tertiary);
+  font-size: 13px;
+}
+
+.kb-item__meta {
+  font-size: var(--ws-font-caption);
+  color: var(--ant-color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 标题里的次要信息（库主 · 篇数）：不要在被 Tag 挤开时撑破标题行 */
+.kb-title__meta {
+  font-size: var(--ws-font-caption);
+  font-weight: 400;
+}
+
+/* --- 共享关系图 ---------------------------------------------------------- */
+.share-graph {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-2);
+  overflow-x: auto;
+}
+
+.share-graph--loading {
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+}
+
+.share-graph__node--clickable {
+  cursor: pointer;
+}
+
+.share-graph__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ws-space-2) var(--ws-space-3);
+  padding: 2px var(--ws-space-1);
+  font-size: var(--ws-font-caption);
+  color: var(--ant-color-text-tertiary);
+}
+
+.share-graph__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.share-graph__legend-item i {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ant-color-border);
+}
+
+.share-graph__legend-item i.is-dashed {
+  height: 0;
+  background: none;
+  border-top: 2px dashed var(--ant-color-text-quaternary);
+}
+
+/* 权限说明卡片：四档能力一行一条，窄屏自动换行 */
+.kb-caps-explain__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--ws-space-2) var(--ws-space-4);
+}
+
+.kb-caps-explain__grid > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.kb-caps-explain__grid .ant-typography {
+  font-size: var(--ws-font-caption);
+  line-height: var(--ws-lh-body);
+}
+
 /* 文档行内的类别标签：容器统一 gap，标签自身去掉 antd 的 margin-inline-end，
    否则与 gap 叠加会出现忽宽忽窄的间距。 */
 .kb-tag-list {
