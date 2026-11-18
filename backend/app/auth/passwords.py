@@ -40,7 +40,7 @@ def verify_password(password: str, stored: str | None) -> bool:
         iterations = int(raw_iterations)
         salt = bytes.fromhex(salt_hex)
         expected = bytes.fromhex(digest_hex)
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return False
     actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
     return hmac.compare_digest(actual, expected)
@@ -53,5 +53,5 @@ def needs_rehash(stored: str | None, *, iterations: int = ITERATIONS) -> bool:
     try:
         _, raw_iterations, _, _ = stored.split("$", 3)
         return int(raw_iterations) < iterations
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return True

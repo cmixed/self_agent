@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Any
+from collections.abc import AsyncIterator
+from typing import Any, cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -30,6 +31,7 @@ from app.memory.selection import select_memories
 from app.memory.users import UserRecord
 from app.models.public_schemas import PublicTaskCreated, PublicTaskRequest, PublicTaskStatus
 from app.models.schemas import TaskScope
+from app.models.state import RetrievalMode
 from app.services.category_service import CategoryService
 from app.services.document_service import DocumentService
 from app.services.memory_service import MemoryService
@@ -40,6 +42,12 @@ logger = get_logger(__name__)
 
 # 后台任务需要强引用，否则可能被 GC 回收（asyncio 官方文档明确要求）
 _PENDING: set[asyncio.Task[None]] = set()
+
+
+async def _drain(events: AsyncIterator[dict[str, Any]]) -> None:
+    """把任务事件流跑完即可：进度与结果由 TaskService 自己落库。"""
+    async for _event in events:
+        pass
 
 
 def _spawn(coro, *, task_id: str, repository: TaskRepository) -> None:
@@ -82,7 +90,10 @@ async def create_public_task(
     )
     visible_ids = await documents.visible_document_ids(user_id=user.user_id, is_admin=user.is_admin)
     retrieval_mode, retrieval_scope = await _resolve_retrieval(
-        scope, categories, payload.retrieval_mode, visible_ids=visible_ids
+        scope,
+        categories,
+        cast(RetrievalMode | None, payload.retrieval_mode),
+        visible_ids=visible_ids,
     )
 
     stored, memory_records = await memory_service.get_profile(user.user_id)
@@ -90,15 +101,17 @@ async def create_public_task(
 
     task_id = str(uuid4())
     _spawn(
-        service.start(
-            payload.query,
-            user_preferences=stored,
-            user_memories=user_memories,
-            task_id=task_id,
-            user_id=user.user_id,
-            retrieval_scope=retrieval_scope,
-            retrieval_mode=retrieval_mode,
-            depth=payload.depth,
+        _drain(
+            service.stream(
+                payload.query,
+                user_preferences=stored,
+                user_memories=user_memories,
+                task_id=task_id,
+                user_id=user.user_id,
+                retrieval_scope=retrieval_scope,
+                retrieval_mode=retrieval_mode,
+                depth=payload.depth,
+            )
         ),
         task_id=task_id,
         repository=repository,

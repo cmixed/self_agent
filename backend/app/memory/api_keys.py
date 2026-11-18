@@ -47,7 +47,9 @@ class ApiKeyRepository:
     def __init__(self, database: SqliteDatabase) -> None:
         self._database = database
 
-    def create(self, *, key_id: str, user_id: str, label: str, key_hash: str, created_at: str) -> None:
+    def create(
+        self, *, key_id: str, user_id: str, label: str, key_hash: str, created_at: str
+    ) -> None:
         with self._database.connect() as connection:
             connection.execute(
                 "INSERT INTO api_keys (key_id, user_id, label, key_hash, created_at, "
@@ -65,9 +67,7 @@ class ApiKeyRepository:
 
     def list_all(self) -> list[ApiKeyRecord]:
         with self._database.connect() as connection:
-            rows = connection.execute(
-                "SELECT * FROM api_keys ORDER BY created_at DESC"
-            ).fetchall()
+            rows = connection.execute("SELECT * FROM api_keys ORDER BY created_at DESC").fetchall()
         return [key for key in (_row_to_key(row) for row in rows) if key]
 
     def find_by_hash(self, key_hash: str) -> ApiKeyRecord | None:
@@ -79,7 +79,9 @@ class ApiKeyRepository:
 
     def get(self, key_id: str) -> ApiKeyRecord | None:
         with self._database.connect() as connection:
-            row = connection.execute("SELECT * FROM api_keys WHERE key_id = ?", (key_id,)).fetchone()
+            row = connection.execute(
+                "SELECT * FROM api_keys WHERE key_id = ?", (key_id,)
+            ).fetchone()
         return _row_to_key(row)
 
     def revoke(self, key_id: str, revoked_at: str) -> bool:

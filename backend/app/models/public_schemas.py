@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -32,7 +34,7 @@ class ApiKeyListResponse(BaseModel):
 class PublicTaskRequest(BaseModel):
     query: str = Field(min_length=1, description="任务描述，例如「根据知识库写一份综述」")
     depth: str | None = None
-    retrieval_mode: str | None = Field(
+    retrieval_mode: Literal["all", "selected", "none"] | None = Field(
         default=None, description="all / selected / none；缺省按 all（会收敛为可访问范围）"
     )
     scope: dict[str, list[str]] | None = Field(

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 from fakes import FakeEmbeddingProvider
@@ -21,6 +22,7 @@ from app.main import create_app
 from app.memory.users import UserRecord
 from app.models.schemas import TaskScope
 from app.rag.store import ChromaStore
+from app.services.category_service import CategoryService
 from app.services.document_service import DocumentService
 
 ALICE = UserRecord(
@@ -96,9 +98,12 @@ def test_team_document_visible_to_others(tmp_path: Path) -> None:
         listed = client.get("/api/documents").json()["documents"]
         assert [item["document_id"] for item in listed] == [document_id]
         # 非上传者不能改范围、不能删
-        assert client.patch(
-            f"/api/documents/{document_id}/visibility", json={"visibility": "private"}
-        ).status_code == 403
+        assert (
+            client.patch(
+                f"/api/documents/{document_id}/visibility", json={"visibility": "private"}
+            ).status_code
+            == 403
+        )
         assert client.delete(f"/api/documents/{document_id}").status_code == 403
 
 
@@ -155,9 +160,11 @@ class _StubCategories:
 
 @pytest.mark.anyio
 async def test_retrieval_all_freezes_visible_set() -> None:
-    mode, scope = await _resolve_retrieval(None, _StubCategories([]), "all", visible_ids={"d1", "d2"})
+    mode, scope = await _resolve_retrieval(
+        None, cast(CategoryService, _StubCategories([])), "all", visible_ids={"d1", "d2"}
+    )
     assert mode == "selected"
-    assert scope is not None and scope["document_ids"] == ["d1", "d2"]
+    assert scope is not None and scope.get("document_ids") == ["d1", "d2"]
 
 
 @pytest.mark.anyio
@@ -165,10 +172,10 @@ async def test_retrieval_selected_intersects_visible() -> None:
     stub = _StubCategories(["d1", "d2", "d3"])
     requested = TaskScope(category_ids=[], document_ids=["d1", "d2", "d3"])
     mode, scope = await _resolve_retrieval(
-        requested, stub, "selected", visible_ids={"d1", "d3"}
+        requested, cast(CategoryService, stub), "selected", visible_ids={"d1", "d3"}
     )
     assert mode == "selected"
-    assert scope is not None and scope["document_ids"] == ["d1", "d3"]
+    assert scope is not None and scope.get("document_ids") == ["d1", "d3"]
 
 
 @pytest.mark.anyio
@@ -176,5 +183,7 @@ async def test_retrieval_selected_all_hidden_raises() -> None:
     stub = _StubCategories(["d9"])
     requested = TaskScope(category_ids=[], document_ids=["d9"])
     with pytest.raises(Exception) as exc:
-        await _resolve_retrieval(requested, stub, "selected", visible_ids={"d1"})
+        await _resolve_retrieval(
+            requested, cast(CategoryService, stub), "selected", visible_ids={"d1"}
+        )
     assert "没有任何文档" in str(exc.value)

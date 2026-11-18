@@ -49,7 +49,9 @@ class FakeDocumentService(DocumentService):
         # 不复用父类 __init__：这里不需要向量库与 embedding，写侧方法不会被调用。
         self._documents = documents
 
-    async def list_documents(self) -> list[DocumentInfo]:
+    async def list_documents(
+        self, *, user_id: str | None = None, is_admin: bool = False
+    ) -> list[DocumentInfo]:
         return [
             DocumentInfo(
                 document_id=document_id,

@@ -8,13 +8,18 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api import deps
-from app.api.deps import get_category_service, get_document_service, get_memory_service, get_task_service
+from app.api.deps import (
+    get_category_service,
+    get_document_service,
+    get_memory_service,
+    get_task_service,
+)
 from app.auth.service import AuthService
+from app.main import create_app
 from app.memory.api_keys import ApiKeyRepository
 from app.memory.repository import TaskRepository
 from app.memory.sqlite import SqliteDatabase
 from app.memory.users import UserRepository
-from app.main import create_app
 from app.services.api_key_service import ApiKeyService
 
 
@@ -74,9 +79,7 @@ def test_task_is_isolated_between_members(env) -> None:
         import asyncio
 
         asyncio.run(
-            repository.start_run(
-                task_id="t-1", user_id=env["member"].user_id, query="写一份综述"
-            )
+            repository.start_run(task_id="t-1", user_id=env["member"].user_id, query="写一份综述")
         )
         asyncio.run(
             repository.finish_run(
@@ -106,9 +109,11 @@ def test_create_task_returns_accepted(env) -> None:
     calls: list[dict[str, object]] = []
 
     class StubTaskService:
-        async def start(self, query: str, **kwargs):
+        async def stream(self, query: str, **kwargs):
+            # 真实 TaskService 用异步生成器推进任务；这里只记录调用后立刻结束
             calls.append({"query": query, "user_id": kwargs.get("user_id")})
-            return {}
+            for _event in ():
+                yield _event
 
     class StubDocuments:
         async def visible_document_ids(self, *, user_id: str, is_admin: bool):

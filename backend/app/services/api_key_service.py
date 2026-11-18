@@ -49,7 +49,9 @@ class ApiKeyService:
         assert record is not None
         return record, raw
 
-    def list_keys(self, *, user_id: str, is_admin: bool, target_user_id: str | None = None) -> list[ApiKeyRecord]:
+    def list_keys(
+        self, *, user_id: str, is_admin: bool, target_user_id: str | None = None
+    ) -> list[ApiKeyRecord]:
         if is_admin and target_user_id:
             return [key for key in self._repository.list_all() if key.user_id == target_user_id]
         return self._repository.list_for_user(user_id)

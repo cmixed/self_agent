@@ -21,9 +21,9 @@ from app.models.schemas import (
     DeleteDocumentResponse,
     DocumentCategoriesUpdate,
     DocumentInfo,
+    DocumentListResponse,
     DocumentPreferencesUpdate,
     DocumentVisibilityUpdate,
-    DocumentListResponse,
     ErrorResponse,
     ImportConfirmRequest,
     KnowledgeImportDocumentOut,
@@ -217,9 +217,7 @@ async def get_document_content(
         document_id, user_id=user.user_id, is_admin=user.is_admin
     )
     if info is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在或你无权访问"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在或你无权访问")
     found = await service.document_file(document_id)
     if found is None:
         raise HTTPException(
@@ -266,9 +264,7 @@ async def delete_document(
             document_id, user_id=user.user_id, is_admin=user.is_admin
         )
     except DocumentPermissionError as exc:
-        raise HTTPException(
-            status_code=403, detail="只有上传者或管理员可以删除该文档"
-        ) from exc
+        raise HTTPException(status_code=403, detail="只有上传者或管理员可以删除该文档") from exc
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
     # 文档已删除，顺手清理其分类映射（类别本身保留）

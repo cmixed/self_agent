@@ -97,9 +97,7 @@ async def request_reset(payload: ResetRequestRequest) -> ResetRequestResponse:
             email_hint=None,
             message="如果该账号已绑定邮箱，验证码已发送",
         )
-    return ResetRequestResponse(
-        sent=True, email_hint=hint, message=f"验证码已发送至 {hint}"
-    )
+    return ResetRequestResponse(sent=True, email_hint=hint, message=f"验证码已发送至 {hint}")
 
 
 @router.post("/reset/confirm", status_code=status.HTTP_204_NO_CONTENT)

@@ -25,9 +25,9 @@ def token_digest(token: str) -> str:
 
 def new_reset_code() -> str:
     """生成 6 位数字验证码（前导零保留）。"""
-    return f"{secrets.randbelow(10 ** RESET_CODE_DIGITS):0{RESET_CODE_DIGITS}d}"
+    return f"{secrets.randbelow(10**RESET_CODE_DIGITS):0{RESET_CODE_DIGITS}d}"
 
 
 def reset_code_digest(user_id: str, code: str) -> str:
     """验证码摘要绑定 user_id，避免同一验证码跨账号复用。"""
-    return hashlib.sha256(f"{user_id}:{code}".encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"{user_id}:{code}".encode()).hexdigest()

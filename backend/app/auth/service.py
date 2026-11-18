@@ -233,7 +233,9 @@ class AuthService:
             raise AuthError("验证码不正确", code="invalid_code", status=400)
 
         try:
-            self._repository.update_credentials(user.user_id, password_hash=hash_password(new_password))
+            self._repository.update_credentials(
+                user.user_id, password_hash=hash_password(new_password)
+            )
         except PasswordError as exc:
             raise AuthError(str(exc), code="weak_password", status=400) from exc
 

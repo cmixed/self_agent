@@ -9,6 +9,7 @@ from __future__ import annotations
 import sqlite3
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from app.memory.sqlite import SqliteDatabase
 
@@ -68,9 +69,7 @@ class UserRepository:
 
     def get_by_id(self, user_id: str) -> UserRecord | None:
         with self._database.connect() as connection:
-            row = connection.execute(
-                "SELECT * FROM users WHERE user_id = ?", (user_id,)
-            ).fetchone()
+            row = connection.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
         return _row_to_user(row)
 
     def get_by_username(self, username: str) -> UserRecord | None:
@@ -89,9 +88,7 @@ class UserRepository:
 
     def list_all(self) -> list[UserRecord]:
         with self._database.connect() as connection:
-            rows = connection.execute(
-                "SELECT * FROM users ORDER BY created_at ASC"
-            ).fetchall()
+            rows = connection.execute("SELECT * FROM users ORDER BY created_at ASC").fetchall()
         return [user for user in (_row_to_user(row) for row in rows) if user]
 
     def count_admins(self) -> int:
@@ -190,7 +187,9 @@ class UserRepository:
 
     def touch_login(self, user_id: str, now: str) -> None:
         with self._database.connect() as connection:
-            connection.execute("UPDATE users SET last_login_at = ? WHERE user_id = ?", (now, user_id))
+            connection.execute(
+                "UPDATE users SET last_login_at = ? WHERE user_id = ?", (now, user_id)
+            )
             connection.commit()
 
     def get_password_hash(self, user_id: str) -> str | None:
@@ -253,7 +252,7 @@ class UserRepository:
             )
             connection.commit()
 
-    def get_reset_code(self, user_id: str) -> dict[str, object] | None:
+    def get_reset_code(self, user_id: str) -> dict[str, Any] | None:
         with self._database.connect() as connection:
             row = connection.execute(
                 "SELECT * FROM password_reset_codes WHERE user_id = ?", (user_id,)

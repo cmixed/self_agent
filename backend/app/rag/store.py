@@ -11,7 +11,7 @@ import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.embedding.base import EmbeddingConfigError
 
@@ -194,7 +194,7 @@ class ChromaStore:
             return 0
         metadatas = [dict(meta or {}) for meta in (result.get("metadatas") or [])]
         merged = [{**meta, **updates} for meta in metadatas]
-        self._collection.update(ids=ids, metadatas=merged)
+        self._collection.update(ids=ids, metadatas=cast(Any, merged))
         self._documents_cache = None
         return len(ids)
 

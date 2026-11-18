@@ -33,9 +33,9 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.task_registry import TaskRegistry
 from app.memory.repository import TaskRepository
-from app.memory.users import UserRecord
 from app.memory.selection import select_memories
 from app.memory.signals import memory_signal
+from app.memory.users import UserRecord
 from app.models.schemas import (
     CancelTaskResponse,
     OutputMode,

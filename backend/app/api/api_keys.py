@@ -10,8 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from app.api.deps import build_api_key_service, get_current_user
 from app.memory.users import UserRecord
 from app.models.public_schemas import (
-    ApiKeyCreateRequest,
     ApiKeyCreated,
+    ApiKeyCreateRequest,
     ApiKeyListResponse,
     ApiKeyOut,
 )

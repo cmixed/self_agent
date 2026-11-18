@@ -297,7 +297,10 @@ class EmailService:
         message = EmailMessage()
         message["Subject"] = f"【{settings.smtp_from_name}】密码重置验证码"
         message["From"] = formataddr(
-            (_clean_header(settings.smtp_from_name, limit=40, fallback="Agent"), settings.effective_smtp_from)
+            (
+                _clean_header(settings.smtp_from_name, limit=40, fallback="Agent"),
+                settings.effective_smtp_from,
+            )
         )
         message["To"] = recipient
         message.set_content(
@@ -323,7 +326,9 @@ class EmailService:
                 "（多数邮箱需要「授权码」而不是登录密码）"
             ) from exc
         except smtplib.SMTPRecipientsRefused as exc:
-            raise EmailRecipientRejectedError("收件邮箱被邮件服务器拒收，请确认地址是否正确") from exc
+            raise EmailRecipientRejectedError(
+                "收件邮箱被邮件服务器拒收，请确认地址是否正确"
+            ) from exc
         except (smtplib.SMTPException, TimeoutError, OSError, ssl.SSLError) as exc:
             raise EmailDeliveryError("邮件发送失败：请检查 SMTP 配置与网络连接") from exc
 
