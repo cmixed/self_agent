@@ -387,22 +387,196 @@ html[data-theme='dark'] .ant-card {
   background: transparent;
 }
 
-/* 顶栏「运行中任务」胶囊（AGENTS.md §17/§19）：
-   任务执行归属后端，胶囊只负责展示与切换观察对象。
-   槽位撑满顶栏剩余宽度，交给 RunningTasks 按实际宽度决定展示几个。 */
-.run-pills-slot {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  justify-content: flex-end;
+/* 底部浮动操作坞（Liquid Glass 胶囊）：页面切换 / 当前页操作 / 全局操作 / 任务胶囊。
+   常驻显示；任务段无内容时自动消失，其余三段始终可用。 */
+.dock {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  z-index: 900;
+  max-width: calc(100vw - 32px);
+  transform: translateX(-50%);
+  animation: dock-in 220ms var(--ws-ease);
 }
 
-.run-pills {
+.dock__bar {
   display: flex;
   align-items: center;
-  gap: var(--ws-space-1);
+  gap: 4px;
+  padding: 5px 7px;
+  border: 1px solid var(--ant-color-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ant-color-bg-elevated) 74%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  box-shadow:
+    0 16px 40px -18px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 var(--ws-panel-edge);
+}
+
+/* 四段之间用 1px 竖线分隔；空段（如无页面操作、无任务）不占宽 */
+.dock__seg {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   min-width: 0;
-  max-width: 100%;
+}
+
+.dock__seg:not(:last-child)::after {
+  content: '';
+  flex: 0 0 auto;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--ant-color-border);
+}
+
+.dock__seg:empty,
+.dock__seg--tasks:empty {
+  display: none;
+}
+
+/* 页面操作段不参与收缩：否则 flex 会把它压窄，Space 内的按钮被挤到第二行 */
+.dock__seg--actions {
+  flex: 0 0 auto;
+}
+
+/* 段一：页面切换器 */
+.dock__nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ant-color-text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  transition:
+    background var(--ws-motion-fast) var(--ws-ease),
+    color var(--ws-motion-fast) var(--ws-ease);
+}
+
+.dock__nav:hover {
+  background: var(--ant-color-fill-quaternary);
+  color: var(--ant-color-text);
+}
+
+.dock__nav.is-active {
+  background: var(--ant-color-primary-bg);
+  color: var(--ant-color-primary-text);
+}
+
+.dock__nav--current {
+  width: auto;
+  padding: 0 10px;
+  font-size: var(--ws-font-secondary);
+}
+
+.dock__menu-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dock__menu-label kbd,
+.dock__tip kbd {
+  margin-left: auto;
+  padding: 1px 5px;
+  border: 1px solid var(--ant-color-border);
+  border-radius: 4px;
+  color: var(--ant-color-text-tertiary);
+  font-family: inherit;
+  font-size: var(--ws-font-caption);
+}
+
+.dock__tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 段二：当前页操作（portal 注入）。
+   Space 在页面里是 wrap 的，进 dock 后必须强制单行，否则胶囊会被撑成两行。 */
+.dock__seg--actions .app-header-page-actions__inner {
+  display: flex;
+  flex-wrap: nowrap;
+  max-width: none;
+  overflow: visible;
+}
+
+/* antd 的 ant-space-wrap 用更高特异性设了 wrap，这里必须 !important 覆盖 */
+.dock__seg--actions .ant-space.ant-space-horizontal {
+  flex-wrap: nowrap !important;
+  gap: 6px !important;
+}
+
+/* 窄屏容纳不下整排页面操作：限制段宽并横向滚动，保持胶囊不溢出屏幕 */
+@media (max-width: 1200px) {
+  .dock__seg--actions {
+    flex: 0 1 auto;
+  }
+
+  .dock__seg--actions .app-header-page-actions__inner {
+    max-width: 40vw;
+    overflow-x: auto;
+  }
+}
+
+/* 段三：全局操作 */
+.dock__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ant-color-text-secondary);
+  font-size: 15px;
+  cursor: pointer;
+  transition:
+    background var(--ws-motion-fast) var(--ws-ease),
+    color var(--ws-motion-fast) var(--ws-ease);
+}
+
+.dock__action:hover:not(:disabled) {
+  background: var(--ant-color-fill-quaternary);
+  color: var(--ant-color-text);
+}
+
+.dock__action:disabled {
+  color: var(--ant-color-text-quaternary);
+  cursor: not-allowed;
+}
+
+@keyframes dock-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dock {
+    animation: none;
+  }
+}
+
+/* 有浮动条时给内容区垫高，避免最后一行被盖住 */
+.app-shell:has(.dock) .app-content {
+  padding-bottom: calc(var(--ws-content-pad-y) + 72px);
 }
 
 .run-pill {
@@ -432,6 +606,40 @@ html[data-theme='dark'] .ant-card {
 .run-pill.is-failed {
   border-color: var(--ant-color-error-border);
   background: var(--ant-color-error-bg);
+}
+
+/* 底部条里的胶囊更舒展：加宽、加高，内部底色压淡一层让玻璃条透出来 */
+.dock .run-pill {
+  max-width: 340px;
+  height: 36px;
+  padding-left: 12px;
+  border-color: transparent;
+  background: color-mix(in srgb, var(--ant-color-bg-container) 72%, transparent);
+}
+
+.dock .run-pill.is-active {
+  border-color: var(--ant-color-primary-border);
+  background: var(--ant-color-primary-bg);
+}
+
+.dock .run-pill.is-completed {
+  border-color: var(--ant-color-success-border);
+  background: var(--ant-color-success-bg);
+}
+
+.dock .run-pill.is-failed {
+  border-color: var(--ant-color-error-border);
+  background: var(--ant-color-error-bg);
+}
+
+.dock .run-pill__title {
+  max-width: 220px;
+}
+
+.dock__more {
+  height: 32px;
+  padding-inline: 10px;
+  border-radius: 999px;
 }
 
 .run-pill.is-cancelled {

@@ -47,7 +47,7 @@ export const PAGE_LABELS: Record<PageKey, string> = {
 export const PAGE_ORDER = Object.keys(PAGE_LABELS) as PageKey[]
 
 /** G 后面接的那个字母（序列键不会与单键 T 冲突，只取易记的） */
-const PAGE_KEYS: Record<PageKey, string> = {
+export const PAGE_KEYS: Record<PageKey, string> = {
   workspace: 'w',
   knowledge: 'k',
   presets: 'r',

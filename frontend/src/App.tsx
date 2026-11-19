@@ -7,12 +7,9 @@ import {
   MenuFoldOutlined,
   MenuOutlined,
   MenuUnfoldOutlined,
-  MoonOutlined,
-  QuestionCircleOutlined,
   ReloadOutlined,
   RocketOutlined,
   SettingOutlined,
-  SunOutlined,
   TagsOutlined,
   TeamOutlined,
   LogoutOutlined,
@@ -34,12 +31,12 @@ import zhCN from 'antd/locale/zh_CN'
 import type { ReactNode } from 'react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 
+import AppDock from './components/AppDock'
 import ErrorBoundary from './components/ErrorBoundary'
 import QuickSearch from './components/QuickSearch'
 import ShortcutHelp from './components/ShortcutHelp'
 import { fetchMe, getCachedUser, getToken, logout, onUnauthorized } from './services/auth'
 import ProviderSwitch from './components/ProviderSwitch'
-import RunningTasks from './components/RunningTasks'
 import { ViewStackProvider, useViewStack } from './components/ViewStack'
 import { ShortcutProvider, useShortcut, useShortcuts } from './state/shortcuts'
 import { useHealth } from './hooks/useHealth'
@@ -447,38 +444,6 @@ function AppShell({
               {PAGE_META.find((item) => item.key === page)?.description}
             </span>
           </div>
-          <div className="app-header-actions">
-            <RunningTasks />
-            {/* 页面操作按钮（导入 / 导出 / 新增）统一挂在顶栏右上角；
-                刷新入口在侧栏底部（退出登录左侧），此处不再重复 */}
-            <div className="app-header-page-actions" data-page-actions-slot={page} />
-            <Tooltip title="快捷键（? 或 F1）">
-              <Button
-                type="text"
-                size="small"
-                aria-label="快捷键帮助"
-                icon={<QuestionCircleOutlined />}
-                onClick={() => setHelpOpen(true)}
-              />
-            </Tooltip>
-            <Tooltip
-              title={
-                mode === 'system'
-                  ? `跟随系统（当前${resolvedMode === 'dark' ? '深色' : '浅色'}），点击切换为固定主题`
-                  : resolvedMode === 'dark'
-                    ? '切换到浅色'
-                    : '切换到深色'
-              }
-            >
-              <Button
-                type="text"
-                size="small"
-                aria-label="切换主题"
-                icon={resolvedMode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
-                onClick={toggleMode}
-              />
-            </Tooltip>
-          </div>
         </div>
 
         <Content className="app-content">
@@ -520,6 +485,22 @@ function AppShell({
           </ErrorBoundary>
         </Content>
       </Layout>
+      {/* 底部浮动操作坞：页面切换 / 当前页操作 / 全局操作 / 任务胶囊 */}
+      <AppDock
+        page={page}
+        pages={visiblePages.map((item) => ({
+          key: item.key,
+          label: item.label,
+          icon: item.icon,
+        }))}
+        onNavigate={handleNav}
+        onHelp={() => setHelpOpen(true)}
+        onSearch={() => setSearchOpen(true)}
+        onToggleTheme={toggleMode}
+        resolvedMode={resolvedMode}
+        onBack={back}
+        canBack={canGoBack}
+      />
       <ShortcutHelp />
       <QuickSearch />
     </Layout>

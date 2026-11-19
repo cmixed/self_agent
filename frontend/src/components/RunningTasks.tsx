@@ -3,8 +3,6 @@ import { App, Badge, Button, Dropdown, Popconfirm, Tooltip } from 'antd'
 import type { MenuProps } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 
-import { useElementWidth } from '../hooks/useElementWidth'
-import { useIsNarrow } from '../hooks/useIsNarrow'
 import { useNav } from '../state/nav'
 import { useTaskRun } from '../state/taskRun'
 import type { TaskSummary } from '../types/api'
@@ -15,13 +13,11 @@ import {
   mergeTaskPills,
   modeLabel,
   overflowSummary,
-  pillCounts,
   pillStatusLabel,
   runningTaskStage,
   runningTaskTitle,
   sliceRunningTasks,
   taskPillState,
-  visibleCapsuleCount,
 } from '../utils/runningTasks'
 import type { TaskPillState } from '../utils/runningTasks'
 import { useViewStack } from './ViewStack'
@@ -96,7 +92,7 @@ function Capsule({ task, now, active, onOpen, onCancel, onDismiss }: CapsuleProp
   const terminal = state !== 'running'
   return (
     <div className={`run-pill is-${state}${active ? ' is-active' : ''}`}>
-      <Tooltip title={tipContent(task, state, now)} placement="bottomRight">
+      <Tooltip title={tipContent(task, state, now)} placement="top">
         <button
           type="button"
           className="run-pill__main"
@@ -147,13 +143,13 @@ function Capsule({ task, now, active, onOpen, onCancel, onDismiss }: CapsuleProp
 }
 
 /**
- * 顶栏任务胶囊（AGENTS.md §17/§19）。
+ * 底部操作坞的任务段（AGENTS.md §17/§19）。
  *
  * - 运行中：点击切换工作台观察对象（不取消任务），右侧按钮终止；
  * - 已完成/失败/已终止：常驻等用户查看，点击打开结果，× 或查看后消失；
- * - 展示数量按顶栏实际可用宽度自适应，放不下的收进「+N」，并在其中分组。
+ * - dock 还有页面 / 全局操作三段，任务胶囊只留一个，其余收进「+N」并分组。
  *
- * 任务执行归属后端，顶栏只是观察与管理入口，支持同时多个任务。
+ * 任务执行归属后端，dock 只是观察与管理入口，支持同时多个任务。
  */
 export default function RunningTasks() {
   const {
@@ -168,8 +164,6 @@ export default function RunningTasks() {
   const { navigate } = useNav()
   const { closeAll } = useViewStack()
   const { message } = App.useApp()
-  const narrow = useIsNarrow()
-  const [slotRef, slotWidth] = useElementWidth<HTMLDivElement>()
   const tasks = useMemo(
     () => mergeTaskPills(runningTasks, finishedTasks),
     [runningTasks, finishedTasks],
@@ -276,61 +270,43 @@ export default function RunningTasks() {
     openTask(key)
   }
 
-  const counts = pillCounts(tasks)
-  const badgeStatus = counts.running > 0 ? 'processing' : counts.failed > 0 ? 'error' : 'success'
-  const summary = [
-    counts.running > 0 ? `${counts.running} 个执行中` : '',
-    counts.pending > 0 ? `${counts.pending} 个待查看` : '',
-  ]
-    .filter(Boolean)
-    .join(' · ')
-
-  // 窄屏：折叠成一个入口，避免顶栏被胶囊挤满；下拉里再分组展示全部任务
-  if (narrow) {
-    return (
-      <Dropdown trigger={['click']} menu={{ items: buildMenu(tasks), onClick: handleMenuClick }}>
-        <Button size="small" type="text" className="run-pills__more" aria-label="任务状态">
-          <Badge status={badgeStatus} />
-          <span>{summary}</span>
-          <DownOutlined />
-        </Button>
-      </Dropdown>
-    )
-  }
-
+  // dock 还有三段操作，任务胶囊只留一个，其余收进「+N」
   const { visible, overflow } = sliceRunningTasks(tasks, {
-    limit: visibleCapsuleCount(tasks.length, slotWidth),
+    limit: 1,
     activeTaskId: taskId,
   })
 
   return (
-    <div className="run-pills-slot" ref={slotRef}>
-      <div className="run-pills" aria-label="任务胶囊">
-        {visible.map((task) => (
-          <Capsule
-            key={task.task_id}
-            task={task}
-            now={now}
-            active={task.task_id === taskId}
-            onOpen={openTask}
-            onCancel={cancel}
-            onDismiss={dismiss}
-          />
-        ))}
-        {overflow.length > 0 ? (
-          <Dropdown
-            trigger={['click']}
-            menu={{ items: buildMenu(overflow), onClick: handleMenuClick }}
-          >
-            <Tooltip title={overflowSummary(overflow)} placement="bottomRight">
-              <Button size="small" type="text" className="run-pills__more" aria-label="更多任务">
-                +{overflow.length}
-                <DownOutlined />
-              </Button>
-            </Tooltip>
-          </Dropdown>
-        ) : null}
-      </div>
+    <div className="dock__seg dock__seg--tasks" role="status" aria-live="polite">
+      {visible.map((task) => (
+        <Capsule
+          key={task.task_id}
+          task={task}
+          now={now}
+          active={task.task_id === taskId}
+          onOpen={openTask}
+          onCancel={cancel}
+          onDismiss={dismiss}
+        />
+      ))}
+      {overflow.length > 0 ? (
+        <Dropdown
+          trigger={['click']}
+          menu={{ items: buildMenu(overflow), onClick: handleMenuClick }}
+        >
+          <Tooltip title={overflowSummary(overflow)} placement="top">
+            <Button
+              size="small"
+              type="text"
+              className="dock__more"
+              aria-label={`还有 ${overflow.length} 个任务`}
+            >
+              +{overflow.length}
+              <DownOutlined />
+            </Button>
+          </Tooltip>
+        </Dropdown>
+      ) : null}
     </div>
   )
 }
