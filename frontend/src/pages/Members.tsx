@@ -1067,7 +1067,7 @@ export default function TeamPage() {
       }
     >
       <Paragraph type="secondary" style={{ marginTop: 0 }}>
-        人 → 分组 → 知识库。实线是已生效的共享，虚线是等待审批的申请；箭头颜色表示授予的能力。
+        成员 → 分组 → 知识库。实线是已生效的共享，虚线是等待审批的申请；箭头颜色表示授予的能力。
         管理员能看到全部关系，但看不到库里的内容。
       </Paragraph>
       <ShareGraph graph={graph} loading={graphLoading} />

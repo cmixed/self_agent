@@ -55,8 +55,8 @@ function capLabel(caps?: DocumentCaps | null): string {
 type Column = 'subject' | 'group' | 'kb'
 
 const COLUMN_LABELS: { key: Column; text: string }[] = [
-  { key: 'subject', text: '人（成员）' },
-  { key: 'group', text: '分组 / 全团队' },
+  { key: 'subject', text: '成员' },
+  { key: 'group', text: '分组' },
   { key: 'kb', text: '知识库' },
 ]
 
