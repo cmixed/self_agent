@@ -21,7 +21,6 @@ import {
   Empty,
   Form,
   Input,
-  Menu,
   Modal,
   Popconfirm,
   Segmented,
@@ -1196,50 +1195,49 @@ export default function TeamPage() {
       title="团队管理"
       description="成员、分组与共享审批集中管理。共享按「库 × 一批人 × 一组能力」组合生效，管理员看关系不看内容。非管理员不会看到此页面入口，后端仍二次校验。"
     >
-      <div className="team-layout">
-        {/* 左栏：五个板块的二级导航 + 一行式状态统计 */}
-        <aside className="team-side" aria-label="团队板块与概览">
-          <Menu
-            mode="inline"
-            selectedKeys={[tab]}
-            onClick={({ key }) => setTab(key)}
-            items={tabItems.map(({ key, label, icon }) => ({ key, label, icon }))}
-            className="team-side__menu"
-          />
-          <div className="team-side__stats">
+      <div className="tabbar" role="tablist" aria-label="团队板块">
+        <div className="tabbar__tabs">
+          {tabItems.map((item) => (
             <button
+              key={item.key}
               type="button"
-              className="team-side__stat"
-              title={`管理员 ${adminCount} 人 · 普通成员 ${memberCount} 人`}
-              onClick={() => setTab('members')}
+              role="tab"
+              aria-selected={tab === item.key}
+              className={`tabbar__item${tab === item.key ? ' is-active' : ''}`}
+              onClick={() => setTab(item.key)}
             >
-              <TeamOutlined />
-              <span>成员</span>
-              <b>{adminCount + memberCount}</b>
+              {item.icon}
+              {item.label}
             </button>
-            <button
-              type="button"
-              className={`team-side__stat${pendingShareCount > 0 ? ' is-warning' : ''}`}
-              onClick={() => setTab('shares')}
-            >
-              <SafetyOutlined />
-              <span>待审批</span>
-              <b>{pendingShareCount}</b>
-            </button>
-            <button
-              type="button"
-              className={`team-side__stat${pendingMemberCount > 0 ? ' is-warning' : ''}`}
-              onClick={() => setTab('groups')}
-            >
-              <UsergroupAddOutlined />
-              <span>待入组</span>
-              <b>{pendingMemberCount}</b>
-            </button>
-          </div>
-        </aside>
-
-        <div className="team-main">{tabItems.find((item) => item.key === tab)?.children}</div>
+          ))}
+        </div>
+        <div className="tabbar__extra">
+          <button
+            type="button"
+            className="tabbar__stat"
+            title={`管理员 ${adminCount} 人 · 普通成员 ${memberCount} 人`}
+            onClick={() => setTab('members')}
+          >
+            <TeamOutlined /> 成员 <b>{adminCount + memberCount}</b>
+          </button>
+          <button
+            type="button"
+            className={`tabbar__stat${pendingShareCount > 0 ? ' is-warning' : ''}`}
+            onClick={() => setTab('shares')}
+          >
+            <SafetyOutlined /> 待审批 <b>{pendingShareCount}</b>
+          </button>
+          <button
+            type="button"
+            className={`tabbar__stat${pendingMemberCount > 0 ? ' is-warning' : ''}`}
+            onClick={() => setTab('groups')}
+          >
+            <UsergroupAddOutlined /> 待入组 <b>{pendingMemberCount}</b>
+          </button>
+        </div>
       </div>
+
+      <div className="side-main">{tabItems.find((item) => item.key === tab)?.children}</div>
 
       {/* --- 分组新建 / 编辑 --- */}
       <Modal

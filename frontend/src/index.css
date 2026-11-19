@@ -3358,82 +3358,126 @@ html[data-theme='dark'] .ant-card {
   border-radius: var(--ws-radius);
 }
 
-/* 团队管理：左栏放板块导航 + 一行式状态，右侧直接渲染当前板块 */
-.team-layout {
-  display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
-  gap: var(--ws-space-4);
-  align-items: start;
-  /* 容器至少撑满一屏：否则右侧板块内容偏矮时，sticky 左栏的可用位移只剩几像素，
-     切板块会让它上下抖一下 */
-  min-height: calc(100vh - var(--ws-header-h) - var(--ws-content-pad-y) * 2);
-}
+/* =============================================================================
+   页面内标签栏（团队管理 / 设置共用）
+   - 横跨内容区的胶囊条，标签均分宽度；右端可挂状态胶囊
+   - 选中态沿用主色淡底 + 主色文字，与全站强调态一致
+   ============================================================================= */
 
-.team-side {
-  position: sticky;
-  /* sticky 的 top 是相对滚动容器的**内容盒**算的（不含 .app-content 的 padding），
-     所以这里必须是 0，左栏才会和右侧内容顶部齐平；写 padding 值会整体下沉一截。 */
-  top: 0;
+.tabbar {
   display: flex;
-  flex-direction: column;
-  align-self: start;
-  padding: 8px;
+  align-items: center;
+  gap: var(--ws-space-3);
+  margin-bottom: var(--ws-space-4);
+  padding: 5px;
   border: 1px solid var(--ant-color-border);
   border-radius: var(--ws-radius-lg);
   background: color-mix(in srgb, var(--ant-color-bg-container) 84%, transparent);
   box-shadow: inset 0 1px 0 var(--ws-panel-edge);
 }
 
-.team-side__menu.ant-menu {
-  background: transparent;
-  border-inline-end: none;
-}
-
-.team-side__menu .ant-menu-item {
-  width: 100%;
-  height: 34px;
-  margin: 2px 0;
-  padding-inline: 8px;
-  line-height: 34px;
-  font-size: var(--ws-font-secondary);
-}
-
-/* 左栏只有 196px，最长的一项（对外接口密钥（3））要完整显示，不能被省略号截断 */
-.team-side__menu .ant-menu-title-content {
-  overflow: visible;
-  text-overflow: clip;
-}
-
-/* 状态统计压成一行：图标 + 名称 + 数值，不再上下两行 */
-.team-side__stats {
+.tabbar__tabs {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--ant-color-border-secondary);
+  flex: 1 1 auto;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
-.team-side__stat {
-  display: flex;
+.tabbar__item {
+  display: inline-flex;
+  flex: 1 1 0;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border: 1px solid transparent;
-  border-radius: var(--ws-radius-sm);
+  justify-content: center;
+  gap: 6px;
+  min-width: 92px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: var(--ws-radius);
+  background: transparent;
+  color: var(--ant-color-text-secondary);
+  font-family: inherit;
+  font-size: var(--ws-font-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--ws-motion-fast) var(--ws-ease),
+    color var(--ws-motion-fast) var(--ws-ease);
+}
+
+.tabbar__item:hover {
+  background: var(--ant-color-fill-quaternary);
+  color: var(--ant-color-text);
+}
+
+.tabbar__item.is-active {
+  background: var(--ant-color-primary-bg);
+  color: var(--ant-color-primary-text);
+  font-weight: 600;
+}
+
+/* 右端状态区：宽屏贴右，窄屏整行落到标签下方 */
+.tabbar__extra {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding-inline: 6px;
+}
+
+.tabbar__stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--ant-color-border);
+  border-radius: 999px;
   background: transparent;
   color: var(--ant-color-text-secondary);
   font-size: var(--ws-font-caption);
+  white-space: nowrap;
   cursor: pointer;
   transition:
     background var(--ws-motion-fast) var(--ws-ease),
     border-color var(--ws-motion-fast) var(--ws-ease);
 }
 
-.team-side__stat > span {
-  flex: 1 1 auto;
-  text-align: left;
-  white-space: nowrap;
+.tabbar__stat > b {
+  color: var(--ant-color-text);
+  font-weight: 600;
+}
+
+.tabbar__stat:hover {
+  border-color: var(--ant-color-border);
+  background: var(--ant-color-fill-quaternary);
+}
+
+.tabbar__stat.is-warning {
+  border-color: var(--ant-color-warning-border);
+  background: var(--ant-color-warning-bg);
+  color: var(--ant-color-warning-text);
+}
+
+.tabbar__stat.is-warning > b {
+  color: var(--ant-color-warning-text);
+}
+
+@media (max-width: 1200px) {
+  .tabbar {
+    flex-wrap: wrap;
+  }
+
+  .tabbar__item {
+    flex: 0 0 auto;
+  }
+
+  .tabbar__extra {
+    width: 100%;
+    justify-content: flex-end;
+    margin-top: 2px;
+    padding-inline: 0;
+  }
 }
 
 .team-side__stat > b {
@@ -3456,27 +3500,27 @@ html[data-theme='dark'] .ant-card {
   color: var(--ant-color-warning-text);
 }
 
-.team-main {
+.side-main {
   min-width: 0;
 }
 
 /* 窄屏：左栏退回单列，导航变横排，避免把内容挤到无法阅读 */
 @media (max-width: 1080px) {
-  .team-layout {
+  .side-shell {
     grid-template-columns: 1fr;
   }
 
-  .team-side {
+  .side-panel {
     position: static;
   }
 
-  .team-side__menu.ant-menu {
+  .side-nav.ant-menu {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
   }
 
-  .team-side__menu .ant-menu-item {
+  .side-nav .ant-menu-item {
     width: auto;
     margin: 0;
     padding-inline: 12px;

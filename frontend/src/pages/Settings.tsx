@@ -1,16 +1,23 @@
 import {
+  BgColorsOutlined,
+  BellOutlined,
   ClearOutlined,
+  DatabaseOutlined,
   DeleteOutlined,
   DownloadOutlined,
   ImportOutlined,
   ReloadOutlined,
   SettingOutlined,
+  ThunderboltOutlined,
+  UserOutlined,
 } from '@ant-design/icons'
 import {
   Alert,
   App,
   Button,
   Card,
+  Form,
+  Input,
   InputNumber,
   Popconfirm,
   Segmented,
@@ -35,6 +42,7 @@ import {
   listPresets,
   previewBackupImport,
 } from '../services/api'
+import { changePassword, getCachedUser } from '../services/auth'
 import { useTaskRun } from '../state/taskRun'
 import type { ThemeMode } from '../theme/config'
 import type { BackupImportPreview, CategoryInfo, DocumentInfo, TaskDepth } from '../types/api'
@@ -52,7 +60,7 @@ import type { TaskOptionsMemory } from '../utils/taskOptions'
 
 const { Text } = Typography
 
-const PAGE_MAX_WIDTH = 880
+const PAGE_MAX_WIDTH = 1080
 
 const DEPTH_LABELS: Record<TaskDepth, string> = {
   auto: '自动',
@@ -104,6 +112,12 @@ export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
   const [importing, setImporting] = useState(false)
   const [importPreview, setImportPreview] = useState<BackupImportPreview | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
+
+  // --- 分区导航与账号 ---
+  const [section, setSection] = useState('appearance')
+  const [pwdSaving, setPwdSaving] = useState(false)
+  const [pwdForm] = Form.useForm<{ oldPassword: string; newPassword: string; confirm: string }>()
+  const me = getCachedUser()
 
   const refreshLibrary = useCallback(async () => {
     try {
@@ -245,169 +259,191 @@ export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
         ? '全部知识库'
         : scopeSummary.label
 
-  return (
-    <PageContainer
-      eyebrow="设置"
-      title="管理长期偏好与提醒"
-      description="这些偏好只保存在当前浏览器。工作台上的执行深度、允许技能与检索范围属于本次任务参数，不会自动影响其它任务。"
-      maxWidth={PAGE_MAX_WIDTH}
-    >
-      <Card title="外观">
-        <SettingsRow
-          title="主题"
-          description={
-            mode === 'system'
-              ? '跟随系统时会实时响应系统的浅色 / 深色设置（顶栏按钮可快速切换为固定主题）。'
-              : `当前固定为${resolvedLabel}；需要重新跟随系统请选择「跟随系统」。`
-          }
-          control={
-            <Segmented
-              value={mode}
-              onChange={(value) => setMode(value as ThemeMode)}
-              options={[
-                { label: '跟随系统', value: 'system' },
-                { label: '浅色', value: 'light' },
-                { label: '深色', value: 'dark' },
-              ]}
-            />
-          }
-        />
-      </Card>
+  const handleChangePassword = async (values: { oldPassword: string; newPassword: string }) => {
+    setPwdSaving(true)
+    try {
+      await changePassword(values.oldPassword, values.newPassword)
+      pwdForm.resetFields()
+      message.success('密码已更新')
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '修改失败')
+    } finally {
+      setPwdSaving(false)
+    }
+  }
 
-      <Card title="工作台默认值">
-        <SettingsRow
-          title="记住上次的执行选项"
-          description="开启后，进入工作台会自动套用上次的执行深度、技能开关与检索范围。关闭不会清空已记住的值，再次开启即可恢复。"
-          control={
-            <Switch
-              checked={memory.remember}
-              onChange={handleRememberChange}
-              aria-label="记住上次的执行选项"
-            />
-          }
-        />
+  const sections = [
+    { key: 'appearance', label: '外观', icon: <BgColorsOutlined /> },
+    { key: 'workspace', label: '工作台', icon: <ThunderboltOutlined /> },
+    { key: 'reminder', label: '提醒', icon: <BellOutlined /> },
+    { key: 'data', label: '数据', icon: <DatabaseOutlined /> },
+    { key: 'account', label: '账号与安全', icon: <UserOutlined /> },
+  ]
 
-        <div className="settings-summary">
-          <div className="settings-summary__head">
-            <span>当前记住的选项</span>
-            {memory.remember ? <Tag color="green">已开启</Tag> : <Tag>未启用</Tag>}
-          </div>
-          <div className="settings-summary__row">
-            <span className="settings-summary__label">执行深度</span>
-            <span>{DEPTH_LABELS[memory.options.depth]}</span>
-          </div>
-          <div className="settings-summary__row">
-            <span className="settings-summary__label">允许技能</span>
-            <span>{memory.options.useSkills ? '允许' : '不允许'}</span>
-          </div>
-          <div className="settings-summary__row">
-            <span className="settings-summary__label">检索范围</span>
-            <span>{retrievalLabel}</span>
-          </div>
-          {memory.options.retrievalMode === 'selected' && scopeSummary.bound ? (
-            <div className="settings-summary__row">
-              <span className="settings-summary__label">范围明细</span>
-              <span className="settings-summary__detail">
-                {scopeSummary.categoryTags.length > 0 ? (
-                  <>
-                    {scopeSummary.categoryTags.map((item) => (
-                      <Tag key={item.id}>{item.name}</Tag>
-                    ))}
-                  </>
-                ) : null}
-                {scopeSummary.individualDocuments > 0 ? (
-                  <Tag>{scopeSummary.individualDocuments} 篇单独选择</Tag>
-                ) : null}
-                <Text type="secondary">共 {scopeSummary.documentCount} 篇文档</Text>
-              </span>
-            </div>
-          ) : null}
-          {memory.options.retrievalMode === 'selected' && scopeSummary.dropped > 0 ? (
-            <Text type="secondary">
-              有 {scopeSummary.dropped} 个类别 / 文档已被删除，恢复时会自动忽略。
-            </Text>
-          ) : null}
+  const appearanceCard = (
+    <Card title="外观">
+      <SettingsRow
+        title="主题"
+        description={
+          mode === 'system'
+            ? '跟随系统时会实时响应系统的浅色 / 深色设置（顶栏按钮可快速切换为固定主题）。'
+            : `当前固定为${resolvedLabel}；需要重新跟随系统请选择「跟随系统」。`
+        }
+        control={
+          <Segmented
+            value={mode}
+            onChange={(value) => setMode(value as ThemeMode)}
+            options={[
+              { label: '跟随系统', value: 'system' },
+              { label: '浅色', value: 'light' },
+              { label: '深色', value: 'dark' },
+            ]}
+          />
+        }
+      />
+    </Card>
+  )
+
+  const workspaceCard = (
+    <Card title="工作台默认值">
+      <SettingsRow
+        title="记住上次的执行选项"
+        description="开启后，进入工作台会自动套用上次的执行深度、技能开关与检索范围。关闭不会清空已记住的值，再次开启即可恢复。"
+        control={
+          <Switch
+            checked={memory.remember}
+            onChange={handleRememberChange}
+            aria-label="记住上次的执行选项"
+          />
+        }
+      />
+
+      <div className="settings-summary">
+        <div className="settings-summary__head">
+          <span>当前记住的选项</span>
+          {memory.remember ? <Tag color="green">已开启</Tag> : <Tag>未启用</Tag>}
         </div>
-
-        <div className="settings-actions">
+        <div className="settings-summary__row">
+          <span className="settings-summary__label">执行深度</span>
+          <span>{DEPTH_LABELS[memory.options.depth]}</span>
+        </div>
+        <div className="settings-summary__row">
+          <span className="settings-summary__label">允许技能</span>
+          <span>{memory.options.useSkills ? '允许' : '不允许'}</span>
+        </div>
+        <div className="settings-summary__row">
+          <span className="settings-summary__label">检索范围</span>
+          <span>{retrievalLabel}</span>
+        </div>
+        {memory.options.retrievalMode === 'selected' && scopeSummary.bound ? (
+          <div className="settings-summary__row">
+            <span className="settings-summary__label">范围明细</span>
+            <span className="settings-summary__detail">
+              {scopeSummary.categoryTags.length > 0 ? (
+                <>
+                  {scopeSummary.categoryTags.map((item) => (
+                    <Tag key={item.id}>{item.name}</Tag>
+                  ))}
+                </>
+              ) : null}
+              {scopeSummary.individualDocuments > 0 ? (
+                <Tag>{scopeSummary.individualDocuments} 篇单独选择</Tag>
+              ) : null}
+              <Text type="secondary">共 {scopeSummary.documentCount} 篇文档</Text>
+            </span>
+          </div>
+        ) : null}
+        {memory.options.retrievalMode === 'selected' && scopeSummary.dropped > 0 ? (
           <Text type="secondary">
-            工作台的改动会在提交任务时记录；开启记忆后也会随表单变化实时记录。
+            有 {scopeSummary.dropped} 个类别 / 文档已被删除，恢复时会自动忽略。
           </Text>
-          <Button icon={<ClearOutlined />} onClick={handleClearMemory}>
-            清除记住的选项
-          </Button>
-        </div>
-      </Card>
+        ) : null}
+      </div>
 
-      <Card title="任务提醒">
-        <SettingsRow
-          title="会话内最多保留"
-          description="顶栏「完成待查看」胶囊的上限；超出后更早的任务自动标为已查看（失败任务永不自动丢弃）。调小后立即生效。"
-          control={
-            <InputNumber
-              min={PILL_SETTING_RANGES.pendingLimit.min}
-              max={PILL_SETTING_RANGES.pendingLimit.max}
-              precision={0}
-              value={pillSettings.pendingLimit}
-              onChange={(value) =>
-                updatePillSettings({
-                  pendingLimit: value ?? PILL_SETTING_RANGES.pendingLimit.fallback,
-                })
-              }
-              addonAfter="条"
-            />
-          }
-        />
-        <SettingsRow
-          title="刷新后恢复窗口"
-          description="刷新页面时只恢复这段时间内结束的任务，避免把很久以前的旧任务翻出来。下次刷新时生效。"
-          control={
-            <InputNumber
-              min={PILL_SETTING_RANGES.restoreWindowHours.min}
-              max={PILL_SETTING_RANGES.restoreWindowHours.max}
-              precision={0}
-              value={pillSettings.restoreWindowHours}
-              onChange={(value) =>
-                updatePillSettings({
-                  restoreWindowHours: value ?? PILL_SETTING_RANGES.restoreWindowHours.fallback,
-                })
-              }
-              addonAfter="小时"
-            />
-          }
-        />
-        <SettingsRow
-          title="刷新后最多恢复"
-          description="恢复窗口内最多显示几条未查看的完成态胶囊。下次刷新时生效。"
-          control={
-            <InputNumber
-              min={PILL_SETTING_RANGES.restoreLimit.min}
-              max={PILL_SETTING_RANGES.restoreLimit.max}
-              precision={0}
-              value={pillSettings.restoreLimit}
-              onChange={(value) =>
-                updatePillSettings({
-                  restoreLimit: value ?? PILL_SETTING_RANGES.restoreLimit.fallback,
-                })
-              }
-              addonAfter="条"
-            />
-          }
-        />
-        <div className="settings-actions">
-          <Text type="secondary">调大上限不会恢复已经被自动归档的提醒。</Text>
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={() => {
-              updatePillSettings(DEFAULT_PILL_SETTINGS)
-              message.success('已恢复提醒默认值')
-            }}
-          >
-            恢复默认
-          </Button>
-        </div>
-      </Card>
+      <div className="settings-actions">
+        <Text type="secondary">
+          工作台的改动会在提交任务时记录；开启记忆后也会随表单变化实时记录。
+        </Text>
+        <Button icon={<ClearOutlined />} onClick={handleClearMemory}>
+          清除记住的选项
+        </Button>
+      </div>
+    </Card>
+  )
 
+  const reminderCard = (
+    <Card title="任务提醒">
+      <SettingsRow
+        title="会话内最多保留"
+        description="顶栏「完成待查看」胶囊的上限；超出后更早的任务自动标为已查看（失败任务永不自动丢弃）。调小后立即生效。"
+        control={
+          <InputNumber
+            min={PILL_SETTING_RANGES.pendingLimit.min}
+            max={PILL_SETTING_RANGES.pendingLimit.max}
+            precision={0}
+            value={pillSettings.pendingLimit}
+            onChange={(value) =>
+              updatePillSettings({
+                pendingLimit: value ?? PILL_SETTING_RANGES.pendingLimit.fallback,
+              })
+            }
+            addonAfter="条"
+          />
+        }
+      />
+      <SettingsRow
+        title="刷新后恢复窗口"
+        description="刷新页面时只恢复这段时间内结束的任务，避免把很久以前的旧任务翻出来。下次刷新时生效。"
+        control={
+          <InputNumber
+            min={PILL_SETTING_RANGES.restoreWindowHours.min}
+            max={PILL_SETTING_RANGES.restoreWindowHours.max}
+            precision={0}
+            value={pillSettings.restoreWindowHours}
+            onChange={(value) =>
+              updatePillSettings({
+                restoreWindowHours: value ?? PILL_SETTING_RANGES.restoreWindowHours.fallback,
+              })
+            }
+            addonAfter="小时"
+          />
+        }
+      />
+      <SettingsRow
+        title="刷新后最多恢复"
+        description="恢复窗口内最多显示几条未查看的完成态胶囊。下次刷新时生效。"
+        control={
+          <InputNumber
+            min={PILL_SETTING_RANGES.restoreLimit.min}
+            max={PILL_SETTING_RANGES.restoreLimit.max}
+            precision={0}
+            value={pillSettings.restoreLimit}
+            onChange={(value) =>
+              updatePillSettings({
+                restoreLimit: value ?? PILL_SETTING_RANGES.restoreLimit.fallback,
+              })
+            }
+            addonAfter="条"
+          />
+        }
+      />
+      <div className="settings-actions">
+        <Text type="secondary">调大上限不会恢复已经被自动归档的提醒。</Text>
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={() => {
+            updatePillSettings(DEFAULT_PILL_SETTINGS)
+            message.success('已恢复提醒默认值')
+          }}
+        >
+          恢复默认
+        </Button>
+      </div>
+    </Card>
+  )
+
+  const dataCards = (
+    <>
       <Card title="数据备份">
         <SettingsRow
           title="一键全部导出"
@@ -481,10 +517,119 @@ export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
           </Text>
         </div>
       </Card>
+    </>
+  )
 
-      <Space size={4} wrap>
-        <Text type="secondary">提示：顶栏的主题按钮会直接把主题切为固定的浅色 / 深色。</Text>
-      </Space>
+  const accountCards = (
+    <>
+      <Card
+        title="账号信息"
+        extra={
+          <Tag color={me?.role === 'admin' ? 'blue' : undefined}>
+            {me?.role === 'admin' ? '管理员' : '成员'}
+          </Tag>
+        }
+      >
+        <SettingsRow
+          title="用户名"
+          description="登录使用的账号，创建后不可修改。"
+          control={<Text>{me?.username ?? '—'}</Text>}
+        />
+        <SettingsRow title="显示名" control={<Text>{me?.display_name ?? '—'}</Text>} />
+        <SettingsRow
+          title="邮箱"
+          description="绑定后可用于自助重置密码。"
+          control={me?.email ? <Text>{me.email}</Text> : <Text type="secondary">未绑定</Text>}
+        />
+        <SettingsRow
+          title="最近登录"
+          control={
+            <Text type="secondary">
+              {me?.last_login_at ? me.last_login_at.slice(0, 16).replace('T', ' ') : '—'}
+            </Text>
+          }
+        />
+      </Card>
+
+      <Card title="修改密码">
+        <Form
+          form={pwdForm}
+          layout="vertical"
+          requiredMark={false}
+          style={{ maxWidth: 420 }}
+          onFinish={handleChangePassword}
+        >
+          <Form.Item
+            label="当前密码"
+            name="oldPassword"
+            rules={[{ required: true, message: '请输入当前密码' }]}
+          >
+            <Input.Password autoComplete="current-password" placeholder="当前登录密码" />
+          </Form.Item>
+          <Form.Item
+            label="新密码"
+            name="newPassword"
+            rules={[
+              { required: true, message: '请输入新密码' },
+              { min: 8, message: '至少 8 位' },
+            ]}
+          >
+            <Input.Password autoComplete="new-password" placeholder="至少 8 位" />
+          </Form.Item>
+          <Form.Item
+            label="确认新密码"
+            name="confirm"
+            dependencies={['newPassword']}
+            rules={[
+              { required: true, message: '请再次输入新密码' },
+              ({ getFieldValue }) => ({
+                validator: (_, value) =>
+                  !value || getFieldValue('newPassword') === value
+                    ? Promise.resolve()
+                    : Promise.reject(new Error('两次输入不一致')),
+              }),
+            ]}
+          >
+            <Input.Password autoComplete="new-password" placeholder="再次输入新密码" />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" loading={pwdSaving}>
+            更新密码
+          </Button>
+        </Form>
+      </Card>
+    </>
+  )
+
+  return (
+    <PageContainer
+      eyebrow="设置"
+      title="管理长期偏好与提醒"
+      description="这些偏好只保存在当前浏览器。工作台上的执行深度、允许技能与检索范围属于本次任务参数，不会自动影响其它任务。"
+      maxWidth={PAGE_MAX_WIDTH}
+    >
+      <div className="tabbar" role="tablist" aria-label="设置分区">
+        <div className="tabbar__tabs">
+          {sections.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              role="tab"
+              aria-selected={section === item.key}
+              className={`tabbar__item${section === item.key ? ' is-active' : ''}`}
+              onClick={() => setSection(item.key)}
+            >
+              {item.icon}
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {section === 'appearance' ? appearanceCard : null}
+      {section === 'workspace' ? workspaceCard : null}
+      {section === 'reminder' ? reminderCard : null}
+      {section === 'data' ? dataCards : null}
+      {section === 'account' ? accountCards : null}
 
       <ImportPreviewModal
         open={importing || importPreview !== null || importError !== null}
