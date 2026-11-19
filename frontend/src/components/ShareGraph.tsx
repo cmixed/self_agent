@@ -11,16 +11,22 @@ import type { DocumentCaps, GraphEdge, GraphNode, ShareGraphData } from '../type
  * - 关系多的时候只在悬停时看文字，避免标签互相压住。
  */
 
-const NODE_W = 190
-/** 分组节点要容纳「标题 / 人数 / 成员名单」三行，其余节点居中显示 */
-const NODE_H = 62
+const NODE_W = 240
+/** 分组节点要容纳「标题 / 人数 / 成员名单」三行，其余节点只占两行 */
+const GROUP_H = 62
+const PLAIN_H = 46
 /** 节点内直接展示的成员上限，超出的进 Tooltip 浮窗 */
 const MEMBER_LIMIT = 2
-const NODE_GAP = 14
-const COL_GAP = 74
+const NODE_GAP = 12
+const COL_GAP = 110
 const PAD = 12
 /** 顶部列标题（人 / 分组 / 知识库）占的高度 */
 const HEAD = 26
+
+/** 分组 / 全团队需要第三行放成员名单，人 / 库两行足够，避免 9 人时整体过高 */
+function nodeHeight(node: GraphNode): number {
+  return node.type === 'group' || node.type === 'team' ? GROUP_H : PLAIN_H
+}
 
 const CAP_COLORS: Record<string, string> = {
   search: '#d48806',
@@ -70,6 +76,7 @@ interface Placed {
   node: GraphNode
   x: number
   y: number
+  h: number
 }
 
 function layout(nodes: GraphNode[]): { placed: Map<string, Placed>; height: number } {
@@ -77,8 +84,15 @@ function layout(nodes: GraphNode[]): { placed: Map<string, Placed>; height: numb
   for (const node of nodes) {
     groups[columnOf(node)].push(node)
   }
-  const tallest = Math.max(groups.subject.length, groups.group.length, groups.kb.length, 1)
-  const height = HEAD + PAD * 2 + tallest * NODE_H + (tallest - 1) * NODE_GAP
+  const columnHeight = (list: GraphNode[]) =>
+    list.reduce((sum, node) => sum + nodeHeight(node), 0) + Math.max(list.length - 1, 0) * NODE_GAP
+  const tallest = Math.max(
+    columnHeight(groups.subject),
+    columnHeight(groups.group),
+    columnHeight(groups.kb),
+    1,
+  )
+  const height = HEAD + PAD * 2 + tallest
   const xs: Record<Column, number> = {
     subject: PAD,
     group: PAD + NODE_W + COL_GAP,
@@ -88,15 +102,13 @@ function layout(nodes: GraphNode[]): { placed: Map<string, Placed>; height: numb
   for (const column of ['subject', 'group', 'kb'] as Column[]) {
     const list = groups[column]
     if (list.length === 0) continue
-    const total = list.length * NODE_H + (list.length - 1) * NODE_GAP
-    const startY = HEAD + (height - HEAD - total) / 2
-    list.forEach((node, index) => {
-      placed.set(node.id, {
-        node,
-        x: xs[column],
-        y: startY + index * (NODE_H + NODE_GAP),
-      })
-    })
+    const total = columnHeight(list)
+    let cursor = HEAD + (height - HEAD - total) / 2
+    for (const node of list) {
+      const h = nodeHeight(node)
+      placed.set(node.id, { node, x: xs[column], y: cursor, h })
+      cursor += h + NODE_GAP
+    }
   }
   return { placed, height }
 }
@@ -118,9 +130,9 @@ function usePaths(edges: GraphEdge[], placed: Map<string, Placed>) {
       const to = placed.get(edge.target)
       if (!from || !to) continue
       const x1 = from.x + NODE_W
-      const y1 = from.y + NODE_H / 2
+      const y1 = from.y + from.h / 2
       const x2 = to.x
-      const y2 = to.y + NODE_H / 2
+      const y2 = to.y + to.h / 2
       const dx = Math.max(24, (x2 - x1) / 2)
       const pending = edge.status === 'pending'
       const label = pending ? '待审批' : capLabel(edge.caps)
@@ -197,6 +209,7 @@ export default function ShareGraph({
   const { placed, height } = useMemo(() => layout(graph?.nodes ?? []), [graph])
   const paths = usePaths(graph?.edges ?? [], placed)
   const width = NODE_W * 3 + COL_GAP * 2 + PAD * 2
+  // 关系少时直接标出能力；多了静态标签会挤成一团，改为悬停看详情
   const showLabels = shareEdges.length <= 6
 
   if (loading) {
@@ -217,7 +230,7 @@ export default function ShareGraph({
         width="100%"
         role="img"
         aria-label="知识库共享关系图"
-        style={{ maxHeight: 520 }}
+        style={{ maxHeight: 720 }}
       >
         <defs>
           {Object.entries(CAP_COLORS).map(([key, color]) => (
@@ -251,18 +264,16 @@ export default function ShareGraph({
 
         {paths.map((item) => {
           const isMember = item.edge.kind === 'member'
-          return (
+          const from = placed.get(item.edge.source)?.node
+          const to = placed.get(item.edge.target)?.node
+          const edgeNode = (
             <g key={item.edge.id}>
-              <title>
-                {isMember
-                  ? `${item.edge.source.replace('user:', '')} 是 ${item.edge.target.replace('group:', '')} 的成员`
-                  : `${item.edge.label} · ${item.edge.requested_by_name || ''}`}
-              </title>
+              {isMember ? <title>{`${from?.label ?? ''} 是 ${to?.label ?? ''} 的成员`}</title> : null}
               <path
                 d={item.d}
                 fill="none"
-                stroke={isMember ? 'var(--ant-color-border)' : item.color}
-                strokeWidth={isMember ? 1 : 1.6}
+                stroke={isMember ? 'var(--ant-color-text-quaternary)' : item.color}
+                strokeWidth={isMember ? 1.2 : 1.6}
                 strokeDasharray={item.dashed ? '4 4' : undefined}
                 strokeLinecap="round"
                 markerEnd={
@@ -272,6 +283,16 @@ export default function ShareGraph({
                 }
                 opacity={isMember ? 0.8 : 0.95}
               />
+              {isMember ? null : (
+                // 透明粗线扩大命中区：1.6px 的边太细，鼠标很难悬停
+                <path
+                  d={item.d}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth={12}
+                  pointerEvents="stroke"
+                />
+              )}
               {showLabels && !isMember ? (
                 <>
                   <rect
@@ -298,9 +319,28 @@ export default function ShareGraph({
               ) : null}
             </g>
           )
+          if (isMember) return edgeNode
+          return (
+            <Tooltip
+              key={item.edge.id}
+              title={
+                <div className="share-graph__tip">
+                  <strong>
+                    {from?.label ?? ''} → {to?.label ?? ''}
+                  </strong>
+                  <div>{item.dashed ? '待审批' : `能力：${capLabel(item.edge.caps)}`}</div>
+                  {item.edge.requested_by_name ? (
+                    <div>发起人：{item.edge.requested_by_name}</div>
+                  ) : null}
+                </div>
+              }
+            >
+              {edgeNode}
+            </Tooltip>
+          )
         })}
 
-        {[...placed.values()].map(({ node, x, y }) => {
+        {[...placed.values()].map(({ node, x, y, h }) => {
           const style = NODE_STYLE[node.type]
           const names = node.members ?? []
           const withMembers = (node.type === 'group' || node.type === 'team') && names.length > 0
@@ -337,32 +377,31 @@ export default function ShareGraph({
               )}
               <rect
                 width={NODE_W}
-                height={NODE_H}
+                height={h}
                 rx={10}
                 fill={style.fill}
                 stroke={node.is_me ? 'var(--ant-color-primary)' : style.stroke}
                 strokeWidth={node.is_me ? 1.6 : 1}
               />
-              <rect width={4} height={NODE_H} rx={2} fill={style.stroke} opacity={0.9} />
               <text
-                x={14}
-                y={withMembers ? 19 : 25}
+                x={16}
+                y={withMembers ? 19 : 24}
                 fontSize="13"
                 fill="var(--ant-color-text)"
                 fontWeight={500}
               >
-                {node.label.length > 12 ? `${node.label.slice(0, 11)}…` : node.label}
+                {node.label.length > 16 ? `${node.label.slice(0, 15)}…` : node.label}
               </text>
               <text
-                x={14}
-                y={withMembers ? 34 : 42}
+                x={16}
+                y={withMembers ? 34 : 37}
                 fontSize="11"
                 fill="var(--ant-color-text-tertiary)"
               >
                 {sub}
               </text>
               {withMembers ? (
-                <text x={14} y={50} fontSize="10" fill="var(--ant-color-text-tertiary)">
+                <text x={16} y={50} fontSize="10" fill="var(--ant-color-text-tertiary)">
                   {shortMemberText}
                 </text>
               ) : null}
