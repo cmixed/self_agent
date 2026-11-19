@@ -122,6 +122,15 @@ export function buildThemeConfig(mode: ResolvedTheme): ThemeConfig {
       colorLinkHover: dark ? TEAL[300] : TEAL[600],
       colorLinkActive: TEAL[700],
 
+      // 主色派生色必须显式指定：antd 由 #0f766e 自动算出的是 #a8b5b2（中灰绿），
+      // 用作选中底/卡片底会脏掉——浅色下发灰突兀，深色下又不够亮。
+      colorPrimaryBg: dark ? 'rgba(95, 209, 181, 0.14)' : '#e6f2f0',
+      colorPrimaryBgHover: dark ? 'rgba(95, 209, 181, 0.24)' : '#d9ebe8',
+      colorPrimaryBorder: dark ? 'rgba(95, 209, 181, 0.40)' : '#b3d9d2',
+      colorPrimaryBorderHover: dark ? 'rgba(95, 209, 181, 0.58)' : '#8fc8bf',
+      colorPrimaryText: dark ? TEAL[300] : TEAL[700],
+      colorPrimaryTextHover: dark ? TEAL[200] : TEAL[600],
+
       // --- 状态（低饱和） ---
       colorSuccess: st.success,
       colorWarning: st.warning,

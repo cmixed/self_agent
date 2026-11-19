@@ -460,7 +460,7 @@ html[data-theme='dark'] .ant-card {
 
 .run-pill__main:hover .run-pill__title,
 .run-pill__main:focus-visible .run-pill__title {
-  color: var(--ant-color-primary);
+  color: var(--ant-color-primary-text);
 }
 
 .run-pill__title {
@@ -554,7 +554,7 @@ html[data-theme='dark'] .ant-card {
 }
 
 .ws-recent__open:hover .ws-recent__query {
-  color: var(--ant-color-primary);
+  color: var(--ant-color-primary-text);
 }
 
 /* 模型服务商切换器（现位于侧栏底部一条内）：宽度随当前模型名自适应，
@@ -824,8 +824,8 @@ html[data-theme='dark'] .ant-card {
 }
 
 .ws-step.is-process .ws-step__dot {
-  border-color: var(--ant-color-primary);
-  color: var(--ant-color-primary);
+  border-color: var(--ant-color-primary-text);
+  color: var(--ant-color-primary-text);
 }
 
 .ws-step.is-error .ws-step__dot {
@@ -863,7 +863,7 @@ html[data-theme='dark'] .ant-card {
 }
 
 .ws-step.is-process .ws-step__title {
-  color: var(--ant-color-primary);
+  color: var(--ant-color-primary-text);
 }
 
 .ws-step__note {
@@ -1330,7 +1330,7 @@ html[data-theme='dark'] .ant-card {
 
 /* 输入区即面板本体：聚焦时整块面板描边为主色 */
 .ws-compose:focus-within {
-  border-color: var(--ant-color-primary);
+  border-color: var(--ant-color-primary-text);
 }
 
 .ws-compose__input.ant-input {
@@ -1398,7 +1398,7 @@ html[data-theme='dark'] .ant-card {
 }
 
 .entity-card--clickable:hover {
-  border-color: var(--ant-color-primary) !important;
+  border-color: var(--ant-color-primary-text) !important;
   box-shadow: var(--ws-shadow-raised);
 }
 
@@ -1443,7 +1443,7 @@ html[data-theme='dark'] .ant-card {
 .entity-card.is-dragging {
   z-index: 1;
   opacity: 0.65;
-  border-color: var(--ant-color-primary) !important;
+  border-color: var(--ant-color-primary-text) !important;
 }
 
 .entity-card__desc {
@@ -1558,8 +1558,8 @@ html[data-theme='dark'] .ant-card {
 }
 
 .sample-chip:hover {
-  color: var(--ant-color-primary) !important;
-  border-color: var(--ant-color-primary) !important;
+  color: var(--ant-color-primary-text) !important;
+  border-color: var(--ant-color-primary-text) !important;
   background: var(--ant-color-primary-bg) !important;
 }
 
@@ -1574,7 +1574,7 @@ html[data-theme='dark'] .ant-card {
 }
 
 .ws-preset:hover {
-  border-color: var(--ant-color-primary) !important;
+  border-color: var(--ant-color-primary-text) !important;
   box-shadow: var(--ws-shadow-raised);
 }
 
@@ -1657,7 +1657,7 @@ html[data-theme='dark'] .ant-card {
 }
 
 .ws-preset__detail:hover {
-  color: var(--ant-color-primary) !important;
+  color: var(--ant-color-primary-text) !important;
 }
 
 .ws-preset__desc {
@@ -1908,7 +1908,7 @@ html[data-theme='dark'] .ant-card {
 }
 
 .current-step.is-active .current-step__icon {
-  color: var(--ant-color-primary);
+  color: var(--ant-color-primary-text);
   background: var(--ant-color-primary-bg);
 }
 
@@ -1928,7 +1928,7 @@ html[data-theme='dark'] .ant-card {
 
 .current-step__spin {
   font-size: var(--ws-font-caption);
-  color: var(--ant-color-primary);
+  color: var(--ant-color-primary-text);
 }
 
 .current-step__message {
@@ -1982,7 +1982,7 @@ html[data-theme='dark'] .ant-card {
 }
 
 .source-card:hover {
-  border-color: var(--ant-color-primary);
+  border-color: var(--ant-color-primary-text);
   background: var(--ant-color-primary-bg);
   box-shadow: var(--ws-shadow-raised);
 }
@@ -2113,8 +2113,8 @@ html[data-theme='dark'] .ant-card {
 }
 
 .md-reader__toc-item.is-active button {
-  color: var(--ant-color-primary);
-  border-left-color: var(--ant-color-primary);
+  color: var(--ant-color-primary-text);
+  border-left-color: var(--ant-color-primary-text);
   font-weight: 500;
 }
 
@@ -2568,7 +2568,7 @@ html[data-theme='dark'] .ant-card {
 }
 
 .kb-assign .ant-checkbox-wrapper:focus-within {
-  border-color: var(--ant-color-primary);
+  border-color: var(--ant-color-primary-text);
   box-shadow: 0 0 0 3px var(--ant-color-primary-bg);
 }
 

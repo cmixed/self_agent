@@ -406,7 +406,8 @@ export default function ShareGraph({
                 height={h}
                 rx={10}
                 fill={style.fill}
-                stroke={isHovered || node.is_me ? 'var(--ant-color-primary)' : style.stroke}
+                // 用 primary-text 而不是 primary：深色下 #0f766e 描边在深底上看不见
+                stroke={isHovered || node.is_me ? 'var(--ant-color-primary-text)' : style.stroke}
                 strokeWidth={isHovered ? 2 : node.is_me ? 1.6 : 1}
               />
               <text
