@@ -29,44 +29,61 @@ html[data-theme='dark'] {
   }
 }
 
-/* 统一滚动条外观（Chromium / Edge / WebKit） */
+/* 统一滚动条：无边框、无箭头、透明轨道，拇指内缩 2px 成一条圆角玻璃条。
+   注意不要在 .app-shell 上设 scrollbar-color / scrollbar-width ——
+   Chromium 一旦收到标准属性就会改用原生滚动条（Windows 下会画出两头的箭头），
+   把下面这套 ::-webkit-* 全部覆盖掉。 */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
-::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--ant-color-border, rgba(128, 128, 128, 0.35));
+  background: color-mix(in srgb, var(--ant-color-text-quaternary) 55%, transparent);
   background-clip: padding-box;
   border: 2px solid transparent;
-  border-radius: 5px;
+  border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--ant-color-text-quaternary, rgba(128, 128, 128, 0.55));
+  background: color-mix(in srgb, var(--ant-color-text-tertiary) 70%, transparent);
   background-clip: padding-box;
 }
 
-::-webkit-scrollbar-corner {
-  background: transparent;
+::-webkit-scrollbar-thumb:active {
+  background: color-mix(in srgb, var(--ant-color-primary) 70%, transparent);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-button,
+::-webkit-scrollbar-button:horizontal:start,
+::-webkit-scrollbar-button:horizontal:end,
+::-webkit-scrollbar-button:vertical:start,
+::-webkit-scrollbar-button:vertical:end {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* 页级柔光：两团极淡的青光斑（对齐 self-web 的 --mica-wash），
    静态铺在 body 上，侧栏与顶栏做成半透明后才会透出层次，零每帧开销。 */
 :root {
-  --ws-glow-1: rgba(95, 209, 181, 0.12);
-  --ws-glow-2: rgba(76, 150, 190, 0.09);
-  --ws-glass: rgba(28, 42, 48, 0.72);
+  --ws-glow-1: rgba(95, 209, 181, 0.16);
+  --ws-glow-2: rgba(76, 150, 190, 0.12);
+  --ws-glass: rgba(28, 42, 48, 0.66);
+  --ws-panel-edge: rgba(190, 245, 230, 0.07);
 }
 
 html[data-theme='light'] {
   --ws-glow-1: rgba(120, 180, 170, 0.14);
   --ws-glow-2: rgba(110, 140, 150, 0.1);
-  --ws-glass: rgba(242, 248, 249, 0.74);
+  --ws-glass: rgba(242, 248, 249, 0.7);
+  --ws-panel-edge: rgba(255, 255, 255, 0.85);
 }
 
 body {
@@ -181,9 +198,6 @@ html[data-theme='dark'] body {
   z-index: 1;
   min-height: 100vh;
   background: transparent;
-  /* Firefox 滚动条随主题 */
-  scrollbar-width: thin;
-  scrollbar-color: var(--ant-color-border) transparent;
 }
 
 /* 侧栏与顶栏做成 Mica 玻璃：半透明面板 + 背景模糊，
@@ -337,8 +351,27 @@ html[data-theme='dark'] body {
 }
 
 /* Card 外框统一使用 token.border（antd 默认用更淡的 border-secondary） */
+/* 卡片做成「薄玻璃板」：底色半透明（不做常驻 backdrop-filter ——
+   组件密度高，每张卡每帧重模糊代价太大），让 body 的柔光与底色透上来；
+   顶部 1px 受光边补出「被照亮」的厚度，这是 self-web 里玻璃感的真正来源。 */
 .ant-card {
   border-color: var(--ant-color-border);
+  background: color-mix(in srgb, var(--ant-color-bg-container) 84%, transparent);
+  box-shadow: inset 0 1px 0 var(--ws-panel-edge);
+}
+
+/* 深色面板本身够暗，再透一档才看得出背景柔光；浅色保持 84%，
+   太透会让文字压在光斑上，反而不好读 */
+html[data-theme='dark'] .ant-card {
+  background: color-mix(in srgb, var(--ant-color-bg-container) 78%, transparent);
+}
+
+/* 卡片里的表格跟卡片同底，否则会透出一块实色「补丁」 */
+.ant-card .ant-table,
+.ant-card .ant-table-container,
+.ant-card .ant-table-content,
+.ant-card .ant-table-body {
+  background: transparent;
 }
 
 /* 顶栏「运行中任务」胶囊（AGENTS.md §17/§19）：
@@ -3250,7 +3283,7 @@ html[data-theme='dark'] body {
   overflow: hidden;
   border: 1px solid var(--ant-color-border);
   border-radius: var(--ws-radius-lg);
-  background: color-mix(in srgb, var(--ant-color-bg-elevated) 92%, transparent);
+  background: color-mix(in srgb, var(--ant-color-bg-elevated) 88%, transparent);
   -webkit-backdrop-filter: blur(20px) saturate(150%);
   backdrop-filter: blur(20px) saturate(150%);
   box-shadow: 0 18px 48px -18px rgba(0, 0, 0, 0.5);
@@ -3286,7 +3319,7 @@ html[data-theme='dark'] body {
 }
 
 .ant-drawer .ant-drawer-content {
-  background: color-mix(in srgb, var(--ant-color-bg-elevated) 94%, transparent);
+  background: color-mix(in srgb, var(--ant-color-bg-elevated) 90%, transparent);
   -webkit-backdrop-filter: blur(20px) saturate(150%);
   backdrop-filter: blur(20px) saturate(150%);
 }

@@ -45,7 +45,9 @@ export const SURFACE = {
   light: {
     layout: '#d0e2db',
     container: '#f2f8f9',
-    elevated: '#f7fbfc',
+    /* 浮层与输入框：比面板只亮一点点。原来 #f7fbfc 接近纯白，
+       在薄荷底上会读成一块「贴上去的白纸」 */
+    elevated: '#f4fafb',
     secondary: '#e5eef1',
     border: '#bfd4cf',
     borderSecondary: '#d6e4e0',

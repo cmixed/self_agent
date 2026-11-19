@@ -590,6 +590,7 @@ export default function TeamPage() {
           columns={columns}
           dataSource={items}
           pagination={false}
+          scroll={{ x: 'max-content' }}
           locale={{
             emptyText: (
               <EmptyState
@@ -842,6 +843,7 @@ export default function TeamPage() {
         dataSource={groups}
         pagination={false}
         columns={groupColumns}
+        scroll={{ x: 'max-content' }}
         expandable={{ expandedRowRender: renderGroupMembers }}
         locale={{
           emptyText: (
@@ -1027,6 +1029,7 @@ export default function TeamPage() {
           dataSource={shares}
           pagination={shares.length > 10 ? { pageSize: 10 } : false}
           columns={shareColumns}
+          scroll={{ x: 'max-content' }}
           locale={{
             emptyText: (
               <EmptyState
@@ -1097,6 +1100,7 @@ export default function TeamPage() {
         loading={keyLoading}
         pagination={false}
         dataSource={apiKeys}
+        scroll={{ x: 'max-content' }}
         locale={{
           emptyText: <EmptyState title="还没有密钥" hint="新建一个，用于外部系统对接" />,
         }}
