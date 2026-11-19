@@ -441,50 +441,66 @@ html[data-theme='dark'] .ant-card {
   flex: 0 0 auto;
 }
 
-/* 段一：页面切换器 */
-.dock__nav {
+/* 顶栏页面切换器：紧凑图标组，右对齐；窄屏收成下拉 */
+.app-header-right {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.page-switcher {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--ant-color-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ant-color-bg-container) 84%, transparent);
+}
+
+.page-switcher__item {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--ant-color-text-secondary);
-  font-size: 16px;
+  font-size: 15px;
   cursor: pointer;
   transition:
     background var(--ws-motion-fast) var(--ws-ease),
     color var(--ws-motion-fast) var(--ws-ease);
 }
 
-.dock__nav:hover {
+.page-switcher__item:hover {
   background: var(--ant-color-fill-quaternary);
   color: var(--ant-color-text);
 }
 
-.dock__nav.is-active {
+.page-switcher__item.is-active {
   background: var(--ant-color-primary-bg);
   color: var(--ant-color-primary-text);
 }
 
-.dock__nav--current {
-  width: auto;
-  padding: 0 10px;
-  font-size: var(--ws-font-secondary);
+.page-switcher__current {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.dock__menu-label {
+.page-switcher__menu-label {
   display: inline-flex;
   align-items: center;
   gap: 8px;
 }
 
-.dock__menu-label kbd,
-.dock__tip kbd {
+.page-switcher__menu-label kbd,
+.page-switcher__tip kbd {
   margin-left: auto;
   padding: 1px 5px;
   border: 1px solid var(--ant-color-border);
@@ -494,13 +510,13 @@ html[data-theme='dark'] .ant-card {
   font-size: var(--ws-font-caption);
 }
 
-.dock__tip {
+.page-switcher__tip {
   display: inline-flex;
   align-items: center;
   gap: 10px;
 }
 
-/* 段二：当前页操作（portal 注入）。
+/* 段一：当前页操作（portal 注入）。
    Space 在页面里是 wrap 的，进 dock 后必须强制单行，否则胶囊会被撑成两行。 */
 .dock__seg--actions .app-header-page-actions__inner {
   display: flex;
@@ -3097,6 +3113,7 @@ html[data-theme='dark'] .ant-card {
 
 /* --- 顶栏板块标题 ---------------------------------------------------------- */
 .app-header-title {
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: baseline;

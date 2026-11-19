@@ -33,6 +33,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react
 
 import AppDock from './components/AppDock'
 import ErrorBoundary from './components/ErrorBoundary'
+import PageSwitcher from './components/PageSwitcher'
 import QuickSearch from './components/QuickSearch'
 import ShortcutHelp from './components/ShortcutHelp'
 import { fetchMe, getCachedUser, getToken, logout, onUnauthorized } from './services/auth'
@@ -444,6 +445,17 @@ function AppShell({
               {PAGE_META.find((item) => item.key === page)?.description}
             </span>
           </div>
+          <div className="app-header-right">
+            <PageSwitcher
+              page={page}
+              pages={visiblePages.map((item) => ({
+                key: item.key,
+                label: item.label,
+                icon: item.icon,
+              }))}
+              onNavigate={handleNav}
+            />
+          </div>
         </div>
 
         <Content className="app-content">
@@ -485,15 +497,9 @@ function AppShell({
           </ErrorBoundary>
         </Content>
       </Layout>
-      {/* 底部浮动操作坞：页面切换 / 当前页操作 / 全局操作 / 任务胶囊 */}
+      {/* 底部浮动操作坞：当前页操作 / 全局操作 / 任务胶囊 */}
       <AppDock
         page={page}
-        pages={visiblePages.map((item) => ({
-          key: item.key,
-          label: item.label,
-          icon: item.icon,
-        }))}
-        onNavigate={handleNav}
         onHelp={() => setHelpOpen(true)}
         onSearch={() => setSearchOpen(true)}
         onToggleTheme={toggleMode}
