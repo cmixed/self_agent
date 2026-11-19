@@ -44,7 +44,7 @@ html[data-theme='dark'] {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ant-color-text-quaternary) 55%, transparent);
+  background: color-mix(in srgb, var(--ant-color-text-quaternary) 70%, transparent);
   background-clip: padding-box;
   border: 2px solid transparent;
   border-radius: 999px;
@@ -193,11 +193,21 @@ html[data-theme='dark'] body {
 }
 
 /* --- 布局外壳 ------------------------------------------------------------- */
+/* 滚动交给内容区而不是整页：
+   整页滚动时滚动条会占掉视口右侧 10px，顶栏只能铺到滚动条左缘，
+   看起来就是「导航右侧缺一块」。现在顶栏固定、只有内容区滚动。 */
 .app-shell {
   position: relative;
   z-index: 1;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   background: transparent;
+}
+
+.app-shell > .ant-layout {
+  height: 100vh;
+  min-height: 0;
 }
 
 /* 侧栏与顶栏做成 Mica 玻璃：半透明面板 + 背景模糊，
@@ -346,6 +356,9 @@ html[data-theme='dark'] body {
 }
 
 .app-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   padding: var(--ws-content-pad-y) var(--ws-content-pad-x);
   background: transparent;
 }
@@ -2044,9 +2057,10 @@ html[data-theme='dark'] .ant-card {
 
 .md-reader__toc {
   position: sticky;
-  top: 72px;
+  /* 滚动容器已改为 .app-content（顶栏不在其中），吸附偏移只需留内容内边距 */
+  top: var(--ws-space-4);
   align-self: start;
-  max-height: calc(100vh - 96px);
+  max-height: calc(100vh - var(--ws-header-h) - var(--ws-space-8));
   overflow-y: auto;
 }
 
@@ -3352,7 +3366,8 @@ html[data-theme='dark'] .ant-card {
 
 .team-side {
   position: sticky;
-  top: calc(var(--ws-header-h) + var(--ws-space-4));
+  /* 同上：滚动容器是 .app-content，顶栏已在容器之外 */
+  top: var(--ws-space-4);
   display: flex;
   flex-direction: column;
   gap: 4px;
