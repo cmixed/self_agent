@@ -58,12 +58,12 @@ html[data-theme='dark'] {
 body {
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  /* React 挂载前的底色（默认浅色茶色），挂载后由 antd 容器色接管 */
-  background: #f0e9df;
+  /* React 挂载前的底色（默认浅色薄荷绿，对齐 self-web 的 --bg），挂载后由 antd 容器色接管 */
+  background: #d0e2db;
 }
 
 html[data-theme='dark'] body {
-  background: #101311;
+  background: #0c1714;
 }
 
 /* =============================================================================
@@ -2174,7 +2174,7 @@ html[data-theme='dark'] body {
 
 /* 键盘可达性兜底：组件自己定义的焦点环优先级更高，这里只统一默认形态 */
 :where(button, a[href], input, textarea, select, [role='button']):focus-visible {
-  outline: 2px solid var(--ant-color-primary-border, rgba(82, 94, 84, 0.5));
+  outline: 2px solid var(--ant-color-primary-border, rgba(15, 118, 110, 0.5));
   outline-offset: 2px;
 }
 
@@ -3095,17 +3095,36 @@ html[data-theme='dark'] body {
   color: var(--ant-color-text-tertiary);
 }
 
-.shortcut-help__key {
+/* 键帽组：每个键一颗 kbd，序列 / 等价键之间由文字连接（对齐 self-web） */
+.shortcut-help__caps {
+  display: inline-flex;
   flex: 0 0 auto;
-  min-width: 30px;
-  padding: 2px 8px;
-  border: 1px solid var(--ant-color-border);
-  border-bottom-width: 2px;
-  border-radius: 6px;
-  background: var(--ant-color-bg-layout);
-  font-family: inherit;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.shortcut-help__join {
+  padding: 0 2px;
+  color: var(--ant-color-text-quaternary);
   font-size: var(--ws-font-caption);
-  text-align: center;
+}
+
+.shortcut-help__key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 2px 7px;
+  border: 1px solid var(--ant-color-primary-border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--ant-color-primary-bg);
+  color: var(--ant-color-text);
+  font-family: ui-monospace, 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
   white-space: nowrap;
 }
 

@@ -1,8 +1,30 @@
 import { Modal } from 'antd'
+import { Fragment } from 'react'
 
-import { HOTKEY_GROUPS, formatHotkey, hotkeysFor } from '../hotkeys'
+import { HOTKEY_GROUPS, formatCombo, hotkeysFor, sequenceKeys } from '../hotkeys'
+import type { HotkeyDef } from '../hotkeys'
 import { getCachedUser } from '../services/auth'
 import { useShortcuts } from '../state/shortcuts'
+
+/** 每个键一颗 kbd，序列用「然后」、等价键用「或」——与 self-web 的帮助面板一致 */
+function KeyCaps({ def }: { def: HotkeyDef }) {
+  const combos = [def.combo, ...(def.aliases ?? [])]
+  return (
+    <span className="shortcut-help__caps">
+      {combos.map((combo, comboIndex) => (
+        <Fragment key={combo}>
+          {comboIndex > 0 ? <span className="shortcut-help__join">或</span> : null}
+          {sequenceKeys(combo).map((key, keyIndex) => (
+            <Fragment key={`${combo}-${key}`}>
+              {keyIndex > 0 ? <span className="shortcut-help__join">然后</span> : null}
+              <kbd className="shortcut-help__key">{formatCombo(key)}</kbd>
+            </Fragment>
+          ))}
+        </Fragment>
+      ))}
+    </span>
+  )
+}
 
 /** 快捷键帮助面板：直接渲染与运行时同一份元数据，新增快捷键无需改这里 */
 export default function ShortcutHelp() {
@@ -13,7 +35,7 @@ export default function ShortcutHelp() {
       open={helpOpen}
       title="快捷键"
       footer={null}
-      width={620}
+      width={640}
       onCancel={() => setHelpOpen(false)}
     >
       <div className="shortcut-help">
@@ -31,14 +53,14 @@ export default function ShortcutHelp() {
                       <span className="shortcut-help__desc">{def.description}</span>
                     ) : null}
                   </div>
-                  <kbd className="shortcut-help__key">{formatHotkey(def)}</kbd>
+                  <KeyCaps def={def} />
                 </div>
               ))}
             </section>
           )
         })}
         <p className="shortcut-help__footnote">
-          在输入框里打字时不会误触发（Esc 除外）；带 ⌘ / Ctrl 的组合键仍可使用。
+          输入框内打字时不会误触发（Esc 除外）；带 Ctrl / ⌘ / Alt 的组合键留给浏览器。
         </p>
       </div>
     </Modal>

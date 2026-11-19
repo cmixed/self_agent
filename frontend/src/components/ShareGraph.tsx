@@ -268,7 +268,9 @@ export default function ShareGraph({
           const to = placed.get(item.edge.target)?.node
           const edgeNode = (
             <g key={item.edge.id}>
-              {isMember ? <title>{`${from?.label ?? ''} 是 ${to?.label ?? ''} 的成员`}</title> : null}
+              {isMember ? (
+                <title>{`${from?.label ?? ''} 是 ${to?.label ?? ''} 的成员`}</title>
+              ) : null}
               <path
                 d={item.d}
                 fill="none"

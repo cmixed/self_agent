@@ -1,23 +1,22 @@
 import type { PageKey } from './state/nav'
 
 /**
- * 全局快捷键的**单一事实来源**。
+ * 全局快捷键的**单一事实来源**，键位与 self-web 保持一致：
  *
- * 设计约束：
- * - 按键只在这里定义，帮助面板与运行时匹配都读同一份表，避免文档与实现漂移；
- * - `mod` 在 macOS 上映射到 ⌘、其它平台映射到 Ctrl，不写死平台键；
- * - 除 `escape` 外，输入框 / textarea / contenteditable 聚焦时一律不触发，
- *   否则用户打字会误操作（这也是带 mod 的组合键仍允许在输入框里用的原因）。
+ * - 只用**裸键**与 **G 开头的序列键**，不抢 Ctrl / ⌘ / Alt（浏览器与系统习惯留给用户）；
+ * - `?` / F1 打开帮助，`/` 搜索，`T` 切主题，`G` 后接字母跳页；
+ * - 焦点在输入框 / 输入法组合中一律不响应，中文输入不会吞字；
+ * - 中文输入法下 `?`、`/` 会发成全角，匹配前统一折回半角。
  */
 
-export type HotkeyGroup = '通用' | '导航' | '界面' | '当前页面'
+export type HotkeyGroup = '通用' | '导航' | '当前页面'
 
 /** 帮助面板中的分组顺序 */
-export const HOTKEY_GROUPS: HotkeyGroup[] = ['通用', '导航', '界面', '当前页面']
+export const HOTKEY_GROUPS: HotkeyGroup[] = ['通用', '导航', '当前页面']
 
 export interface HotkeyDef {
   id: string
-  /** 组合键字符串：mod、shift、alt + 一个键名（如 `?`、`f1`、`mod+1`、`escape`） */
+  /** 单个键（`t`、`/`、`?`、`f1`），或空格分隔的序列（`g w`） */
   combo: string
   /** 等价按键：同一个动作有多个入口时并列展示与匹配 */
   aliases?: string[]
@@ -44,10 +43,22 @@ export const PAGE_LABELS: Record<PageKey, string> = {
   settings: '设置',
 }
 
-/** 侧栏顺序与 PAGE_META 一致；数字键跳转按这个顺序 */
+/** 侧栏顺序与 PAGE_META 一致；G 序列按这个表生成 */
 export const PAGE_ORDER = Object.keys(PAGE_LABELS) as PageKey[]
 
-/** 基础快捷键；页面数字键在下面按可见页面生成 */
+/** G 后面接的那个字母（序列键不会与单键 T 冲突，只取易记的） */
+const PAGE_KEYS: Record<PageKey, string> = {
+  workspace: 'w',
+  knowledge: 'k',
+  presets: 'r',
+  history: 'h',
+  skills: 's',
+  memory: 'm',
+  team: 'e',
+  providers: 'p',
+  settings: ',',
+}
+
 const BASE_HOTKEYS: HotkeyDef[] = [
   {
     id: 'help',
@@ -55,46 +66,20 @@ const BASE_HOTKEYS: HotkeyDef[] = [
     aliases: ['f1'],
     title: '显示快捷键帮助',
     group: '通用',
-    description: '列出当前系统里所有可用快捷键',
+    description: 'F1 不用按 Shift，中文输入法下更稳',
   },
   {
     id: 'search',
     combo: '/',
     title: '全局搜索',
     group: '通用',
-    description: '搜索页面、知识库与快捷键；输入框内输入 / 不受影响',
-  },
-  {
-    id: 'refresh',
-    combo: 'mod+r',
-    title: '刷新状态与当前页',
-    group: '通用',
-    description: '等同于左下角的刷新按钮',
+    description: '搜索页面、知识库与快捷键',
   },
   {
     id: 'toggleTheme',
-    combo: 'mod+shift+d',
+    combo: 't',
     title: '切换深浅主题',
     group: '通用',
-  },
-  {
-    id: 'toggleSidebar',
-    combo: 'mod+shift+b',
-    title: '折叠 / 展开侧栏',
-    group: '界面',
-    description: '窄屏下请用左上角菜单按钮',
-  },
-  {
-    id: 'previousPage',
-    combo: 'mod+arrowleft',
-    title: '上一个页面',
-    group: '导航',
-  },
-  {
-    id: 'nextPage',
-    combo: 'mod+arrowright',
-    title: '下一个页面',
-    group: '导航',
   },
   {
     id: 'goBack',
@@ -116,16 +101,16 @@ const BASE_HOTKEYS: HotkeyDef[] = [
 ]
 
 /**
- * 按当前身份生成快捷键表：非管理员看不到「团队管理」，数字键随之顺延，
- * 帮助面板与运行时匹配读同一份结果，不会出现「提示说 mod+7 是团队管理但按了没反应」。
+ * 按当前身份生成快捷键表：非管理员看不到「团队管理」，其余页面不受影响。
+ * 帮助面板与运行时匹配读同一份结果，不会出现提示与实际不一致。
  */
 export function hotkeysFor(isAdmin: boolean): HotkeyDef[] {
   const pages = PAGE_ORDER.filter((key) => isAdmin || key !== 'team')
   return [
     ...BASE_HOTKEYS,
-    ...pages.map((key, index) => ({
+    ...pages.map((key) => ({
       id: `page:${key}`,
-      combo: `mod+${index + 1}`,
+      combo: `g ${PAGE_KEYS[key]}`,
       title: `跳转到${PAGE_LABELS[key]}`,
       group: '导航' as HotkeyGroup,
     })),
@@ -157,15 +142,37 @@ export function parseCombo(combo: string): ParsedCombo {
   }
 }
 
+/** `g w` 这类序列键 */
+export function isSequence(combo: string): boolean {
+  return combo.trim().includes(' ')
+}
+
+export function sequenceKeys(combo: string): string[] {
+  return combo.trim().split(/\s+/)
+}
+
+/**
+ * 中文输入法开启时，`?` / `/` 会发成全角字符，全角字母同理。
+ * 全角 ASCII 区间 FF01–FF5E，减去 FEE0 即对应半角。
+ */
+export function normalizeKey(raw: string): string {
+  if (raw.length !== 1) return raw.toLowerCase()
+  const code = raw.charCodeAt(0)
+  if (code >= 0xff01 && code <= 0xff5e) {
+    return String.fromCharCode(code - 0xfee0).toLowerCase()
+  }
+  return raw.toLowerCase()
+}
+
 export function isMacPlatform(): boolean {
   if (typeof navigator === 'undefined') return false
   return /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent)
 }
 
-/** 判断按键事件是否命中某个组合键 */
+/** 判断按键事件是否命中某个单键 / 组合键（不含序列键） */
 export function matchesCombo(event: KeyboardEvent, combo: string): boolean {
+  if (isSequence(combo)) return false
   const parsed = parseCombo(combo)
-  // 用 metaKey 还是 ctrlKey 由平台决定，另一枚修饰键按下时不算命中
   const mod = isMacPlatform() ? event.metaKey : event.ctrlKey
   const otherMod = isMacPlatform() ? event.ctrlKey : event.metaKey
   if (otherMod || mod !== parsed.mod) return false
@@ -173,7 +180,7 @@ export function matchesCombo(event: KeyboardEvent, combo: string): boolean {
   // 「?」在不同键盘布局上未必是 Shift+/，直接认最终字符，不检查 Shift 状态
   if (parsed.key === '?') return event.key === '?'
   if (event.shiftKey !== parsed.shift) return false
-  return event.key.toLowerCase() === parsed.key
+  return normalizeKey(event.key) === parsed.key
 }
 
 /** 一个动作可绑定多个等价按键，任意一个命中即触发 */
@@ -201,6 +208,7 @@ const KEY_LABELS: Record<string, string> = {
   f1: 'F1',
   '/': '/',
   '?': '?',
+  ',': ',',
 }
 
 /** 按平台渲染组合键：macOS 用符号紧凑写法，其它平台用 + 连接 */
@@ -214,7 +222,13 @@ export function formatCombo(combo: string, mac = isMacPlatform()): string {
   return parts.join(mac ? '' : '+')
 }
 
-/** 帮助面板中的按键展示：主按键 + 等价按键 */
+/** 帮助面板中的按键展示：序列键用「然后」，等价按键用「或」 */
 export function formatHotkey(def: HotkeyDef): string {
-  return [def.combo, ...(def.aliases ?? [])].map((combo) => formatCombo(combo)).join(' / ')
+  const formatOne = (combo: string) =>
+    isSequence(combo)
+      ? sequenceKeys(combo)
+          .map((key) => formatCombo(key))
+          .join(' 然后 ')
+      : formatCombo(combo)
+  return [def.combo, ...(def.aliases ?? [])].map(formatOne).join(' / ')
 }

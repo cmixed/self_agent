@@ -18,56 +18,57 @@ export const LAYOUT = {
   drawerWidth: 248,
 } as const
 
-/** 品牌主色：仙茶绿。浅色/深色共用同一主色。 */
-export const BRAND_PRIMARY = '#525e54'
+/** 品牌主色：青绿（取自 self-web 的 accent 深色档，白字对比 ≈ 4.9:1）。 */
+export const BRAND_PRIMARY = '#0f766e'
 
 /**
- * 仙茶绿色阶（低饱和）。
- * 主色 #525e54 作为按钮底/描边够用（白字对比 ≈ 6.7:1）；
- * 深色底上作文字/图标对比不足，因此文字态使用更亮的 200/300。
+ * 青绿色阶（对齐 self-web 的 accent 家族）。
+ * 深色下按钮底仍用 600 档保证白字可读，文字/图标态用 300/400 的亮青。
  */
-export const SAGE = {
-  200: '#a7b3a7',
-  300: '#8d9c8d',
-  400: '#6b7a6b',
-  500: '#525e54',
-  600: '#475349',
-  700: '#3c473e',
+export const TEAL = {
+  200: '#a7e8dc',
+  300: '#8fe6d5',
+  400: '#5fd8c0',
+  500: '#14b8a6',
+  600: '#0f766e',
+  700: '#0b5f57',
 } as const
 
-/** 中性表面：统一实色分层（无渐变 / 无毛玻璃 / 无发光）。 */
+/**
+ * 中性表面：取 self-web 的「底色更绿、面板更青」双色关系，仍用实色分层
+ * （不引入半透明与 backdrop-filter：本项目组件密度高，玻璃会让层与层互相串色）。
+ *
+ * 浅色：底色 #d0e2db（薄荷绿）< 面板 #f2f8f9（青白）< 浮层 #f7fbfc
+ * 深色：底色 #0c1714（墨绿）< 面板 #1c2a30（青灰）< 抬升层 #22343b
+ */
 export const SURFACE = {
   light: {
-    // 米黄阶（同一暖色相，按明度分层）：
-    // 页面茶色 91% < 次级底/表头 93% < 卡片 96% < 浮层 98%
-    // 即"白色面"改为比页面茶色更浅的淡米黄，而不是纯白。
-    layout: '#f0e9df',
-    container: '#fbf7f0',
-    elevated: '#fdfbf6',
-    secondary: '#f5efe4',
-    border: '#e3d8c4',
-    borderSecondary: '#ece2d2',
-    fill: '#f4eee3',
-    tableHeader: '#f5efe4',
-    text: '#1f2320',
-    textSecondary: '#5b625c',
-    textTertiary: '#8b928c',
-    textQuaternary: '#a9aea8',
+    layout: '#d0e2db',
+    container: '#f2f8f9',
+    elevated: '#f7fbfc',
+    secondary: '#e5eef1',
+    border: '#bfd4cf',
+    borderSecondary: '#d6e4e0',
+    fill: '#e8f1ef',
+    tableHeader: '#e5eef1',
+    text: '#162221',
+    textSecondary: '#3f5656',
+    textTertiary: '#465a5a',
+    textQuaternary: '#6b7d7d',
   },
   dark: {
-    layout: '#101311',
-    container: '#171a18',
-    elevated: '#1d211e',
-    secondary: '#1d211e',
-    border: '#2a302c',
-    borderSecondary: '#212620',
-    fill: '#1d211e',
-    tableHeader: '#1b1f1c',
-    text: '#e8ebe8',
-    textSecondary: '#9da59e',
-    // 提亮一档：原 #6f776f 在深色容器上对比度约 3.7:1，低于 WCAG AA(4.5:1)
-    textTertiary: '#858d86',
-    textQuaternary: '#565d56',
+    layout: '#0c1714',
+    container: '#1c2a30',
+    elevated: '#22343b',
+    secondary: '#22343b',
+    border: '#2e4441',
+    borderSecondary: '#243733',
+    fill: '#22343b',
+    tableHeader: '#1a262c',
+    text: '#e8eded',
+    textSecondary: '#b0c4c4',
+    textTertiary: '#93a9aa',
+    textQuaternary: '#6b8080',
   },
 } as const
 
@@ -78,16 +79,16 @@ export const SURFACE = {
  */
 export const STATUS = {
   light: {
-    success: '#3f6b4a',
-    warning: '#8a6a2f',
-    error: '#aa4942',
-    info: '#475349',
+    success: '#0f766e',
+    warning: '#b45309',
+    error: '#b91c1c',
+    info: '#0e7490',
   },
   dark: {
-    success: '#8fb99a',
-    warning: '#ccb173',
-    error: '#d99b94',
-    info: '#a7b3a7',
+    success: '#6ee7b7',
+    warning: '#fbbf24',
+    error: '#f87171',
+    info: '#7dd3fc',
   },
 } as const
 
@@ -112,12 +113,12 @@ export function buildThemeConfig(mode: ResolvedTheme): ThemeConfig {
     cssVar: { key: 'sa' },
     token: {
       // --- 品牌 ---
-      colorPrimary: SAGE[500],
-      colorPrimaryHover: dark ? '#63735f' : SAGE[600],
-      colorPrimaryActive: SAGE[700],
-      colorLink: dark ? SAGE[200] : SAGE[600],
-      colorLinkHover: dark ? SAGE[300] : SAGE[500],
-      colorLinkActive: SAGE[700],
+      colorPrimary: TEAL[600],
+      colorPrimaryHover: dark ? '#129184' : TEAL[700],
+      colorPrimaryActive: TEAL[700],
+      colorLink: dark ? TEAL[400] : TEAL[700],
+      colorLinkHover: dark ? TEAL[300] : TEAL[600],
+      colorLinkActive: TEAL[700],
 
       // --- 状态（低饱和） ---
       colorSuccess: st.success,
@@ -173,9 +174,9 @@ export function buildThemeConfig(mode: ResolvedTheme): ThemeConfig {
         itemHeight: 38,
         itemMarginInline: 8,
         itemBorderRadius: RADIUS.md,
-        itemSelectedBg: dark ? 'rgba(82, 94, 84, 0.32)' : 'rgba(82, 94, 84, 0.13)',
-        itemSelectedColor: dark ? SAGE[200] : SAGE[600],
-        itemHoverBg: dark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(31, 35, 32, 0.04)',
+        itemSelectedBg: dark ? 'rgba(95, 209, 181, 0.14)' : 'rgba(15, 118, 110, 0.10)',
+        itemSelectedColor: dark ? TEAL[300] : TEAL[700],
+        itemHoverBg: dark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(15, 118, 110, 0.06)',
       },
       Button: {
         primaryShadow: 'none',

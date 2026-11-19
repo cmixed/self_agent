@@ -2,7 +2,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react'
 
 import { getCachedUser } from '../services/auth'
-import { hotkeysFor, isEditableTarget, matchesHotkey } from '../hotkeys'
+import {
+  hotkeysFor,
+  isEditableTarget,
+  isSequence,
+  matchesHotkey,
+  normalizeKey,
+  sequenceKeys,
+} from '../hotkeys'
 
 /** 返回 false 表示「这次没消费」，事件继续交给 antd / 浏览器 */
 type Handler = () => boolean | void
@@ -61,19 +68,53 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    // 序列键的等待状态（按下 G 之后 1.2s 内等第二个键）
+    let pending: string | null = null
+    let timer = 0
+
+    const consume = (id: string): boolean => {
+      const entry = registry.current.get(id)
+      const hasButton = Boolean(document.querySelector(`[data-hotkey="${id}"]`))
+      if (!(entry?.enabled || hasButton)) return false
+      return run(id)
+    }
+
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.repeat) return
+      if (event.defaultPrevented || event.repeat || event.isComposing) return
+      // 与 self-web 一致：带 Ctrl / ⌘ / Alt 的组合一律让给浏览器，不抢系统习惯
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+
+      const key = normalizeKey(event.key)
+      const editable = isEditableTarget(event.target)
+
+      // 已经按下序列前缀：这一键要么组成序列，要么作废
+      if (pending) {
+        const combo = `${pending} ${key}`
+        pending = null
+        window.clearTimeout(timer)
+        const def = defs.find((item) => !item.displayOnly && item.combo === combo)
+        if (def && !(editable && !def.allowInInput) && consume(def.id)) {
+          event.preventDefault()
+          event.stopPropagation()
+        }
+        return
+      }
+
       for (const def of defs) {
         if (def.displayOnly) continue
-        if (!matchesHotkey(event, def)) continue
-        if (isEditableTarget(event.target) && !def.allowInInput && event.key !== 'Escape') {
+        if (editable && !def.allowInInput) continue
+        if (isSequence(def.combo)) {
+          if (sequenceKeys(def.combo)[0] !== key) continue
+          pending = key
+          window.clearTimeout(timer)
+          timer = window.setTimeout(() => {
+            pending = null
+          }, 1200)
           return
         }
-        const entry = registry.current.get(def.id)
-        const hasButton = Boolean(document.querySelector(`[data-hotkey="${def.id}"]`))
-        if (!(entry?.enabled || hasButton)) continue
-        // 在捕获阶段先问一次动作：没消费就不拦，antd 的 Esc 关弹窗仍正常工作
-        if (run(def.id)) {
+        if (!matchesHotkey(event, def)) continue
+        // 捕获阶段先问一次动作：没消费就不拦，antd 的 Esc 关弹窗仍正常工作
+        if (consume(def.id)) {
           event.preventDefault()
           event.stopPropagation()
         }
@@ -81,7 +122,10 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
       }
     }
     window.addEventListener('keydown', onKeyDown, true)
-    return () => window.removeEventListener('keydown', onKeyDown, true)
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener('keydown', onKeyDown, true)
+    }
   }, [defs, run])
 
   const value = useMemo<ShortcutValue>(

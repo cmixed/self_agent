@@ -307,12 +307,7 @@ function AppShell({
   // 统一快捷键：动作在应用壳注册，HELP 面板与按键提示共用同一份元数据
   useShortcut('help', () => setHelpOpen(true))
   useShortcut('search', () => setSearchOpen(true))
-  useShortcut('refresh', () => refreshAll())
   useShortcut('toggleTheme', () => toggleMode())
-  useShortcut('toggleSidebar', () => {
-    if (narrow) return false
-    setCollapsed((prev) => !prev)
-  })
   useShortcut('goBack', () => {
     // 搜索面板打开时 Esc 先关它，不误触内容区的「返回上一层」
     if (searchOpen) {
@@ -322,17 +317,7 @@ function AppShell({
     if (!canGoBack) return false
     back()
   })
-  useShortcut('previousPage', () => {
-    const index = visiblePages.findIndex((item) => item.key === page)
-    if (index > 0) handleNav(visiblePages[index - 1].key)
-  })
-  useShortcut('nextPage', () => {
-    const index = visiblePages.findIndex((item) => item.key === page)
-    if (index >= 0 && index < visiblePages.length - 1) {
-      handleNav(visiblePages[index + 1].key)
-    }
-  })
-  // 数字键动作 id 随可见页面动态生成，用 effect 注册而不是在循环里调 hook
+  // G 序列的动作 id 随可见页面动态生成，用 effect 注册而不是在循环里调 hook
   useEffect(() => {
     const ids = visiblePages.map((item) => {
       const id = `page:${item.key}`
