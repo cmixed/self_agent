@@ -1596,6 +1596,9 @@ html[data-theme='dark'] .ant-card {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  /* 主色文字：深色下 #0f766e 太暗，用 primary-text 的亮青才看得出这是「重点卡」 */
+  color: var(--ant-color-primary-text);
+  font-weight: 600;
 }
 
 .ws-preset .ant-card-body {
