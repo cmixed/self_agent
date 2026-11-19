@@ -1,5 +1,5 @@
 import { Empty, Spin, Tooltip } from 'antd'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import type { DocumentCaps, GraphEdge, GraphNode, ShareGraphData } from '../types/api'
 
@@ -212,6 +212,22 @@ export default function ShareGraph({
   // 关系少时直接标出能力；多了静态标签会挤成一团，改为悬停看详情
   const showLabels = shareEdges.length <= 6
 
+  // 悬停某个节点时，只保留与它直接相连的节点和边，其余淡化——
+  // 「这个组有谁、能看哪些库」扫一眼就能读出来，不必逐条追线。
+  const [hovered, setHovered] = useState<string | null>(null)
+  const related = useMemo(() => {
+    if (!hovered) return null
+    const nodes = new Set<string>([hovered])
+    const edges = new Set<string>()
+    for (const edge of graph?.edges ?? []) {
+      if (edge.source !== hovered && edge.target !== hovered) continue
+      edges.add(edge.id)
+      nodes.add(edge.source)
+      nodes.add(edge.target)
+    }
+    return { nodes, edges }
+  }, [hovered, graph])
+
   if (loading) {
     return (
       <div className="share-graph share-graph--loading">
@@ -266,6 +282,8 @@ export default function ShareGraph({
           const isMember = item.edge.kind === 'member'
           const from = placed.get(item.edge.source)?.node
           const to = placed.get(item.edge.target)?.node
+          const highlighted = related?.edges.has(item.edge.id) ?? false
+          const dimmed = related !== null && !highlighted
           const edgeNode = (
             <g key={item.edge.id}>
               {isMember ? (
@@ -275,7 +293,7 @@ export default function ShareGraph({
                 d={item.d}
                 fill="none"
                 stroke={isMember ? 'var(--ant-color-text-quaternary)' : item.color}
-                strokeWidth={isMember ? 1.2 : 1.6}
+                strokeWidth={(isMember ? 1.2 : 1.6) + (highlighted ? 0.9 : 0)}
                 strokeDasharray={item.dashed ? '4 4' : undefined}
                 strokeLinecap="round"
                 markerEnd={
@@ -283,7 +301,7 @@ export default function ShareGraph({
                     ? undefined
                     : `url(#arrow-${item.dashed ? 'pending' : capKey(item.edge.caps)})`
                 }
-                opacity={isMember ? 0.8 : 0.95}
+                opacity={dimmed ? 0.08 : isMember ? 0.8 : 0.95}
               />
               {isMember ? null : (
                 // 透明粗线扩大命中区：1.6px 的边太细，鼠标很难悬停
@@ -306,7 +324,7 @@ export default function ShareGraph({
                     fill="var(--ant-color-bg-elevated)"
                     stroke={item.color}
                     strokeWidth={1}
-                    opacity={0.96}
+                    opacity={dimmed ? 0.08 : 0.96}
                   />
                   <text
                     x={item.labelX}
@@ -314,6 +332,7 @@ export default function ShareGraph({
                     textAnchor="middle"
                     fontSize="10"
                     fill={item.color}
+                    opacity={dimmed ? 0.12 : 1}
                   >
                     {item.label}
                   </text>
@@ -361,6 +380,8 @@ export default function ShareGraph({
                   : node.is_me
                     ? '我'
                     : style.sub
+          const isHovered = hovered === node.id
+          const isDimmed = related !== null && !related.nodes.has(node.id)
           const graphNode = (
             <g
               key={node.id}
@@ -368,6 +389,9 @@ export default function ShareGraph({
               className={
                 node.type === 'kb' && onSelectKb ? 'share-graph__node--clickable' : undefined
               }
+              opacity={isDimmed ? 0.18 : 1}
+              onMouseEnter={() => setHovered(node.id)}
+              onMouseLeave={() => setHovered(null)}
               onClick={
                 node.type === 'kb' && onSelectKb
                   ? () => onSelectKb(node.id.replace('kb:', ''))
@@ -382,8 +406,8 @@ export default function ShareGraph({
                 height={h}
                 rx={10}
                 fill={style.fill}
-                stroke={node.is_me ? 'var(--ant-color-primary)' : style.stroke}
-                strokeWidth={node.is_me ? 1.6 : 1}
+                stroke={isHovered || node.is_me ? 'var(--ant-color-primary)' : style.stroke}
+                strokeWidth={isHovered ? 2 : node.is_me ? 1.6 : 1}
               />
               <text
                 x={16}

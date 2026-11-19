@@ -925,7 +925,6 @@ export default function KnowledgeBasePage() {
                       <Alert
                         type="warning"
                         showIcon
-                        style={{ marginTop: 12 }}
                         message={`有 ${pendingShares.length} 条共享申请等待管理员审批`}
                         description={pendingShares
                           .map((item) => `${item.subject_name} · ${item.caps_label}`)
@@ -1174,7 +1173,6 @@ export default function KnowledgeBasePage() {
                       <Alert
                         type="info"
                         showIcon
-                        style={{ marginTop: 12 }}
                         message="你在这个知识库没有编辑权限"
                         description="可以查看和检索，但不能上传、移动或删除文件。要贡献内容请在自己的知识库里上传，再申请共享给分组或团队。"
                       />

@@ -55,15 +55,36 @@ html[data-theme='dark'] {
   background: transparent;
 }
 
+/* 页级柔光：两团极淡的青光斑（对齐 self-web 的 --mica-wash），
+   静态铺在 body 上，侧栏与顶栏做成半透明后才会透出层次，零每帧开销。 */
+:root {
+  --ws-glow-1: rgba(95, 209, 181, 0.12);
+  --ws-glow-2: rgba(76, 150, 190, 0.09);
+  --ws-glass: rgba(28, 42, 48, 0.72);
+}
+
+html[data-theme='light'] {
+  --ws-glow-1: rgba(120, 180, 170, 0.14);
+  --ws-glow-2: rgba(110, 140, 150, 0.1);
+  --ws-glass: rgba(242, 248, 249, 0.74);
+}
+
 body {
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  /* React 挂载前的底色（默认浅色薄荷绿，对齐 self-web 的 --bg），挂载后由 antd 容器色接管 */
-  background: #d0e2db;
+  /* React 挂载前的底色（默认浅色薄荷绿，对齐 self-web 的 --bg），
+     挂载后由下面这层「底色 + 两团柔光」接管 */
+  background:
+    radial-gradient(1100px 620px at 6% -12%, var(--ws-glow-1), transparent 62%),
+    radial-gradient(900px 540px at 98% 110%, var(--ws-glow-2), transparent 58%), #d0e2db;
+  background-attachment: fixed;
 }
 
 html[data-theme='dark'] body {
-  background: #0c1714;
+  background:
+    radial-gradient(1100px 620px at 6% -12%, var(--ws-glow-1), transparent 62%),
+    radial-gradient(900px 540px at 98% 110%, var(--ws-glow-2), transparent 58%), #0c1714;
+  background-attachment: fixed;
 }
 
 /* =============================================================================
@@ -165,11 +186,15 @@ html[data-theme='dark'] body {
   scrollbar-color: var(--ant-color-border) transparent;
 }
 
+/* 侧栏与顶栏做成 Mica 玻璃：半透明面板 + 背景模糊，
+   背后的页级柔光与滚动内容会透上来，层次来自材质而不是加阴影 */
 .app-sider {
   position: sticky;
   top: 0;
   height: 100vh;
-  background: var(--ant-color-bg-container);
+  background: var(--ws-glass);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
   border-right: 1px solid var(--ant-color-border);
   box-shadow: none;
 }
@@ -290,7 +315,9 @@ html[data-theme='dark'] body {
   align-items: center;
   gap: var(--ws-space-2);
   padding: 0 var(--ws-space-4);
-  background: var(--ant-color-bg-container);
+  background: var(--ws-glass);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
   border-bottom: 1px solid var(--ant-color-border);
 }
 
@@ -3209,4 +3236,115 @@ html[data-theme='dark'] body {
   border-top: 1px solid var(--ant-color-border-secondary);
   font-size: var(--ws-font-caption);
   color: var(--ant-color-text-tertiary);
+}
+
+/* =============================================================================
+   弹窗与状态统一规范
+   - Modal / Drawer：12px 圆角、玻璃底、header 分割线、统一的头/身/脚内边距
+   - 浮层（Dropdown / Select / Tooltip）：保持不透明 —— 它们压在卡片上，透光会串色
+   - 卡片内的 Alert：与后续工具条留 16px，避免和表头/搜索框贴在一起
+   ============================================================================= */
+
+.ant-modal .ant-modal-content {
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--ant-color-border);
+  border-radius: var(--ws-radius-lg);
+  background: color-mix(in srgb, var(--ant-color-bg-elevated) 92%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+  box-shadow: 0 18px 48px -18px rgba(0, 0, 0, 0.5);
+}
+
+.ant-modal .ant-modal-header {
+  margin: 0;
+  padding: 16px 20px;
+  background: transparent;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+.ant-modal .ant-modal-title {
+  font-size: var(--ws-font-section);
+  font-weight: 600;
+}
+
+.ant-modal .ant-modal-body {
+  max-height: 68vh;
+  overflow: auto;
+  padding: 20px;
+}
+
+.ant-modal .ant-modal-footer {
+  margin: 0;
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--ant-color-border-secondary);
+}
+
+.ant-modal .ant-modal-close {
+  top: 10px;
+  inset-inline-end: 12px;
+}
+
+.ant-drawer .ant-drawer-content {
+  background: color-mix(in srgb, var(--ant-color-bg-elevated) 94%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+.ant-drawer .ant-drawer-header {
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+/* 卡片内状态条：与下方工具条/表格留出统一间距，不再贴着表头 */
+.ant-card-body > .ant-alert {
+  margin: 0 0 var(--ws-space-4);
+}
+
+.ant-card-body > .ant-alert:last-child {
+  margin-bottom: 0;
+}
+
+.ant-alert {
+  border-radius: var(--ws-radius);
+}
+
+/* 页面顶部的团队概览条：统计胶囊可点，用于跳到对应标签页 */
+.team-overview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ws-space-2);
+  margin-bottom: var(--ws-space-4);
+}
+
+.team-overview__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--ant-color-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ant-color-bg-container) 88%, transparent);
+  color: var(--ant-color-text-secondary);
+  font-size: var(--ws-font-secondary);
+  cursor: pointer;
+  transition:
+    background var(--ws-motion-fast) var(--ws-ease),
+    border-color var(--ws-motion-fast) var(--ws-ease),
+    color var(--ws-motion-fast) var(--ws-ease);
+}
+
+.team-overview__item:hover {
+  border-color: var(--ant-color-primary-border);
+  background: var(--ant-color-primary-bg);
+  color: var(--ant-color-text);
+}
+
+.team-overview__item.is-warning {
+  border-color: var(--ant-color-warning-border);
+  background: var(--ant-color-warning-bg);
+  color: var(--ant-color-warning-text);
+}
+
+.team-overview__item.is-warning:hover {
+  border-color: var(--ant-color-warning);
 }

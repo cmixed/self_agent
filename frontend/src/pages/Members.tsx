@@ -1,5 +1,4 @@
 import {
-  ApartmentOutlined,
   CheckOutlined,
   CloseOutlined,
   DeleteOutlined,
@@ -1154,27 +1153,30 @@ export default function TeamPage() {
       eyebrow="团队"
       title="团队管理"
       description="成员、分组与共享审批集中管理。共享按「库 × 一批人 × 一组能力」组合生效，管理员看关系不看内容。非管理员不会看到此页面入口，后端仍二次校验。"
-      extra={
-        <Space wrap>
-          <Tag icon={<TeamOutlined />} color="blue">
-            管理员 {adminCount} · 成员 {memberCount}
-          </Tag>
-          {pendingShareCount > 0 ? (
-            <Tag icon={<SafetyOutlined />} color="orange">
-              {pendingShareCount} 条共享待审批
-            </Tag>
-          ) : null}
-          {pendingMemberCount > 0 ? (
-            <Tag icon={<UsergroupAddOutlined />} color="gold">
-              {pendingMemberCount} 人待入组
-            </Tag>
-          ) : null}
-          <Button icon={<ApartmentOutlined />} onClick={() => setTab('graph')}>
-            共享关系图
-          </Button>
-        </Space>
-      }
     >
+      {/* 团队概览放在内容区：它是状态而不是页面操作，放顶栏会和导航混在一起 */}
+      <div className="team-overview">
+        <button type="button" className="team-overview__item" onClick={() => setTab('members')}>
+          <TeamOutlined />
+          管理员 {adminCount} · 成员 {memberCount}
+        </button>
+        <button
+          type="button"
+          className={`team-overview__item${pendingShareCount > 0 ? ' is-warning' : ''}`}
+          onClick={() => setTab('shares')}
+        >
+          <SafetyOutlined />
+          {pendingShareCount} 条共享待审批
+        </button>
+        <button
+          type="button"
+          className={`team-overview__item${pendingMemberCount > 0 ? ' is-warning' : ''}`}
+          onClick={() => setTab('groups')}
+        >
+          <UsergroupAddOutlined />
+          {pendingMemberCount} 人待入组
+        </button>
+      </div>
       <Tabs
         activeKey={tab}
         onChange={setTab}
