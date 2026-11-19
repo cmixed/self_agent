@@ -1,6 +1,6 @@
 import { Modal } from 'antd'
 
-import { HOTKEY_GROUPS, formatCombo, hotkeysFor } from '../hotkeys'
+import { HOTKEY_GROUPS, formatHotkey, hotkeysFor } from '../hotkeys'
 import { getCachedUser } from '../services/auth'
 import { useShortcuts } from '../state/shortcuts'
 
@@ -31,7 +31,7 @@ export default function ShortcutHelp() {
                       <span className="shortcut-help__desc">{def.description}</span>
                     ) : null}
                   </div>
-                  <kbd className="shortcut-help__key">{formatCombo(def.combo)}</kbd>
+                  <kbd className="shortcut-help__key">{formatHotkey(def)}</kbd>
                 </div>
               ))}
             </section>

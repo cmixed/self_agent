@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vite-plus/test'
 
-import { HOTKEYS, formatCombo, hotkeysFor, matchesCombo, parseCombo } from './hotkeys'
+import {
+  HOTKEYS,
+  formatCombo,
+  formatHotkey,
+  hotkeysFor,
+  matchesCombo,
+  matchesHotkey,
+  parseCombo,
+} from './hotkeys'
 
 function keyEvent(init: Partial<KeyboardEvent> = {}): KeyboardEvent {
   return {
@@ -90,5 +98,31 @@ describe('HOTKEYS 元数据', () => {
     expect(member.some((item) => item.id === 'page:team')).toBe(false)
     expect(member.find((item) => item.id === 'page:providers')?.combo).toBe('mod+7')
     expect(member.find((item) => item.id === 'page:settings')?.combo).toBe('mod+8')
+  })
+})
+
+describe('帮助 / 搜索 / 提交按键', () => {
+  const help = HOTKEYS.find((item) => item.id === 'help')!
+  const search = HOTKEYS.find((item) => item.id === 'search')!
+  const submit = HOTKEYS.find((item) => item.id === 'task.submit')!
+
+  it('? 与 F1 都能打开帮助，Ctrl+/ 不再占用', () => {
+    expect(help.combo).toBe('?')
+    expect(help.aliases).toContain('f1')
+    expect(matchesHotkey(keyEvent({ key: '?', shiftKey: true }), help)).toBe(true)
+    expect(matchesHotkey(keyEvent({ key: 'F1' }), help)).toBe(true)
+    expect(matchesHotkey(keyEvent({ key: '/', ctrlKey: true }), help)).toBe(false)
+    expect(formatHotkey(help)).toBe('? / F1')
+  })
+
+  it('/ 留给搜索，输入框内仍可正常输入', () => {
+    expect(search.combo).toBe('/')
+    expect(matchesCombo(keyEvent({ key: '/' }), '/')).toBe(true)
+  })
+
+  it('Enter 提交仅作说明，由输入框自身处理（Shift+Enter 换行）', () => {
+    expect(submit.combo).toBe('enter')
+    expect(submit.displayOnly).toBe(true)
+    expect(submit.description).toContain('Shift+Enter')
   })
 })

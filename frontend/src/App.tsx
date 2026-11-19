@@ -35,13 +35,13 @@ import type { ReactNode } from 'react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 
 import ErrorBoundary from './components/ErrorBoundary'
+import QuickSearch from './components/QuickSearch'
 import ShortcutHelp from './components/ShortcutHelp'
 import { fetchMe, getCachedUser, getToken, logout, onUnauthorized } from './services/auth'
 import ProviderSwitch from './components/ProviderSwitch'
 import RunningTasks from './components/RunningTasks'
 import { ViewStackProvider, useViewStack } from './components/ViewStack'
 import { ShortcutProvider, useShortcut, useShortcuts } from './state/shortcuts'
-import { formatCombo } from './hotkeys'
 import { useHealth } from './hooks/useHealth'
 import { useIsNarrow } from './hooks/useIsNarrow'
 import { NavProvider, useNav } from './state/nav'
@@ -244,7 +244,7 @@ function AppShell({
   const { health, loaded, reload } = useHealth()
   const { running, runningTasks } = useTaskRun()
   const { overlays, canGoBack, back, closeAll } = useViewStack()
-  const { setHelpOpen, register, unregister } = useShortcuts()
+  const { setHelpOpen, searchOpen, setSearchOpen, register, unregister } = useShortcuts()
 
   const menuTheme = resolvedMode === 'dark' ? 'dark' : 'light'
   const healthy = health?.status === 'ok'
@@ -304,8 +304,9 @@ function AppShell({
     [closeAll, navigate],
   )
 
-  // 统一快捷键：动作在应用壳注册， HELP 面板与按键提示共用同一份元数据
+  // 统一快捷键：动作在应用壳注册，HELP 面板与按键提示共用同一份元数据
   useShortcut('help', () => setHelpOpen(true))
+  useShortcut('search', () => setSearchOpen(true))
   useShortcut('refresh', () => refreshAll())
   useShortcut('toggleTheme', () => toggleMode())
   useShortcut('toggleSidebar', () => {
@@ -313,6 +314,11 @@ function AppShell({
     setCollapsed((prev) => !prev)
   })
   useShortcut('goBack', () => {
+    // 搜索面板打开时 Esc 先关它，不误触内容区的「返回上一层」
+    if (searchOpen) {
+      setSearchOpen(false)
+      return
+    }
     if (!canGoBack) return false
     back()
   })
@@ -461,7 +467,7 @@ function AppShell({
             {/* 页面操作按钮（导入 / 导出 / 新增）统一挂在顶栏右上角；
                 刷新入口在侧栏底部（退出登录左侧），此处不再重复 */}
             <div className="app-header-page-actions" data-page-actions-slot={page} />
-            <Tooltip title={`快捷键（${formatCombo('mod+/')}）`}>
+            <Tooltip title="快捷键（? 或 F1）">
               <Button
                 type="text"
                 size="small"
@@ -530,6 +536,7 @@ function AppShell({
         </Content>
       </Layout>
       <ShortcutHelp />
+      <QuickSearch />
     </Layout>
   )
 }

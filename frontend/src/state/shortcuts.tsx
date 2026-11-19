@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react'
 
 import { getCachedUser } from '../services/auth'
-import { hotkeysFor, isEditableTarget, matchesCombo } from '../hotkeys'
+import { hotkeysFor, isEditableTarget, matchesHotkey } from '../hotkeys'
 
 /** 返回 false 表示「这次没消费」，事件继续交给 antd / 浏览器 */
 type Handler = () => boolean | void
@@ -20,6 +20,8 @@ interface ShortcutValue {
   run: (id: string) => boolean
   helpOpen: boolean
   setHelpOpen: (open: boolean) => void
+  searchOpen: boolean
+  setSearchOpen: (open: boolean) => void
 }
 
 const ShortcutContext = createContext<ShortcutValue | null>(null)
@@ -36,6 +38,7 @@ const ShortcutContext = createContext<ShortcutValue | null>(null)
 export function ShortcutProvider({ children }: { children: ReactNode }) {
   const registry = useRef(new Map<string, RegistryEntry>())
   const [helpOpen, setHelpOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   // 登录态在 Provider 生命周期内不变，按角色过滤一次即可
   const defs = useMemo(() => hotkeysFor(getCachedUser()?.role === 'admin'), [])
 
@@ -61,7 +64,8 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.repeat) return
       for (const def of defs) {
-        if (!matchesCombo(event, def.combo)) continue
+        if (def.displayOnly) continue
+        if (!matchesHotkey(event, def)) continue
         if (isEditableTarget(event.target) && !def.allowInInput && event.key !== 'Escape') {
           return
         }
@@ -81,8 +85,8 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
   }, [defs, run])
 
   const value = useMemo<ShortcutValue>(
-    () => ({ register, unregister, run, helpOpen, setHelpOpen }),
-    [register, unregister, run, helpOpen],
+    () => ({ register, unregister, run, helpOpen, setHelpOpen, searchOpen, setSearchOpen }),
+    [register, unregister, run, helpOpen, searchOpen],
   )
   return <ShortcutContext.Provider value={value}>{children}</ShortcutContext.Provider>
 }

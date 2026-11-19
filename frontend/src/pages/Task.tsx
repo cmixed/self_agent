@@ -55,7 +55,6 @@ import SendEmailModal from '../components/SendEmailModal'
 import SourceList from '../components/SourceList'
 import StatStrip from '../components/StatStrip'
 import StatusTag from '../components/StatusTag'
-import { formatCombo } from '../hotkeys'
 import { listCategories, listDocuments, listTasks } from '../services/api'
 import { usePresets } from '../hooks/usePresets'
 import { useNav } from '../state/nav'
@@ -1045,11 +1044,10 @@ export default function TaskPage() {
               <Button disabled={!query.trim()} onClick={() => setQuery('')}>
                 清空
               </Button>
-              <Tooltip title={`运行任务（${formatCombo('mod+enter')}）`}>
+              <Tooltip title="运行任务（Enter；Shift+Enter 换行）">
                 <Button
                   type="primary"
                   icon={<ThunderboltOutlined />}
-                  data-hotkey="task.submit"
                   disabled={
                     !query.trim() && !(outputMode === 'verbatim' && verbatimDocumentId !== null)
                   }

@@ -3114,3 +3114,80 @@ html[data-theme='dark'] body {
   font-size: var(--ws-font-caption);
   color: var(--ant-color-text-tertiary);
 }
+
+/* 全局搜索面板（/ 打开）：结果列表与快捷键帮助风格一致 */
+.quick-search {
+  display: flex;
+  flex-direction: column;
+}
+
+.quick-search__input {
+  padding: 2px 10px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+.quick-search__results {
+  max-height: 380px;
+  overflow-y: auto;
+  padding: var(--ws-space-1) 0;
+}
+
+.quick-search__hint {
+  padding: 6px 16px;
+  font-size: var(--ws-font-caption);
+  color: var(--ant-color-text-tertiary);
+}
+
+.quick-search__item {
+  display: flex;
+  align-items: center;
+  gap: var(--ws-space-2);
+  width: 100%;
+  padding: 8px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--ant-color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.quick-search__item.is-active,
+.quick-search__item:hover {
+  background: var(--ant-color-fill-tertiary);
+}
+
+.quick-search__kind {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--ant-color-fill-secondary);
+  color: var(--ant-color-text-tertiary);
+  font-size: var(--ws-font-caption);
+}
+
+.quick-search__title {
+  overflow: hidden;
+  font-size: var(--ws-font-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-search__subtitle {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: var(--ws-font-caption);
+  color: var(--ant-color-text-tertiary);
+}
+
+.quick-search__footer {
+  display: flex;
+  gap: var(--ws-space-3);
+  padding: 8px 16px;
+  border-top: 1px solid var(--ant-color-border-secondary);
+  font-size: var(--ws-font-caption);
+  color: var(--ant-color-text-tertiary);
+}

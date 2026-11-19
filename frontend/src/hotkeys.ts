@@ -17,8 +17,10 @@ export const HOTKEY_GROUPS: HotkeyGroup[] = ['通用', '导航', '界面', '当�
 
 export interface HotkeyDef {
   id: string
-  /** 组合键字符串：mod、shift、alt + 一个键名（如 `mod+/`、`mod+1`、`escape`） */
+  /** 组合键字符串：mod、shift、alt + 一个键名（如 `?`、`f1`、`mod+1`、`escape`） */
   combo: string
+  /** 等价按键：同一个动作有多个入口时并列展示与匹配 */
+  aliases?: string[]
   title: string
   group: HotkeyGroup
   /** 仅在该页面生效；不填表示全局 */
@@ -26,6 +28,8 @@ export interface HotkeyDef {
   description?: string
   /** 是否允许在输入框聚焦时触发，默认仅 escape 允许 */
   allowInInput?: boolean
+  /** 只展示不注册全局监听：由控件自身处理（如输入框的 Enter） */
+  displayOnly?: boolean
 }
 
 export const PAGE_LABELS: Record<PageKey, string> = {
@@ -47,10 +51,18 @@ export const PAGE_ORDER = Object.keys(PAGE_LABELS) as PageKey[]
 const BASE_HOTKEYS: HotkeyDef[] = [
   {
     id: 'help',
-    combo: 'mod+/',
+    combo: '?',
+    aliases: ['f1'],
     title: '显示快捷键帮助',
     group: '通用',
     description: '列出当前系统里所有可用快捷键',
+  },
+  {
+    id: 'search',
+    combo: '/',
+    title: '全局搜索',
+    group: '通用',
+    description: '搜索页面、知识库与快捷键；输入框内输入 / 不受影响',
   },
   {
     id: 'refresh',
@@ -94,11 +106,12 @@ const BASE_HOTKEYS: HotkeyDef[] = [
   },
   {
     id: 'task.submit',
-    combo: 'mod+enter',
-    title: '提交当前任务',
+    combo: 'enter',
+    title: '提交任务 / 换行',
     group: '当前页面',
     scope: 'workspace',
-    description: '等同于工作台的「开始任务」按钮',
+    description: '任务输入框内 Enter 提交，Shift+Enter 换行',
+    displayOnly: true,
   },
 ]
 
@@ -156,8 +169,19 @@ export function matchesCombo(event: KeyboardEvent, combo: string): boolean {
   const mod = isMacPlatform() ? event.metaKey : event.ctrlKey
   const otherMod = isMacPlatform() ? event.ctrlKey : event.metaKey
   if (otherMod || mod !== parsed.mod) return false
-  if (event.shiftKey !== parsed.shift || event.altKey !== parsed.alt) return false
+  if (event.altKey !== parsed.alt) return false
+  // 「?」在不同键盘布局上未必是 Shift+/，直接认最终字符，不检查 Shift 状态
+  if (parsed.key === '?') return event.key === '?'
+  if (event.shiftKey !== parsed.shift) return false
   return event.key.toLowerCase() === parsed.key
+}
+
+/** 一个动作可绑定多个等价按键，任意一个命中即触发 */
+export function matchesHotkey(event: KeyboardEvent, def: HotkeyDef): boolean {
+  return (
+    matchesCombo(event, def.combo) ||
+    (def.aliases ?? []).some((combo) => matchesCombo(event, combo))
+  )
 }
 
 /** 输入框内打字时不响应单键快捷键；带 mod 的组合键仍可用 */
@@ -174,7 +198,9 @@ const KEY_LABELS: Record<string, string> = {
   arrowdown: '↓',
   enter: 'Enter',
   escape: 'Esc',
+  f1: 'F1',
   '/': '/',
+  '?': '?',
 }
 
 /** 按平台渲染组合键：macOS 用符号紧凑写法，其它平台用 + 连接 */
@@ -186,4 +212,9 @@ export function formatCombo(combo: string, mac = isMacPlatform()): string {
   if (shift) parts.push(mac ? '⇧' : 'Shift')
   parts.push(KEY_LABELS[key] ?? (key.length === 1 ? key.toUpperCase() : key))
   return parts.join(mac ? '' : '+')
+}
+
+/** 帮助面板中的按键展示：主按键 + 等价按键 */
+export function formatHotkey(def: HotkeyDef): string {
+  return [def.combo, ...(def.aliases ?? [])].map((combo) => formatCombo(combo)).join(' / ')
 }
