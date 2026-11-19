@@ -35,3 +35,6 @@ logs/
 *.db
 *.sqlite
 *.sqlite3
+
+# --- 本地工作区数据（记忆 / 临时脚本），不属于项目源码 ---
+.workbuddy/

@@ -1,4 +1,4 @@
-import { Empty, Spin } from 'antd'
+import { Empty, Spin, Tooltip } from 'antd'
 import { useMemo } from 'react'
 
 import type { DocumentCaps, GraphEdge, GraphNode, ShareGraphData } from '../types/api'
@@ -12,7 +12,10 @@ import type { DocumentCaps, GraphEdge, GraphNode, ShareGraphData } from '../type
  */
 
 const NODE_W = 190
-const NODE_H = 46
+/** 分组节点要容纳「标题 / 人数 / 成员名单」三行，其余节点居中显示 */
+const NODE_H = 62
+/** 节点内直接展示的成员上限，超出的进 Tooltip 浮窗 */
+const MEMBER_LIMIT = 2
 const NODE_GAP = 14
 const COL_GAP = 74
 const PAD = 12
@@ -100,19 +103,6 @@ function layout(nodes: GraphNode[]): { placed: Map<string, Placed>; height: numb
 
 function usePaths(edges: GraphEdge[], placed: Map<string, Placed>) {
   return useMemo(() => {
-    // 同一个知识库可能被很多人/组共享：标签按起点顺序垂直错开，
-    // 否则几条边的中点在视觉上会重叠成一块，读不出各自的能力。
-    const grouped = new Map<string, GraphEdge[]>()
-    for (const edge of edges) {
-      if (edge.kind !== 'share') continue
-      const list = grouped.get(edge.target) ?? []
-      list.push(edge)
-      grouped.set(edge.target, list)
-    }
-    for (const list of grouped.values()) {
-      list.sort((a, b) => (placed.get(a.source)?.y ?? 0) - (placed.get(b.source)?.y ?? 0))
-    }
-
     const items: {
       edge: GraphEdge
       d: string
@@ -134,8 +124,6 @@ function usePaths(edges: GraphEdge[], placed: Map<string, Placed>) {
       const dx = Math.max(24, (x2 - x1) / 2)
       const pending = edge.status === 'pending'
       const label = pending ? '待审批' : capLabel(edge.caps)
-      const siblings = grouped.get(edge.target) ?? []
-      const rank = siblings.indexOf(edge)
       items.push({
         edge,
         d: `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`,
@@ -144,8 +132,20 @@ function usePaths(edges: GraphEdge[], placed: Map<string, Placed>) {
         label,
         labelWidth: label.length * 11 + 12,
         labelX: (x1 + x2) / 2,
-        labelY: (y1 + y2) / 2 + (rank - (siblings.length - 1) / 2) * 18,
+        labelY: (y1 + y2) / 2,
       })
+    }
+    // 标签横向位置接近时垂直错开：多条共享边的能力标签不再叠成一团
+    items.sort((a, b) => a.labelX - b.labelX)
+    for (let index = 1; index < items.length; index += 1) {
+      const previous = items[index - 1]
+      const current = items[index]
+      if (
+        Math.abs(current.labelX - previous.labelX) < 70 &&
+        Math.abs(current.labelY - previous.labelY) < 14
+      ) {
+        current.labelY = previous.labelY + 16
+      }
     }
     return items
   }, [edges, placed])
@@ -302,6 +302,13 @@ export default function ShareGraph({
 
         {[...placed.values()].map(({ node, x, y }) => {
           const style = NODE_STYLE[node.type]
+          const names = node.members ?? []
+          const withMembers = (node.type === 'group' || node.type === 'team') && names.length > 0
+          const visible = names.slice(0, MEMBER_LIMIT)
+          const extra = names.length - visible.length
+          const memberText = `${visible.join('、')}${extra > 0 ? ` +${extra}` : ''}`
+          const shortMemberText =
+            memberText.length > 20 ? `${memberText.slice(0, 19)}…` : memberText
           const sub =
             node.type === 'kb'
               ? `${node.document_count ?? 0} 篇 · ${node.owner_name || '未知库主'}`
@@ -312,7 +319,7 @@ export default function ShareGraph({
                   : node.is_me
                     ? '我'
                     : style.sub
-          return (
+          const graphNode = (
             <g
               key={node.id}
               transform={`translate(${x}, ${y})`}
@@ -325,7 +332,9 @@ export default function ShareGraph({
                   : undefined
               }
             >
-              <title>{`${node.label}${node.type === 'kb' ? `（${node.document_count ?? 0} 篇文档）` : ''}`}</title>
+              {withMembers ? null : (
+                <title>{`${node.label}${node.type === 'kb' ? `（${node.document_count ?? 0} 篇文档）` : ''}`}</title>
+              )}
               <rect
                 width={NODE_W}
                 height={NODE_H}
@@ -335,13 +344,51 @@ export default function ShareGraph({
                 strokeWidth={node.is_me ? 1.6 : 1}
               />
               <rect width={4} height={NODE_H} rx={2} fill={style.stroke} opacity={0.9} />
-              <text x={14} y={21} fontSize="13" fill="var(--ant-color-text)" fontWeight={500}>
+              <text
+                x={14}
+                y={withMembers ? 19 : 25}
+                fontSize="13"
+                fill="var(--ant-color-text)"
+                fontWeight={500}
+              >
                 {node.label.length > 12 ? `${node.label.slice(0, 11)}…` : node.label}
               </text>
-              <text x={14} y={36} fontSize="11" fill="var(--ant-color-text-tertiary)">
+              <text
+                x={14}
+                y={withMembers ? 34 : 42}
+                fontSize="11"
+                fill="var(--ant-color-text-tertiary)"
+              >
                 {sub}
               </text>
+              {withMembers ? (
+                <text x={14} y={50} fontSize="10" fill="var(--ant-color-text-tertiary)">
+                  {shortMemberText}
+                </text>
+              ) : null}
             </g>
+          )
+          if (!withMembers) return graphNode
+          const hiddenCount = (node.member_count ?? 0) - names.length
+          return (
+            <Tooltip
+              key={node.id}
+              title={
+                <div className="share-graph__tip">
+                  <strong>{node.label}</strong>
+                  <div>
+                    成员（{names.length}）：{names.join('、')}
+                  </div>
+                  {hiddenCount > 0 ? (
+                    <div className="share-graph__tip-note">
+                      另有 {hiddenCount} 人（当前视角不可见）
+                    </div>
+                  ) : null}
+                </div>
+              }
+            >
+              {graphNode}
+            </Tooltip>
           )
         })}
       </svg>

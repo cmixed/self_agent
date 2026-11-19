@@ -8,6 +8,7 @@ import {
   MenuOutlined,
   MenuUnfoldOutlined,
   MoonOutlined,
+  QuestionCircleOutlined,
   ReloadOutlined,
   RocketOutlined,
   SettingOutlined,
@@ -31,13 +32,16 @@ import {
 import type { MenuProps } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import type { ReactNode } from 'react'
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 
 import ErrorBoundary from './components/ErrorBoundary'
+import ShortcutHelp from './components/ShortcutHelp'
 import { fetchMe, getCachedUser, getToken, logout, onUnauthorized } from './services/auth'
 import ProviderSwitch from './components/ProviderSwitch'
 import RunningTasks from './components/RunningTasks'
 import { ViewStackProvider, useViewStack } from './components/ViewStack'
+import { ShortcutProvider, useShortcut, useShortcuts } from './state/shortcuts'
+import { formatCombo } from './hotkeys'
 import { useHealth } from './hooks/useHealth'
 import { useIsNarrow } from './hooks/useIsNarrow'
 import { NavProvider, useNav } from './state/nav'
@@ -75,7 +79,7 @@ function PageFallback() {
 const { Content, Sider } = Layout
 
 interface PageMeta {
-  key: string
+  key: PageKey
   label: string
   icon: ReactNode
   /** 顶栏主标题：加粗提亮 */
@@ -90,7 +94,8 @@ const PAGE_META: PageMeta[] = [
     label: '工作台',
     icon: <RocketOutlined />,
     title: '工作台',
-    description: '让 Agent 基于你的资料完成一个复杂任务。Agent 会规划任务、检索你的知识库，再分章节撰写并进行自我校验。',
+    description:
+      '让 Agent 基于你的资料完成一个复杂任务。Agent 会规划任务、检索你的知识库，再分章节撰写并进行自我校验。',
   },
   {
     key: 'knowledge',
@@ -200,13 +205,15 @@ export default function App() {
           <NavProvider>
             <TaskRunProvider>
               <ViewStackProvider>
-                <AppShell
-                  mode={mode}
-                  resolvedMode={resolvedMode}
-                  setMode={setMode}
-                  toggleMode={toggleMode}
-                  onLogout={() => void handleLogout()}
-                />
+                <ShortcutProvider>
+                  <AppShell
+                    mode={mode}
+                    resolvedMode={resolvedMode}
+                    setMode={setMode}
+                    toggleMode={toggleMode}
+                    onLogout={() => void handleLogout()}
+                  />
+                </ShortcutProvider>
               </ViewStackProvider>
             </TaskRunProvider>
           </NavProvider>
@@ -236,7 +243,8 @@ function AppShell({
 
   const { health, loaded, reload } = useHealth()
   const { running, runningTasks } = useTaskRun()
-  const { overlays, closeAll } = useViewStack()
+  const { overlays, canGoBack, back, closeAll } = useViewStack()
+  const { setHelpOpen, register, unregister } = useShortcuts()
 
   const menuTheme = resolvedMode === 'dark' ? 'dark' : 'light'
   const healthy = health?.status === 'ok'
@@ -258,8 +266,10 @@ function AppShell({
   }, [reload])
 
   // 成员管理只对管理员开放：非管理员不显示入口（后端仍会二次校验）
-  const visiblePages = PAGE_META.filter(
-    (item) => item.key !== 'team' || getCachedUser()?.role === 'admin',
+  const userRole = getCachedUser()?.role
+  const visiblePages = useMemo(
+    () => PAGE_META.filter((item) => item.key !== 'team' || userRole === 'admin'),
+    [userRole],
   )
   // 「团队管理 / 模型服务 / 设置」属于配置类页面，整组放在分隔线下方；
   // 非管理员看不到团队管理时，线自动上移到「模型服务」之前。
@@ -284,12 +294,47 @@ function AppShell({
     return index === configGroupStart ? [{ type: 'divider' as const }, entry] : [entry]
   })
 
-  const handleNav = (key: PageKey) => {
-    // 从侧栏切页时退出所有叠加视图，回到正常浏览
-    closeAll()
-    navigate(key)
-    setDrawerOpen(false)
-  }
+  const handleNav = useCallback(
+    (key: PageKey) => {
+      // 从侧栏切页时退出所有叠加视图，回到正常浏览
+      closeAll()
+      navigate(key)
+      setDrawerOpen(false)
+    },
+    [closeAll, navigate],
+  )
+
+  // 统一快捷键：动作在应用壳注册， HELP 面板与按键提示共用同一份元数据
+  useShortcut('help', () => setHelpOpen(true))
+  useShortcut('refresh', () => refreshAll())
+  useShortcut('toggleTheme', () => toggleMode())
+  useShortcut('toggleSidebar', () => {
+    if (narrow) return false
+    setCollapsed((prev) => !prev)
+  })
+  useShortcut('goBack', () => {
+    if (!canGoBack) return false
+    back()
+  })
+  useShortcut('previousPage', () => {
+    const index = visiblePages.findIndex((item) => item.key === page)
+    if (index > 0) handleNav(visiblePages[index - 1].key)
+  })
+  useShortcut('nextPage', () => {
+    const index = visiblePages.findIndex((item) => item.key === page)
+    if (index >= 0 && index < visiblePages.length - 1) {
+      handleNav(visiblePages[index + 1].key)
+    }
+  })
+  // 数字键动作 id 随可见页面动态生成，用 effect 注册而不是在循环里调 hook
+  useEffect(() => {
+    const ids = visiblePages.map((item) => {
+      const id = `page:${item.key}`
+      register(id, () => handleNav(item.key), true)
+      return id
+    })
+    return () => ids.forEach(unregister)
+  }, [visiblePages, handleNav, register, unregister])
 
   const nav = (
     <>
@@ -416,6 +461,15 @@ function AppShell({
             {/* 页面操作按钮（导入 / 导出 / 新增）统一挂在顶栏右上角；
                 刷新入口在侧栏底部（退出登录左侧），此处不再重复 */}
             <div className="app-header-page-actions" data-page-actions-slot={page} />
+            <Tooltip title={`快捷键（${formatCombo('mod+/')}）`}>
+              <Button
+                type="text"
+                size="small"
+                aria-label="快捷键帮助"
+                icon={<QuestionCircleOutlined />}
+                onClick={() => setHelpOpen(true)}
+              />
+            </Tooltip>
             <Tooltip
               title={
                 mode === 'system'
@@ -475,6 +529,7 @@ function AppShell({
           </ErrorBoundary>
         </Content>
       </Layout>
+      <ShortcutHelp />
     </Layout>
   )
 }

@@ -615,6 +615,12 @@ class KnowledgeService:
                 "type": "group",
                 "label": group.name,
                 "member_count": len(members),
+                # 管理员可见全组名单；普通成员只看得到自己，避免泄露协作关系
+                "members": [
+                    names.get(member.user_id, member.user_id)
+                    for member in members
+                    if user.is_admin or member.user_id == user.user_id
+                ],
             }
             # 成员与组的连线：管理员看全部，成员只看自己在的那个组
             for member in members:
@@ -681,6 +687,9 @@ class KnowledgeService:
                 "type": "team",
                 "label": "全团队",
                 "member_count": len(names),
+                "members": list(names.values())
+                if user.is_admin
+                else [names.get(user.user_id, user.user_id)],
             }
 
         return {

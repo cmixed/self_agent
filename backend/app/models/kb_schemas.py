@@ -143,6 +143,8 @@ class GraphNode(BaseModel):
     kind: str | None = None
     is_me: bool = False
     member_count: int = 0
+    # 可见的成员显示名：管理员看全部，普通成员只看自己
+    members: list[str] = Field(default_factory=list)
     document_count: int = 0
     owner_name: str = ""
     my_caps: DocumentCaps | None = None

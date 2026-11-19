@@ -65,9 +65,13 @@ def _provider() -> ScriptedProvider:
     return ScriptedProvider([PLAN_JSON, OUTLINE_JSON])
 
 
-def test_create_task_returns_plan_outline_and_answer() -> None:
+def test_create_task_returns_plan_outline_and_answer(tmp_path: Path) -> None:
+    # 权限重构后「无可见文档 → 不检索 → plan 去掉 research」。
+    # 显式 seed 一篇文档，避免测试依赖运行环境 data/ 目录里恰好有资料。
+    store, _ = asyncio.run(seed_knowledge_base(tmp_path, text="# RAG\n\n检索增强生成。"))
     provider = _provider()
-    with make_client(provider) as client:
+    documents = document_service_for(store, tmp_path)
+    with make_client(provider, document_service=documents) as client:
         response = client.post("/api/tasks", json={"query": "写一篇 RAG 综述"})
 
     assert response.status_code == 200

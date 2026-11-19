@@ -2348,6 +2348,22 @@ html[data-theme='dark'] body {
   cursor: pointer;
 }
 
+/* 分组 / 全团队节点的成员浮窗：人名多时节点里只露前几个，完整名单放这里 */
+.share-graph__tip {
+  max-width: 320px;
+  line-height: 1.6;
+}
+
+.share-graph__tip strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.share-graph__tip-note {
+  margin-top: 2px;
+  opacity: 0.75;
+}
+
 .share-graph__legend {
   display: flex;
   flex-wrap: wrap;
@@ -3029,4 +3045,72 @@ html[data-theme='dark'] body {
 /* 品牌区版本号居中 */
 .brand-subtitle {
   text-align: center;
+}
+
+/* 快捷键帮助：按分组列出，键帽用等宽字体凸显 */
+.shortcut-help {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ws-space-3);
+}
+
+.shortcut-help__group {
+  display: flex;
+  flex-direction: column;
+}
+
+.shortcut-help__title {
+  margin: 0 0 4px;
+  font-size: var(--ws-font-secondary);
+  font-weight: 600;
+  color: var(--ant-color-text);
+}
+
+.shortcut-help__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ws-space-3);
+  padding: 5px 0;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+.shortcut-help__row:last-child {
+  border-bottom: none;
+}
+
+.shortcut-help__info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.shortcut-help__label {
+  font-size: var(--ws-font-secondary);
+  color: var(--ant-color-text);
+}
+
+.shortcut-help__desc {
+  font-size: var(--ws-font-caption);
+  color: var(--ant-color-text-tertiary);
+}
+
+.shortcut-help__key {
+  flex: 0 0 auto;
+  min-width: 30px;
+  padding: 2px 8px;
+  border: 1px solid var(--ant-color-border);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--ant-color-bg-layout);
+  font-family: inherit;
+  font-size: var(--ws-font-caption);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.shortcut-help__footnote {
+  margin: 0;
+  font-size: var(--ws-font-caption);
+  color: var(--ant-color-text-tertiary);
 }

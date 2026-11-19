@@ -574,6 +574,8 @@ export interface GraphNode {
   kind?: string | null
   is_me?: boolean
   member_count?: number
+  /** 可见成员显示名：管理员全量，普通成员仅自己 */
+  members?: string[]
   document_count?: number
   owner_name?: string
   my_caps?: DocumentCaps | null

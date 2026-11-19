@@ -344,6 +344,30 @@ def test_graph_shows_relations_without_content(harness: Harness) -> None:
     assert any(edge["target"] == f"kb:{kb_id}" for edge in share_edges)
     # 关系图只给关系与能力标签，不给文档内容
     assert not any("document_id" in node for node in graph["nodes"])
+    # 管理员能看到分组里的完整名单
+    group_node = next(node for node in graph["nodes"] if node["id"] == f"group:{group.group_id}")
+    assert set(group_node["members"]) == {"Alice", "Bob"}
+    team_node = next(node for node in graph["nodes"] if node["id"] == "team:*")
+    assert set(team_node["members"]) == {"Alice", "Bob", "Admin"}
+
+
+def test_graph_members_are_scoped_by_viewer(harness: Harness) -> None:
+    """普通成员在关系图里只看到自己，不泄露同组其他人的名字。"""
+    group = harness.groups.create(name="论文组", description="", user=harness.users["alice"])
+    harness.groups.add_member(
+        group.group_id,
+        user_id=harness.users["bob"].user_id,
+        role="member",
+        actor=harness.users["alice"],
+    )
+
+    harness.current["user"] = harness.users["bob"]
+    graph = harness.client().get("/api/kb/graph").json()
+    group_node = next(node for node in graph["nodes"] if node["id"] == f"group:{group.group_id}")
+    assert group_node["members"] == ["Bob"]
+    assert group_node["member_count"] == 2
+    team_node = next(node for node in graph["nodes"] if node["id"] == "team:*")
+    assert team_node["members"] == ["Bob"]
 
 
 def test_revoke_share_removes_access(harness: Harness) -> None:
