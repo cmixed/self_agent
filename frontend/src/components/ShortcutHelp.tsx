@@ -36,6 +36,8 @@ export default function ShortcutHelp() {
       title="快捷键"
       footer={null}
       width={640}
+      className="shortcut-help-modal"
+      rootClassName="shortcut-help-modal-root"
       onCancel={() => setHelpOpen(false)}
     >
       <div className="shortcut-help">
