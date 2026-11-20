@@ -446,13 +446,39 @@ html[data-theme='dark'] .ant-card {
   flex: 0 0 auto;
 }
 
-/* 顶栏右侧动作：唯一全局搜索入口 + 可选板块切换胶囊 */
+/* 顶栏右侧动作：可选板块切换胶囊 */
 .app-header-right {
   display: flex;
   align-items: center;
   gap: var(--ws-space-1);
   margin-left: auto;
   min-width: 0;
+}
+
+/* 顶栏页内搜索：只在 dock 按钮 / `/` 展开时渲染，收起时不占空间 */
+.app-header-search {
+  display: flex;
+  flex: 0 1 320px;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-header-search .ant-input-affix-wrapper {
+  height: 32px;
+  border-radius: 999px;
+}
+
+@media (max-width: 900px) {
+  .app-header-search {
+    flex-basis: 220px;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-header-search {
+    flex-basis: 160px;
+  }
 }
 
 .page-switcher {
@@ -575,6 +601,11 @@ html[data-theme='dark'] .ant-card {
 .dock__action:hover:not(:disabled) {
   background: var(--ant-color-fill-quaternary);
   color: var(--ant-color-text);
+}
+
+.dock__action.is-active {
+  background: var(--ant-color-primary-bg);
+  color: var(--ant-color-primary-text);
 }
 
 .dock__action:disabled {

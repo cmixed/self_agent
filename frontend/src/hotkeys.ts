@@ -73,7 +73,7 @@ const BASE_HOTKEYS: HotkeyDef[] = [
     combo: '/',
     title: '搜索当前页面',
     group: '通用',
-    description: '聚焦当前页面的搜索框；当前页面没有搜索时不响应（全局搜索入口在设置页）',
+    description: '在顶栏展开当前页面的搜索框；当前页面没有搜索时不响应（全局搜索入口在设置页）',
   },
   {
     id: 'toggleTheme',

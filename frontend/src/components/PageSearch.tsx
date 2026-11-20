@@ -1,45 +1,90 @@
+import { CloseOutlined, SearchOutlined } from '@ant-design/icons'
+import { Button, Input } from 'antd'
 import type { ReactNode } from 'react'
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 
 interface PageSearchValue {
   /** 当前页面是否注册了页内搜索 */
   hasSearch: boolean
-  /** 页面挂载搜索框时注册聚焦动作；返回清理函数 */
-  register: (focus: () => void) => () => void
-  /** 聚焦当前页面的搜索框；没有注册时不做任何事 */
-  trigger: () => void
+  /** 搜索框是否在顶栏展开 */
+  open: boolean
+  /** 当前页面的搜索关键词（由搜索总线统一持有，关闭时清空） */
+  keyword: string
+  placeholder: string
+  /** 每次请求聚焦时递增，顶栏输入框据此重新聚焦 */
+  focusToken: number
+  setKeyword: (value: string) => void
+  /** 页面挂载搜索时注册占位文案；返回清理函数 */
+  register: (placeholder: string) => () => void
+  /** 展开并聚焦顶栏搜索框 */
+  openSearch: () => void
+  /** 收起并清空搜索 */
+  closeSearch: () => void
+  /** dock 按钮用：展开 / 收起 */
+  toggle: () => void
 }
 
 const PageSearchContext = createContext<PageSearchValue | null>(null)
 
 /**
- * 页内搜索总线：页面把「聚焦自己的搜索框」注册进来，
- * dock 的搜索按钮与 `/` 快捷键统一调用 `trigger`（§17 导航分层）。
+ * 页内搜索总线：页面只注册「我有搜索」，不占页面空间；
+ * 搜索框统一渲染在顶栏，由 dock 按钮或 `/` 展开（§17 导航分层）。
  *
- * 同一时刻只有一个页面挂载，因此只保留一个处理函数；旧页面的清理
- * 不会误清掉新页面刚注册的处理函数（按引用比较）。
+ * 关键词放在总线里，收起搜索 / 切换页面时统一清空，避免出现
+ * 「搜索框已经关掉，但列表还被看不见的关键词过滤」。
  */
 export function PageSearchProvider({ children }: { children: ReactNode }) {
-  const handlerRef = useRef<(() => void) | null>(null)
   const [hasSearch, setHasSearch] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [keyword, setKeyword] = useState('')
+  const [placeholder, setPlaceholder] = useState('搜索当前页面')
+  const [focusToken, setFocusToken] = useState(0)
 
-  const register = useCallback((focus: () => void) => {
-    handlerRef.current = focus
+  const closeSearch = useCallback(() => {
+    setOpen(false)
+    setKeyword('')
+  }, [])
+
+  const register = useCallback((nextPlaceholder: string) => {
     setHasSearch(true)
+    setPlaceholder(nextPlaceholder)
     return () => {
-      if (handlerRef.current === focus) {
-        handlerRef.current = null
-        setHasSearch(false)
-      }
+      setHasSearch(false)
+      setOpen(false)
+      setKeyword('')
+      setPlaceholder('搜索当前页面')
     }
   }, [])
 
-  const trigger = useCallback(() => {
-    handlerRef.current?.()
+  const openSearch = useCallback(() => {
+    setOpen(true)
+    setFocusToken((token) => token + 1)
   }, [])
 
+  const toggle = useCallback(() => {
+    if (!hasSearch) return
+    if (open) {
+      closeSearch()
+      return
+    }
+    openSearch()
+  }, [closeSearch, hasSearch, open, openSearch])
+
   return (
-    <PageSearchContext.Provider value={{ hasSearch, register, trigger }}>
+    <PageSearchContext.Provider
+      value={{
+        hasSearch,
+        open,
+        keyword,
+        placeholder,
+        focusToken,
+        setKeyword,
+        register,
+        openSearch,
+        closeSearch,
+        toggle,
+      }}
+    >
       {children}
     </PageSearchContext.Provider>
   )
@@ -53,33 +98,60 @@ export function usePageSearch(): PageSearchValue {
   return context
 }
 
-interface PageSearchFieldProps {
-  children: ReactNode
-  className?: string
+/**
+ * 页面声明「这里有一个页内搜索」。只注册占位文案，不渲染输入框；
+ * 输入框由顶栏的 `PageSearchBar` 统一渲染。
+ *
+ * `enabled=false` 时自动注销（例如知识库切到关系图 / 没有可搜索文档）。
+ */
+export function usePageSearchRegistration(placeholder: string, enabled = true): void {
+  const { register } = usePageSearch()
+  useEffect(() => {
+    if (!enabled) return
+    return register(placeholder)
+  }, [enabled, placeholder, register])
 }
 
 /**
- * 页内搜索框容器：挂载时把「聚焦输入框」注册到总线，
- * 卸载时自动注销（例如知识库从文件视图切到共享关系图）。
+ * 顶栏搜索框：仅在当前页面注册了搜索且用户主动展开时渲染，
+ * 因此不占页面空间，收起时也不占顶栏空间。
  */
-export function PageSearchField({ children, className = 'page-search' }: PageSearchFieldProps) {
-  const { register } = usePageSearch()
-  const containerRef = useRef<HTMLDivElement>(null)
+export function PageSearchBar() {
+  const { open, hasSearch, keyword, placeholder, focusToken, setKeyword, closeSearch } =
+    usePageSearch()
 
-  useEffect(
-    () =>
-      register(() => {
-        const input = containerRef.current?.querySelector<HTMLInputElement>('input')
-        if (!input) return
-        input.focus()
-        input.select()
-      }),
-    [register],
-  )
+  useEffect(() => {
+    if (!open) return
+    const input = document.querySelector<HTMLInputElement>('[data-page-search] input')
+    input?.focus()
+    input?.select()
+  }, [focusToken, open])
+
+  if (!open || !hasSearch) return null
 
   return (
-    <div ref={containerRef} className={className}>
-      {children}
+    <div className="app-header-search" data-page-search>
+      <Input
+        allowClear
+        prefix={<SearchOutlined />}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        value={keyword}
+        onChange={(event) => setKeyword(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.stopPropagation()
+            closeSearch()
+          }
+        }}
+      />
+      <Button
+        type="text"
+        size="small"
+        aria-label="关闭搜索"
+        icon={<CloseOutlined />}
+        onClick={closeSearch}
+      />
     </div>
   )
 }

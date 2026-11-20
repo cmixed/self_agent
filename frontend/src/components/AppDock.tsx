@@ -35,7 +35,7 @@ export default function AppDock({
   onBack,
   canBack,
 }: AppDockProps) {
-  const { hasSearch, trigger } = usePageSearch()
+  const { hasSearch, open, toggle } = usePageSearch()
 
   return (
     <div className="dock" role="toolbar" aria-label="快捷操作坞">
@@ -50,17 +50,24 @@ export default function AppDock({
         {/* 段二：全局操作（搜索调用当前页面的页内搜索） */}
         <div className="dock__seg dock__seg--global">
           <Tooltip
-            title={hasSearch ? `页内搜索（${formatCombo('/')}）` : '当前页面没有可搜索内容'}
+            title={
+              hasSearch
+                ? open
+                  ? '关闭搜索'
+                  : `页内搜索（${formatCombo('/')}）`
+                : '当前页面没有可搜索内容'
+            }
             placement="top"
           >
             {/* 原生 disabled 按钮不触发鼠标事件，包一层 span 让 Tooltip 仍能显示提示 */}
             <span className="dock__action-wrap">
               <button
                 type="button"
-                className="dock__action"
-                aria-label="搜索当前页面"
+                className={`dock__action${open ? ' is-active' : ''}`}
+                aria-label={open ? '关闭搜索' : '搜索当前页面'}
+                aria-pressed={open}
                 disabled={!hasSearch}
-                onClick={trigger}
+                onClick={toggle}
               >
                 <SearchOutlined />
               </button>

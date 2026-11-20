@@ -1,12 +1,11 @@
-import { SearchOutlined } from '@ant-design/icons'
-import { Button, Card, Input, Segmented, Space, Table, Tag, Tooltip, Typography } from 'antd'
+import { Button, Card, Segmented, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
 import { usePageRefresh } from '../hooks/usePageRefresh'
 import ErrorNotice from '../components/ErrorNotice'
 import PageContainer from '../components/PageContainer'
-import { PageSearchField } from '../components/PageSearch'
+import { usePageSearch, usePageSearchRegistration } from '../components/PageSearch'
 import PageTabs from '../components/PageTabs'
 import StatusTag from '../components/StatusTag'
 import { useViewStack } from '../components/ViewStack'
@@ -27,9 +26,11 @@ export default function HistoryPage() {
   const [tasks, setTasks] = useState<TaskSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [keyword, setKeyword] = useState('')
+  const { keyword } = usePageSearch()
   const [statusFilter, setStatusFilter] = useState('all')
   const [outputMode, setOutputMode] = useState<OutputMode>('generate')
+
+  usePageSearchRegistration('搜索任务内容')
 
   const { tasksVersion } = useTaskRun()
 
@@ -159,19 +160,6 @@ export default function HistoryPage() {
           },
         ]}
       />
-
-      <PageSearchField>
-        <Input
-          id="history-search"
-          name="keyword"
-          allowClear
-          prefix={<SearchOutlined />}
-          placeholder="搜索任务内容"
-          aria-label="搜索任务内容"
-          value={keyword}
-          onChange={(event) => setKeyword(event.target.value)}
-        />
-      </PageSearchField>
 
       <Card>
         {visibleTasks.length === 0 && !loading ? (

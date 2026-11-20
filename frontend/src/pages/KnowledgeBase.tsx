@@ -13,7 +13,6 @@ import {
   LockOutlined,
   MoreOutlined,
   PlusOutlined,
-  SearchOutlined,
   ShareAltOutlined,
   SwapOutlined,
   TagsOutlined,
@@ -50,7 +49,7 @@ import EmptyState from '../components/EmptyState'
 import ErrorNotice from '../components/ErrorNotice'
 import ImportPreviewModal from '../components/ImportPreviewModal'
 import PageContainer from '../components/PageContainer'
-import { PageSearchField } from '../components/PageSearch'
+import { usePageSearch, usePageSearchRegistration } from '../components/PageSearch'
 import PageTabs from '../components/PageTabs'
 import ShareDialog from '../components/ShareDialog'
 import ShareGraph from '../components/ShareGraph'
@@ -159,7 +158,7 @@ export default function KnowledgeBasePage() {
   )
   const [error, setError] = useState<string | null>(null)
   const [activeCategory, setActiveCategory] = useState<string>(FILTER_ALL)
-  const [keyword, setKeyword] = useState('')
+  const { keyword } = usePageSearch()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
 
   const [categoryModalOpen, setCategoryModalOpen] = useState(false)
@@ -190,6 +189,8 @@ export default function KnowledgeBasePage() {
   )
   const canWrite = Boolean(activeKb?.my_caps.write)
   const canList = Boolean(activeKb?.my_caps.list)
+  const canSearch = viewMode === 'files' && canList && documents.length > 0
+  usePageSearchRegistration('按文件名或标题搜索', canSearch)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -717,20 +718,6 @@ export default function KnowledgeBasePage() {
           </>
         }
       />
-
-      {/* 页内筛选留在内容区：顶部标签之后、列表之前 */}
-      {viewMode === 'files' && canList && documents.length > 0 ? (
-        <PageSearchField>
-          <Input
-            allowClear
-            prefix={<SearchOutlined />}
-            placeholder="按文件名或标题搜索"
-            aria-label="搜索文档"
-            value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
-          />
-        </PageSearchField>
-      ) : null}
 
       {viewMode === 'graph' ? (
         <Card

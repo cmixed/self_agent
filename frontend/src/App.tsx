@@ -34,7 +34,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react
 import AppDock from './components/AppDock'
 import ErrorBoundary from './components/ErrorBoundary'
 import PageSwitcher from './components/PageSwitcher'
-import { PageSearchProvider, usePageSearch } from './components/PageSearch'
+import { PageSearchBar, PageSearchProvider, usePageSearch } from './components/PageSearch'
 import QuickSearch from './components/QuickSearch'
 import ShortcutHelp from './components/ShortcutHelp'
 import { fetchMe, getCachedUser, getToken, logout, onUnauthorized } from './services/auth'
@@ -258,7 +258,16 @@ function AppShell({
   const { overlays, canGoBack, back, closeAll } = useViewStack()
   const { setHelpOpen, searchOpen, setSearchOpen, register, unregister } = useShortcuts()
   const { badges } = useBadges()
-  const { trigger: triggerPageSearch } = usePageSearch()
+  const {
+    openSearch: triggerPageSearch,
+    open: pageSearchOpen,
+    closeSearch: closePageSearch,
+  } = usePageSearch()
+
+  // 切页时收起页内搜索：避免上一个页面的关键词继续过滤新页面
+  useEffect(() => {
+    closePageSearch()
+  }, [closePageSearch, page])
 
   // 工作台徽标：运行中任务用圆点，待查看任务显示数字
   const workspaceBadge = useMemo<PageBadge>(() => {
@@ -329,12 +338,13 @@ function AppShell({
 
   const handleNav = useCallback(
     (key: PageKey) => {
-      // 从侧栏切页时退出所有叠加视图，回到正常浏览
+      // 从侧栏切页时退出所有叠加视图与页内搜索，回到正常浏览
       closeAll()
+      closePageSearch()
       navigate(key)
       setDrawerOpen(false)
     },
-    [closeAll, navigate],
+    [closeAll, closePageSearch, navigate],
   )
 
   // 统一快捷键：动作在应用壳注册，HELP 面板与按键提示共用同一份元数据
@@ -345,6 +355,10 @@ function AppShell({
     // 搜索面板打开时 Esc 先关它，不误触内容区的「返回上一层」
     if (searchOpen) {
       setSearchOpen(false)
+      return
+    }
+    if (pageSearchOpen) {
+      closePageSearch()
       return
     }
     if (!canGoBack) return false
@@ -480,6 +494,7 @@ function AppShell({
               {PAGE_META.find((item) => item.key === page)?.description}
             </span>
           </div>
+          <PageSearchBar />
           <div className="app-header-right">
             {showPageSwitcher ? (
               <PageSwitcher

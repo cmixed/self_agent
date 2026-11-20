@@ -3,27 +3,39 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it } from 'vite-plus/test'
 
-import { PageSearchField, PageSearchProvider, usePageSearch } from './PageSearch'
+import {
+  PageSearchBar,
+  PageSearchProvider,
+  usePageSearch,
+  usePageSearchRegistration,
+} from './PageSearch'
 
 afterEach(cleanup)
 
+function SearchPage({ label }: { label: string }) {
+  usePageSearchRegistration(label)
+  return <div>页面内容</div>
+}
+
 function Harness() {
-  const [showField, setShowField] = useState(true)
-  const { hasSearch, trigger } = usePageSearch()
+  const [showPage, setShowPage] = useState(true)
+  const { hasSearch, open, keyword, toggle, closeSearch } = usePageSearch()
   return (
     <>
       <span data-testid="has-search">{hasSearch ? 'yes' : 'no'}</span>
-      <button type="button" onClick={trigger}>
-        搜索
+      <span data-testid="open">{open ? 'yes' : 'no'}</span>
+      <span data-testid="keyword">{keyword}</span>
+      <button type="button" onClick={toggle}>
+        dock 搜索
       </button>
-      <button type="button" onClick={() => setShowField(false)}>
-        卸载搜索框
+      <button type="button" onClick={closeSearch}>
+        外部关闭
       </button>
-      {showField ? (
-        <PageSearchField>
-          <input aria-label="页内搜索" />
-        </PageSearchField>
-      ) : null}
+      <button type="button" onClick={() => setShowPage(false)}>
+        离开页面
+      </button>
+      {showPage ? <SearchPage label="搜索任务内容" /> : <div>无搜索页面</div>}
+      <PageSearchBar />
     </>
   )
 }
@@ -37,22 +49,39 @@ function renderHarness() {
 }
 
 describe('PageSearchProvider', () => {
-  it('页内搜索框挂载后可被 dock / 快捷键聚焦', () => {
+  it('默认不占空间，dock 按钮展开顶栏搜索框', () => {
     renderHarness()
     expect(screen.getByTestId('has-search').textContent).toBe('yes')
+    expect(screen.getByTestId('open').textContent).toBe('no')
+    expect(screen.queryByLabelText('搜索任务内容')).toBeNull()
 
-    const input = screen.getByLabelText('页内搜索')
-    expect(document.activeElement).not.toBe(input)
+    fireEvent.click(screen.getByRole('button', { name: 'dock 搜索' }))
 
-    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
-    expect(document.activeElement).toBe(input)
+    expect(screen.getByTestId('open').textContent).toBe('yes')
+    expect(screen.getByLabelText('搜索任务内容')).toBeTruthy()
   })
 
-  it('搜索框卸载后标记为无搜索，触发不再报错', () => {
+  it('关闭搜索会收起输入框并清空关键词', () => {
     renderHarness()
-    fireEvent.click(screen.getByRole('button', { name: '卸载搜索框' }))
+    fireEvent.click(screen.getByRole('button', { name: 'dock 搜索' }))
+    fireEvent.change(screen.getByLabelText('搜索任务内容'), { target: { value: 'RAG' } })
+    expect(screen.getByTestId('keyword').textContent).toBe('RAG')
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭搜索' }))
+
+    expect(screen.getByTestId('open').textContent).toBe('no')
+    expect(screen.getByTestId('keyword').textContent).toBe('')
+    expect(screen.queryByLabelText('搜索任务内容')).toBeNull()
+  })
+
+  it('页面注销后标记为无搜索，且自动收起', () => {
+    renderHarness()
+    fireEvent.click(screen.getByRole('button', { name: 'dock 搜索' }))
+    expect(screen.getByTestId('open').textContent).toBe('yes')
+
+    fireEvent.click(screen.getByRole('button', { name: '离开页面' }))
 
     expect(screen.getByTestId('has-search').textContent).toBe('no')
-    expect(() => fireEvent.click(screen.getByRole('button', { name: '搜索' }))).not.toThrow()
+    expect(screen.getByTestId('open').textContent).toBe('no')
   })
 })
