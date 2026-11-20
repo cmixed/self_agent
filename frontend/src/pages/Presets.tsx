@@ -44,6 +44,7 @@ import { usePageRefresh } from '../hooks/usePageRefresh'
 import ErrorNotice from '../components/ErrorNotice'
 import ImportPreviewModal from '../components/ImportPreviewModal'
 import PageContainer from '../components/PageContainer'
+import PageTabs from '../components/PageTabs'
 import ScopePicker from '../components/ScopePicker'
 import { setCachedPresets } from '../hooks/usePresets'
 import {
@@ -283,9 +284,9 @@ export default function PresetsPage() {
   const boundCount = modePresets.filter((preset) => isBound(preset.scope)).length
   const filterOptions = useMemo(
     () => [
-      { label: `全部（${modePresets.length}）`, value: 'all' as ScopeFilter },
-      { label: `未绑定（${modePresets.length - boundCount}）`, value: 'unbound' as ScopeFilter },
-      { label: `指定范围（${boundCount}）`, value: 'bound' as ScopeFilter },
+      { label: '全部', value: 'all' as ScopeFilter, count: modePresets.length },
+      { label: '未绑定', value: 'unbound' as ScopeFilter, count: modePresets.length - boundCount },
+      { label: '指定范围', value: 'bound' as ScopeFilter, count: boundCount },
     ],
     [modePresets.length, boundCount],
   )
@@ -457,31 +458,36 @@ export default function PresetsPage() {
         />
       ) : null}
 
-      <Card
-        title={`预设（${modePresets.length}）`}
+      {/* 顶栏分标签：输出方式为主标签，右端范围筛选沿用状态胶囊 */}
+      <PageTabs
+        label="预设输出方式"
+        activeKey={outputMode}
+        onChange={(key) => {
+          setOutputMode(key as OutputMode)
+          setFilter('all')
+        }}
+        items={[
+          { key: 'generate', label: '生成内容' },
+          { key: 'verbatim', label: '直接输出知识库原文' },
+        ]}
         extra={
-          <Space size={8} wrap>
-            <Segmented
-              value={outputMode}
-              onChange={(value) => {
-                setOutputMode(value as OutputMode)
-                setFilter('all')
-              }}
-              options={[
-                { label: '生成内容', value: 'generate' },
-                { label: '直接输出知识库原文', value: 'verbatim' },
-              ]}
-            />
-            {modePresets.length > 0 ? (
-              <Segmented
-                value={filter}
-                onChange={(value) => setFilter(value as ScopeFilter)}
-                options={filterOptions}
-              />
-            ) : null}
-          </Space>
+          modePresets.length > 0
+            ? filterOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`tabbar__stat${filter === option.value ? ' is-active' : ''}`}
+                  aria-pressed={filter === option.value}
+                  onClick={() => setFilter(option.value)}
+                >
+                  {option.label} <b>{option.count}</b>
+                </button>
+              ))
+            : null
         }
-      >
+      />
+
+      <Card>
         {firstLoad ? (
           <Skeleton active paragraph={{ rows: 4 }} />
         ) : modePresets.length === 0 ? (

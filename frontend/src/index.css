@@ -1206,22 +1206,6 @@ html[data-theme='dark'] .ant-card {
   margin-inline-end: 0;
 }
 
-/* --- 表格工具栏（搜索 / 筛选 / 刷新） ------------------------------------ */
-.table-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-}
-
-@media (max-width: 768px) {
-  .table-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
-
 /* --- 统一空状态 ----------------------------------------------------------- */
 .empty-state {
   padding: 12px 0 4px;
@@ -1703,27 +1687,14 @@ html[data-theme='dark'] .ant-card {
   margin-top: auto;
 }
 
-/* --- 技能三段式说明（技能页顶部）----------------------------------------- */
-.skill-stages {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--ws-gap);
+/* 技能页顶栏里的 L1/L2/L3 说明胶囊：只读提示，不是按钮 */
+.tabbar__stat--hint {
+  cursor: help;
 }
 
-.skill-stage .ant-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ws-space-1);
-}
-
-.skill-stage__hint {
-  font-size: var(--ws-font-caption);
-}
-
-@media (max-width: 992px) {
-  .skill-stages {
-    grid-template-columns: 1fr;
-  }
+.tabbar__stat--hint:hover {
+  border-color: var(--ant-color-border);
+  background: transparent;
 }
 
 /* --- 工作台预设任务 -------------------------------------------------------- */
@@ -2746,11 +2717,6 @@ html[data-theme='dark'] .ant-card {
   margin-bottom: var(--ws-space-3);
 }
 
-.kb-search {
-  width: 280px;
-  max-width: 100%;
-}
-
 /* 上传状态：传输进度 + 解析阶段提示（进度只反映网络传输，索引另算） */
 .kb-upload-status {
   display: flex;
@@ -3584,6 +3550,54 @@ html[data-theme='dark'] .ant-card {
 }
 
 /* =============================================================================
+   顶栏当前页搜索槽（任务历史 / 知识库等把搜索框 portal 到导航栏）
+   - 与标题、页面切换器同排；窄屏收窄，不挤占操作按钮
+   ============================================================================= */
+.app-header-search {
+  display: flex;
+  flex: 0 1 300px;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.app-header-search__slot {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+}
+
+.app-header-search__slot .app-header-search__inner {
+  width: 100%;
+  min-width: 0;
+}
+
+.app-header-search__slot .ant-input-affix-wrapper,
+.page-search .ant-input-affix-wrapper {
+  border-radius: 999px;
+}
+
+/* 槽还没挂上时（如登录态切换、页面懒加载首帧）降级渲染在页面内 */
+.page-search {
+  margin-bottom: var(--ws-space-3);
+  max-width: 320px;
+}
+
+@media (max-width: 900px) {
+  .app-header-search {
+    flex-basis: 200px;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-header-search {
+    flex-basis: 140px;
+  }
+}
+
+/* =============================================================================
    页面内标签栏（团队管理 / 设置共用）
    - 横跨内容区的胶囊条，标签均分宽度；右端可挂状态胶囊
    - 选中态沿用主色淡底 + 主色文字，与全站强调态一致
@@ -3599,6 +3613,27 @@ html[data-theme='dark'] .ant-card {
   border-radius: var(--ws-radius-lg);
   background: color-mix(in srgb, var(--ant-color-bg-container) 84%, transparent);
   box-shadow: inset 0 1px 0 var(--ws-panel-edge);
+}
+
+/* 嵌进底部 dock 的分区栏：去掉自身的框/底/影，交给外层胶囊 */
+.tabbar--docked {
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.tabbar--docked .tabbar__item {
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+}
+
+.tabbar--docked .tabbar__stat {
+  padding: 4px 8px;
 }
 
 .tabbar__tabs {
@@ -3640,6 +3675,14 @@ html[data-theme='dark'] .ant-card {
   background: var(--ant-color-primary-bg);
   color: var(--ant-color-primary-text);
   font-weight: 600;
+}
+
+/* 标签里的计数：不抢标题，选中态跟随文字色 */
+.tabbar__item > b,
+.tabbar__count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  opacity: 0.72;
 }
 
 /* 右端状态区：宽屏贴右，窄屏整行落到标签下方 */
@@ -3686,6 +3729,17 @@ html[data-theme='dark'] .ant-card {
 
 .tabbar__stat.is-warning > b {
   color: var(--ant-color-warning-text);
+}
+
+/* 可点击的筛选胶囊选中态（预设范围 / 技能筛选等） */
+.tabbar__stat.is-active {
+  border-color: var(--ant-color-primary-border);
+  background: var(--ant-color-primary-bg);
+  color: var(--ant-color-primary-text);
+}
+
+.tabbar__stat.is-active > b {
+  color: var(--ant-color-primary-text);
 }
 
 @media (max-width: 1200px) {

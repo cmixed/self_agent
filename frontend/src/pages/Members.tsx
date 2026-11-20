@@ -36,8 +36,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
 import PageContainer from '../components/PageContainer'
+import PageTabbar from '../components/PageTabbar'
 import ShareGraph from '../components/ShareGraph'
 import { usePageRefresh } from '../hooks/usePageRefresh'
+import { useReportBadge } from '../state/badges'
 import {
   addGroupMember,
   createGroup,
@@ -466,6 +468,12 @@ export default function TeamPage() {
     () => groups.reduce((sum, group) => sum + group.pending_count, 0),
     [groups],
   )
+  // 团队待办数上报到全局徽标，侧栏与顶栏切换器图标同步提示
+  const teamBadge = useMemo(() => {
+    const count = pendingShareCount + pendingMemberCount
+    return count > 0 ? { count, warning: true } : null
+  }, [pendingShareCount, pendingMemberCount])
+  useReportBadge('team', teamBadge)
 
   // --- 成员表 ---
 
@@ -1195,7 +1203,7 @@ export default function TeamPage() {
       title="团队管理"
       description="成员、分组与共享审批集中管理。共享按「库 × 一批人 × 一组能力」组合生效，管理员看关系不看内容。非管理员不会看到此页面入口，后端仍二次校验。"
     >
-      <div className="tabbar" role="tablist" aria-label="团队板块">
+      <PageTabbar page="team">
         <div className="tabbar__tabs">
           {tabItems.map((item) => (
             <button
@@ -1235,7 +1243,7 @@ export default function TeamPage() {
             <UsergroupAddOutlined /> 待入组 <b>{pendingMemberCount}</b>
           </button>
         </div>
-      </div>
+      </PageTabbar>
 
       <div className="side-main">{tabItems.find((item) => item.key === tab)?.children}</div>
 

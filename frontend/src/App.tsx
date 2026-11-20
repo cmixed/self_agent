@@ -13,6 +13,7 @@ import {
   TagsOutlined,
   TeamOutlined,
   LogoutOutlined,
+  SearchOutlined,
 } from '@ant-design/icons'
 import {
   App as AntApp,
@@ -39,6 +40,8 @@ import ShortcutHelp from './components/ShortcutHelp'
 import { fetchMe, getCachedUser, getToken, logout, onUnauthorized } from './services/auth'
 import ProviderSwitch from './components/ProviderSwitch'
 import { ViewStackProvider, useViewStack } from './components/ViewStack'
+import { BadgesProvider, useBadges, useReportBadge } from './state/badges'
+import type { PageBadge } from './state/badges'
 import { ShortcutProvider, useShortcut, useShortcuts } from './state/shortcuts'
 import { useHealth } from './hooks/useHealth'
 import { useIsNarrow } from './hooks/useIsNarrow'
@@ -204,13 +207,15 @@ export default function App() {
             <TaskRunProvider>
               <ViewStackProvider>
                 <ShortcutProvider>
-                  <AppShell
-                    mode={mode}
-                    resolvedMode={resolvedMode}
-                    setMode={setMode}
-                    toggleMode={toggleMode}
-                    onLogout={() => void handleLogout()}
-                  />
+                  <BadgesProvider>
+                    <AppShell
+                      mode={mode}
+                      resolvedMode={resolvedMode}
+                      setMode={setMode}
+                      toggleMode={toggleMode}
+                      onLogout={() => void handleLogout()}
+                    />
+                  </BadgesProvider>
                 </ShortcutProvider>
               </ViewStackProvider>
             </TaskRunProvider>
@@ -240,9 +245,19 @@ function AppShell({
   const narrow = useIsNarrow()
 
   const { health, loaded, reload } = useHealth()
-  const { running, runningTasks } = useTaskRun()
+  const { running, runningTasks, finishedTasks } = useTaskRun()
   const { overlays, canGoBack, back, closeAll } = useViewStack()
   const { setHelpOpen, searchOpen, setSearchOpen, register, unregister } = useShortcuts()
+  const { badges } = useBadges()
+
+  // 工作台徽标：运行中任务用圆点，待查看任务显示数字
+  const workspaceBadge = useMemo<PageBadge>(() => {
+    const pending = finishedTasks.length
+    if (pending > 0) return { count: pending }
+    if (running || runningTasks.length > 0) return { dot: true }
+    return {}
+  }, [running, runningTasks.length, finishedTasks.length])
+  useReportBadge('workspace', workspaceBadge)
 
   const menuTheme = resolvedMode === 'dark' ? 'dark' : 'light'
   const healthy = health?.status === 'ok'
@@ -275,18 +290,28 @@ function AppShell({
     (item) => item.key === 'team' || item.key === 'providers' || item.key === 'settings',
   )
   const menuItems: MenuProps['items'] = visiblePages.flatMap((item, index) => {
+    const badge = badges[item.key]
+    const withBadge =
+      badge?.count != null && badge.count > 0 ? (
+        <Badge
+          count={badge.count}
+          size="small"
+          offset={[2, -2]}
+          color={badge.warning ? 'orange' : undefined}
+        >
+          {item.icon}
+        </Badge>
+      ) : badge?.dot ? (
+        <Badge dot offset={[2, -2]}>
+          {item.icon}
+        </Badge>
+      ) : (
+        item.icon
+      )
     const entry: NonNullable<MenuProps['items']>[number] = {
       key: item.key,
       label: item.label,
-      // 有任务在跑时在图标上显示小圆点（折叠状态下也可见）
-      icon:
-        item.key === 'workspace' && (running || runningTasks.length > 0) ? (
-          <Badge dot offset={[2, -2]}>
-            {item.icon}
-          </Badge>
-        ) : (
-          item.icon
-        ),
+      icon: withBadge,
     }
     // 配置类页面整组之前加一条分隔线
     return index === configGroupStart ? [{ type: 'divider' as const }, entry] : [entry]
@@ -302,9 +327,23 @@ function AppShell({
     [closeAll, navigate],
   )
 
+  /**
+   * 统一搜索入口：顶栏有「当前页搜索框」时聚焦它（输入即筛选当前列表），
+   * 否则打开全局搜索面板。dock 的搜索按钮与 `/` 共用这一份逻辑。
+   */
+  const openSearch = useCallback(() => {
+    const input = document.querySelector<HTMLInputElement>('[data-page-search-slot] input')
+    if (input && input.offsetParent !== null) {
+      input.focus()
+      input.select()
+      return
+    }
+    setSearchOpen(true)
+  }, [setSearchOpen])
+
   // 统一快捷键：动作在应用壳注册，HELP 面板与按键提示共用同一份元数据
   useShortcut('help', () => setHelpOpen(true))
-  useShortcut('search', () => setSearchOpen(true))
+  useShortcut('search', openSearch)
   useShortcut('toggleTheme', () => toggleMode())
   useShortcut('goBack', () => {
     // 搜索面板打开时 Esc 先关它，不误触内容区的「返回上一层」
@@ -445,6 +484,19 @@ function AppShell({
               {PAGE_META.find((item) => item.key === page)?.description}
             </span>
           </div>
+          <div className="app-header-search">
+            {/* 当前页搜索框（任务历史 / 知识库等）通过 PageSearch portal 注入 */}
+            <div className="app-header-search__slot" data-page-search-slot aria-label="当前页搜索" />
+            <Tooltip title="全局搜索（页面 / 知识库 / 快捷键）">
+              <Button
+                type="text"
+                size="small"
+                aria-label="全局搜索"
+                icon={<SearchOutlined />}
+                onClick={() => setSearchOpen(true)}
+              />
+            </Tooltip>
+          </div>
           <div className="app-header-right">
             <PageSwitcher
               page={page}
@@ -453,6 +505,7 @@ function AppShell({
                 label: item.label,
                 icon: item.icon,
               }))}
+              badges={badges}
               onNavigate={handleNav}
             />
           </div>
@@ -501,7 +554,7 @@ function AppShell({
       <AppDock
         page={page}
         onHelp={() => setHelpOpen(true)}
-        onSearch={() => setSearchOpen(true)}
+        onSearch={openSearch}
         onToggleTheme={toggleMode}
         resolvedMode={resolvedMode}
         onBack={back}

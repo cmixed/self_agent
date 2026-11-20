@@ -27,6 +27,7 @@ import { usePageRefresh } from '../hooks/usePageRefresh'
 import ErrorNotice from '../components/ErrorNotice'
 import ImportPreviewModal from '../components/ImportPreviewModal'
 import PageContainer from '../components/PageContainer'
+import PageTabs from '../components/PageTabs'
 import { useViewStack } from '../components/ViewStack'
 import {
   ApiError,
@@ -67,6 +68,7 @@ export default function MemoryPage() {
   const [profile, setProfile] = useState<MemoryProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [section, setSection] = useState<'preference' | 'memory'>('preference')
 
   const [prefModalOpen, setPrefModalOpen] = useState(false)
   const [memModalOpen, setMemModalOpen] = useState(false)
@@ -280,14 +282,29 @@ export default function MemoryPage() {
         />
       ) : null}
 
-      <Card
-        title={`偏好（${preferences.length}）`}
+      {/* 顶栏分标签：偏好 / 记忆共用一条胶囊标签栏，右端放当前分区的新增操作 */}
+      <PageTabs
+        label="长期记忆分区"
+        activeKey={section}
+        onChange={(key) => setSection(key as 'preference' | 'memory')}
+        items={[
+          { key: 'preference', label: <>偏好 <b>{preferences.length}</b></> },
+          { key: 'memory', label: <>记忆 <b>{memories.length}</b></> },
+        ]}
         extra={
-          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openAddPreference}>
-            新增偏好
+          <Button
+            size="small"
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={section === 'preference' ? openAddPreference : openAddMemory}
+          >
+            {section === 'preference' ? '新增偏好' : '新增记忆'}
           </Button>
         }
-      >
+      />
+
+      {/* 常驻挂载，切换标签不丢加载态与展开内容 */}
+      <Card style={section === 'preference' ? undefined : { display: 'none' }}>
         {firstLoad ? (
           <Skeleton active paragraph={{ rows: 3 }} />
         ) : preferences.length === 0 ? (
@@ -335,14 +352,7 @@ export default function MemoryPage() {
         )}
       </Card>
 
-      <Card
-        title={`记忆（${memories.length}）`}
-        extra={
-          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openAddMemory}>
-            新增记忆
-          </Button>
-        }
-      >
+      <Card style={section === 'memory' ? undefined : { display: 'none' }}>
         {firstLoad ? (
           <Skeleton active paragraph={{ rows: 3 }} />
         ) : memories.length === 0 ? (

@@ -1,3 +1,4 @@
+import { SearchOutlined } from '@ant-design/icons'
 import { Button, Card, Input, Segmented, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -5,6 +6,8 @@ import EmptyState from '../components/EmptyState'
 import { usePageRefresh } from '../hooks/usePageRefresh'
 import ErrorNotice from '../components/ErrorNotice'
 import PageContainer from '../components/PageContainer'
+import PageSearch from '../components/PageSearch'
+import PageTabs from '../components/PageTabs'
 import StatusTag from '../components/StatusTag'
 import { useViewStack } from '../components/ViewStack'
 import { ApiError, listTasks } from '../services/api'
@@ -100,6 +103,20 @@ export default function HistoryPage() {
         </Space>
       }
     >
+      {/* 搜索框挂到顶栏导航：dock 搜索按钮与 `/` 都会聚焦它 */}
+      <PageSearch>
+        <Input
+          id="history-search"
+          name="keyword"
+          allowClear
+          prefix={<SearchOutlined />}
+          placeholder="搜索任务内容"
+          aria-label="搜索任务内容"
+          value={keyword}
+          onChange={(event) => setKeyword(event.target.value)}
+        />
+      </PageSearch>
+
       {error && (
         <ErrorNotice
           message={error}
@@ -108,30 +125,21 @@ export default function HistoryPage() {
         />
       )}
 
-      <Card title={`任务历史（${tasks.length}）`}>
-        <div className="table-toolbar">
-          <Input.Search
-            id="history-search"
-            name="keyword"
-            allowClear
-            placeholder="搜索任务内容"
-            value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
-            style={{ maxWidth: 320 }}
-          />
-          <Segmented
-            value={statusFilter}
-            onChange={(value) => setStatusFilter(String(value))}
-            options={[
-              { label: `全部 ${counts.all}`, value: 'all' },
-              { label: `运行中 ${counts.running}`, value: 'running' },
-              { label: `已完成 ${counts.completed}`, value: 'completed' },
-              { label: `已取消 ${counts.cancelled}`, value: 'cancelled' },
-              { label: `失败 ${counts.failed}`, value: 'failed' },
-            ]}
-          />
-        </div>
+      {/* 状态筛选改成顶栏标签，与团队 / 设置页同一套样式 */}
+      <PageTabs
+        label="任务状态"
+        activeKey={statusFilter}
+        onChange={setStatusFilter}
+        items={[
+          { key: 'all', label: <>全部 <b>{counts.all}</b></> },
+          { key: 'running', label: <>运行中 <b>{counts.running}</b></> },
+          { key: 'completed', label: <>已完成 <b>{counts.completed}</b></> },
+          { key: 'cancelled', label: <>已取消 <b>{counts.cancelled}</b></> },
+          { key: 'failed', label: <>失败 <b>{counts.failed}</b></> },
+        ]}
+      />
 
+      <Card>
         {visibleTasks.length === 0 && !loading ? (
           <EmptyState
             title={

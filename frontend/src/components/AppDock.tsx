@@ -39,14 +39,21 @@ export default function AppDock({
   return (
     <div className="dock" role="toolbar" aria-label="快捷操作坞">
       <div className="dock__bar">
-        {/* 段一：当前页操作（由 PageContainer 通过 portal 注入） */}
+        {/* 段一：页面分区标签栏（成员 / 设置等多分区页面通过 portal 注入） */}
+        <div
+          className="dock__seg dock__seg--tabbar"
+          data-page-tabbar-slot={page}
+          aria-label="页面分区"
+        />
+
+        {/* 段二：当前页操作（由 PageContainer 通过 portal 注入） */}
         <div
           className="dock__seg dock__seg--actions"
           data-page-actions-slot={page}
           aria-label="当前页面操作"
         />
 
-        {/* 段二：全局操作 */}
+        {/* 段三：全局操作 */}
         <div className="dock__seg dock__seg--global">
           <Tooltip title={`搜索（${formatCombo('/')}）`} placement="top">
             <button type="button" className="dock__action" aria-label="搜索" onClick={onSearch}>
@@ -81,7 +88,7 @@ export default function AppDock({
           </Tooltip>
         </div>
 
-        {/* 段三：任务胶囊（无任务时整段不渲染） */}
+        {/* 段四：任务胶囊（无任务时整段不渲染） */}
         <RunningTasks />
       </div>
     </div>

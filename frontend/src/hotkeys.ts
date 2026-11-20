@@ -71,9 +71,9 @@ const BASE_HOTKEYS: HotkeyDef[] = [
   {
     id: 'search',
     combo: '/',
-    title: '全局搜索',
+    title: '搜索',
     group: '通用',
-    description: '搜索页面、知识库与快捷键',
+    description: '聚焦顶栏当前页搜索框；没有页面搜索时打开全局搜索',
   },
   {
     id: 'toggleTheme',

@@ -32,6 +32,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import ImportPreviewModal from '../components/ImportPreviewModal'
 import PageContainer from '../components/PageContainer'
+import PageTabbar from '../components/PageTabbar'
 import { setCachedPresets } from '../hooks/usePresets'
 import {
   ApiError,
@@ -607,7 +608,7 @@ export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
       description="这些偏好只保存在当前浏览器。工作台上的执行深度、允许技能与检索范围属于本次任务参数，不会自动影响其它任务。"
       maxWidth={PAGE_MAX_WIDTH}
     >
-      <div className="tabbar" role="tablist" aria-label="设置分区">
+      <PageTabbar page="settings">
         <div className="tabbar__tabs">
           {sections.map((item) => (
             <button
@@ -623,7 +624,7 @@ export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
             </button>
           ))}
         </div>
-      </div>
+      </PageTabbar>
 
       {section === 'appearance' ? appearanceCard : null}
       {section === 'workspace' ? workspaceCard : null}

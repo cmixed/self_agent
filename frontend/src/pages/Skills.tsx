@@ -18,7 +18,6 @@ import {
   Input,
   Modal,
   Popconfirm,
-  Segmented,
   Select,
   Skeleton,
   Space,
@@ -34,6 +33,7 @@ import EmptyState from '../components/EmptyState'
 import { usePageRefresh } from '../hooks/usePageRefresh'
 import ErrorNotice from '../components/ErrorNotice'
 import PageContainer from '../components/PageContainer'
+import PageTabs from '../components/PageTabs'
 import { useViewStack } from '../components/ViewStack'
 import {
   ApiError,
@@ -513,57 +513,33 @@ export default function SkillsPage() {
         />
       ) : null}
 
-      <div className="skill-stages">
-        <Card size="small" className="skill-stage">
-          <Space size={8} wrap>
-            <Tag color="blue">L1</Tag>
-            <Text strong>目录（Planner 可见）</Text>
-          </Space>
-          <Text type="secondary">
-            {skills.length} 个技能 · 启用 {enabledCount}
-          </Text>
-          <Text type="secondary" className="skill-stage__hint">
-            只包含 skill_id、名称、适用场景；不吃正文与附件的 token
-          </Text>
-        </Card>
-        <Card size="small" className="skill-stage">
-          <Space size={8} wrap>
-            <Tag color="purple">L2</Tag>
-            <Text strong>指令正文（命中后注入）</Text>
-          </Space>
-          <Text type="secondary">来自 SKILL.md 正文</Text>
-          <Text type="secondary" className="skill-stage__hint">
-            只注入一次 system；上下文随技能正文长度增长，但不进入 Planner
-          </Text>
-        </Card>
-        <Card size="small" className="skill-stage">
-          <Space size={8} wrap>
-            <Tag color="gold">L3</Tag>
-            <Text strong>按需附件</Text>
-          </Space>
-          <Text type="secondary">references / resources / scripts</Text>
-          <Text type="secondary" className="skill-stage__hint">
-            目录只暴露路径，模型请求时才读取正文；脚本只保存、永不执行
-          </Text>
-        </Card>
-      </div>
-
-      <Card
-        title={`技能库（${skills.length}｜启用 ${enabledCount}）`}
+      {/* 顶部原来三张说明卡 + 卡片标题 + 筛选器太割裂；
+          融合成一条顶栏：筛选做主标签，L1/L2/L3 说明收进右端胶囊（悬停看详情） */}
+      <PageTabs
+        label="技能筛选"
+        activeKey={filter}
+        onChange={(key) => setFilter(key as SkillFilter)}
+        items={[
+          { key: 'all', label: <>全部 <b>{skills.length}</b></> },
+          { key: 'enabled', label: <>已启用 <b>{enabledCount}</b></> },
+          { key: 'disabled', label: <>已停用 <b>{disabledCount}</b></> },
+        ]}
         extra={
-          skills.length > 0 ? (
-            <Segmented
-              value={filter}
-              onChange={(value) => setFilter(value as SkillFilter)}
-              options={[
-                { label: `全部（${skills.length}）`, value: 'all' },
-                { label: `已启用（${enabledCount}）`, value: 'enabled' },
-                { label: `已停用（${disabledCount}）`, value: 'disabled' },
-              ]}
-            />
-          ) : null
+          <>
+            <Tooltip title="L1 目录（Planner 可见）：只含 skill_id、名称、适用场景，不吃正文与附件的 token">
+              <span className="tabbar__stat tabbar__stat--hint">L1 目录</span>
+            </Tooltip>
+            <Tooltip title="L2 指令正文（命中后注入）：来自 SKILL.md，只注入一次 system，不进入 Planner">
+              <span className="tabbar__stat tabbar__stat--hint">L2 正文</span>
+            </Tooltip>
+            <Tooltip title="L3 按需附件（references / resources / scripts）：目录只暴露路径，模型请求时才读取；脚本只保存、永不执行">
+              <span className="tabbar__stat tabbar__stat--hint">L3 附件</span>
+            </Tooltip>
+          </>
         }
-      >
+      />
+
+      <Card>
         {firstLoad ? (
           <Skeleton active paragraph={{ rows: 4 }} />
         ) : skills.length === 0 ? (

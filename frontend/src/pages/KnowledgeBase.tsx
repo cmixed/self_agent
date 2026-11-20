@@ -34,7 +34,6 @@ import {
   Modal,
   Popconfirm,
   Progress,
-  Segmented,
   Select,
   Space,
   Spin,
@@ -51,6 +50,8 @@ import EmptyState from '../components/EmptyState'
 import ErrorNotice from '../components/ErrorNotice'
 import ImportPreviewModal from '../components/ImportPreviewModal'
 import PageContainer from '../components/PageContainer'
+import PageSearch from '../components/PageSearch'
+import PageTabs from '../components/PageTabs'
 import ShareDialog from '../components/ShareDialog'
 import ShareGraph from '../components/ShareGraph'
 import StatStrip from '../components/StatStrip'
@@ -668,15 +669,6 @@ export default function KnowledgeBasePage() {
       maxWidth={PAGE_MAX_WIDTH}
       extra={
         <Space wrap>
-          <Segmented
-            size="small"
-            value={viewMode}
-            onChange={(value) => setViewMode(value as 'files' | 'graph')}
-            options={[
-              { label: '文件', value: 'files' },
-              { label: '共享关系图', value: 'graph' },
-            ]}
-          />
           <Button icon={<PlusOutlined />} onClick={openCreateKb}>
             新建知识库
           </Button>
@@ -702,6 +694,44 @@ export default function KnowledgeBasePage() {
         </Space>
       }
     >
+      {/* 顶栏分标签：文件 / 共享关系图共用团队页那套胶囊标签栏 */}
+      <PageTabs
+        label="知识库视图"
+        activeKey={viewMode}
+        onChange={(key) => setViewMode(key as 'files' | 'graph')}
+        items={[
+          { key: 'files', label: '文件' },
+          { key: 'graph', label: '共享关系图' },
+        ]}
+        extra={
+          <>
+            <button type="button" className="tabbar__stat" onClick={() => setViewMode('files')}>
+              知识库 <b>{kbs.length}</b>
+            </button>
+            <button type="button" className="tabbar__stat" onClick={() => setViewMode('files')}>
+              文档 <b>{documents.length}</b>
+            </button>
+            <button type="button" className="tabbar__stat" onClick={() => setViewMode('graph')}>
+              对外共享 <b>{activeShares.length}</b>
+            </button>
+          </>
+        }
+      />
+
+      {/* 文件搜索上移顶栏导航：dock 搜索按钮与 `/` 都会聚焦它 */}
+      {viewMode === 'files' && canList && documents.length > 0 ? (
+        <PageSearch>
+          <Input
+            allowClear
+            prefix={<SearchOutlined />}
+            placeholder="按文件名或标题搜索"
+            aria-label="搜索文档"
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+          />
+        </PageSearch>
+      ) : null}
+
       {viewMode === 'graph' ? (
         <Card
           title="共享关系图"
@@ -934,15 +964,6 @@ export default function KnowledgeBasePage() {
 
                     {canList && documents.length > 0 ? (
                       <div className="kb-toolbar">
-                        <Input
-                          allowClear
-                          prefix={<SearchOutlined />}
-                          placeholder="按文件名或标题搜索"
-                          aria-label="搜索文档"
-                          value={keyword}
-                          onChange={(event) => setKeyword(event.target.value)}
-                          className="kb-search"
-                        />
                         {selectedIds.length > 0 ? (
                           <Space size={8} wrap>
                             <Text type="secondary">已选 {selectedIds.length} 项</Text>
