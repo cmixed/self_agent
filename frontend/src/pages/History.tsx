@@ -6,6 +6,7 @@ import EmptyState from '../components/EmptyState'
 import { usePageRefresh } from '../hooks/usePageRefresh'
 import ErrorNotice from '../components/ErrorNotice'
 import PageContainer from '../components/PageContainer'
+import { PageSearchField } from '../components/PageSearch'
 import PageTabs from '../components/PageTabs'
 import StatusTag from '../components/StatusTag'
 import { useViewStack } from '../components/ViewStack'
@@ -159,8 +160,7 @@ export default function HistoryPage() {
         ]}
       />
 
-      {/* 页内筛选只影响当前列表，留在内容区，不占用顶栏 */}
-      <div className="page-search">
+      <PageSearchField>
         <Input
           id="history-search"
           name="keyword"
@@ -171,7 +171,7 @@ export default function HistoryPage() {
           value={keyword}
           onChange={(event) => setKeyword(event.target.value)}
         />
-      </div>
+      </PageSearchField>
 
       <Card>
         {visibleTasks.length === 0 && !loading ? (

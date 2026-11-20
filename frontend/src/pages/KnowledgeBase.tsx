@@ -50,6 +50,7 @@ import EmptyState from '../components/EmptyState'
 import ErrorNotice from '../components/ErrorNotice'
 import ImportPreviewModal from '../components/ImportPreviewModal'
 import PageContainer from '../components/PageContainer'
+import { PageSearchField } from '../components/PageSearch'
 import PageTabs from '../components/PageTabs'
 import ShareDialog from '../components/ShareDialog'
 import ShareGraph from '../components/ShareGraph'
@@ -719,7 +720,7 @@ export default function KnowledgeBasePage() {
 
       {/* 页内筛选留在内容区：顶部标签之后、列表之前 */}
       {viewMode === 'files' && canList && documents.length > 0 ? (
-        <div className="page-search">
+        <PageSearchField>
           <Input
             allowClear
             prefix={<SearchOutlined />}
@@ -728,7 +729,7 @@ export default function KnowledgeBasePage() {
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
-        </div>
+        </PageSearchField>
       ) : null}
 
       {viewMode === 'graph' ? (

@@ -335,6 +335,8 @@ html[data-theme='dark'] body {
   top: 0;
   z-index: var(--ws-z-sticky);
   height: var(--ws-header-h);
+  /* 顶栏高度固定：内容区滚动/切换板块时不允许被 flex 压缩或撑开 */
+  flex: 0 0 var(--ws-header-h);
   display: flex;
   align-items: center;
   gap: var(--ws-space-2);
@@ -359,6 +361,9 @@ html[data-theme='dark'] body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  /* 始终为纵向滚动条预留空间：切换板块时内容高度变化不会让整页左右抖动，
+     顶栏与内容区也保持同一宽度 */
+  scrollbar-gutter: stable;
   padding: var(--ws-content-pad-y) var(--ws-content-pad-x);
   background: transparent;
 }
@@ -545,6 +550,10 @@ html[data-theme='dark'] .ant-card {
 }
 
 /* 段三：全局操作 */
+.dock__action-wrap {
+  display: inline-flex;
+}
+
 .dock__action {
   display: inline-flex;
   align-items: center;
@@ -3558,6 +3567,14 @@ html[data-theme='dark'] .ant-card {
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
+  /* 标签多时横向滚动，但不再占一条滚动条高度：
+     否则切到「分组」等较短/较长的标签时，选区变宽会触发滚动条出现/消失，
+     顶部标签栏的高度跟着上下跳。 */
+  scrollbar-width: none;
+}
+
+.tabbar__tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tabbar__item {
@@ -3567,7 +3584,10 @@ html[data-theme='dark'] .ant-card {
   justify-content: center;
   gap: 6px;
   min-width: 92px;
-  padding: 7px 12px;
+  /* 固定高度 + 行高：选中态加粗不会改变字体行盒，切换标签时顶部标签栏不上下跳 */
+  height: 34px;
+  padding: 0 12px;
+  line-height: 1;
   border: 0;
   border-radius: var(--ws-radius);
   background: transparent;

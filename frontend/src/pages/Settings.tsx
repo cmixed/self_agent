@@ -7,6 +7,7 @@ import {
   DownloadOutlined,
   ImportOutlined,
   ReloadOutlined,
+  SearchOutlined,
   SettingOutlined,
   ThunderboltOutlined,
   UserOutlined,
@@ -45,6 +46,7 @@ import {
 } from '../services/api'
 import { changePassword, getCachedUser } from '../services/auth'
 import { useTaskRun } from '../state/taskRun'
+import { useShortcuts } from '../state/shortcuts'
 import type { ThemeMode } from '../theme/config'
 import type { BackupImportPreview, CategoryInfo, DocumentInfo, TaskDepth } from '../types/api'
 import { downloadBlob } from '../utils/download'
@@ -111,6 +113,7 @@ export default function SettingsPage({
 }: SettingsPageProps) {
   const { message, modal } = App.useApp()
   const { pillSettings, updatePillSettings, clearAcknowledged } = useTaskRun()
+  const { setSearchOpen } = useShortcuts()
 
   const [memory, setMemory] = useState<TaskOptionsMemory>(readTaskOptionsMemory)
   const [categories, setCategories] = useState<CategoryInfo[]>([])
@@ -290,38 +293,52 @@ export default function SettingsPage({
   ]
 
   const appearanceCard = (
-    <Card title="外观">
-      <SettingsRow
-        title="主题"
-        description={
-          mode === 'system'
-            ? '跟随系统时会实时响应系统的浅色 / 深色设置（顶栏按钮可快速切换为固定主题）。'
-            : `当前固定为${resolvedLabel}；需要重新跟随系统请选择「跟随系统」。`
-        }
-        control={
-          <Segmented
-            value={mode}
-            onChange={(value) => setMode(value as ThemeMode)}
-            options={[
-              { label: '跟随系统', value: 'system' },
-              { label: '浅色', value: 'light' },
-              { label: '深色', value: 'dark' },
-            ]}
-          />
-        }
-      />
-      <SettingsRow
-        title="顶栏板块切换"
-        description="在顶栏右侧显示一排板块图标胶囊，用于快速切换页面；与左侧导航、G + 字母快捷键等价。关闭后只保留左侧导航，顶栏更简洁。"
-        control={
-          <Switch
-            checked={showPageSwitcher}
-            onChange={setShowPageSwitcher}
-            aria-label="显示顶栏板块切换胶囊"
-          />
-        }
-      />
-    </Card>
+    <>
+      <Card title="外观">
+        <SettingsRow
+          title="主题"
+          description={
+            mode === 'system'
+              ? '跟随系统时会实时响应系统的浅色 / 深色设置（顶栏按钮可快速切换为固定主题）。'
+              : `当前固定为${resolvedLabel}；需要重新跟随系统请选择「跟随系统」。`
+          }
+          control={
+            <Segmented
+              value={mode}
+              onChange={(value) => setMode(value as ThemeMode)}
+              options={[
+                { label: '跟随系统', value: 'system' },
+                { label: '浅色', value: 'light' },
+                { label: '深色', value: 'dark' },
+              ]}
+            />
+          }
+        />
+        <SettingsRow
+          title="顶栏板块切换"
+          description="在顶栏右侧显示一排板块图标胶囊，用于快速切换页面；与左侧导航、G + 字母快捷键等价。关闭后只保留左侧导航，顶栏更简洁。"
+          control={
+            <Switch
+              checked={showPageSwitcher}
+              onChange={setShowPageSwitcher}
+              aria-label="显示顶栏板块切换胶囊"
+            />
+          }
+        />
+      </Card>
+
+      <Card title="搜索">
+        <SettingsRow
+          title="全局搜索"
+          description="搜索页面、知识库与快捷键。入口只在设置页提供；顶栏与 dock 不再占用全局搜索，dock 的搜索按钮只调用当前页面的页内搜索。"
+          control={
+            <Button icon={<SearchOutlined />} onClick={() => setSearchOpen(true)}>
+              打开全局搜索
+            </Button>
+          }
+        />
+      </Card>
+    </>
   )
 
   const workspaceCard = (

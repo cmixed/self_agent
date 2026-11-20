@@ -13,7 +13,6 @@ import {
   TagsOutlined,
   TeamOutlined,
   LogoutOutlined,
-  SearchOutlined,
 } from '@ant-design/icons'
 import {
   App as AntApp,
@@ -35,6 +34,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react
 import AppDock from './components/AppDock'
 import ErrorBoundary from './components/ErrorBoundary'
 import PageSwitcher from './components/PageSwitcher'
+import { PageSearchProvider, usePageSearch } from './components/PageSearch'
 import QuickSearch from './components/QuickSearch'
 import ShortcutHelp from './components/ShortcutHelp'
 import { fetchMe, getCachedUser, getToken, logout, onUnauthorized } from './services/auth'
@@ -209,15 +209,17 @@ export default function App() {
               <ViewStackProvider>
                 <ShortcutProvider>
                   <BadgesProvider>
-                    <AppShell
-                      mode={mode}
-                      resolvedMode={resolvedMode}
-                      setMode={setMode}
-                      toggleMode={toggleMode}
-                      showPageSwitcher={showPageSwitcher}
-                      setShowPageSwitcher={setShowPageSwitcher}
-                      onLogout={() => void handleLogout()}
-                    />
+                    <PageSearchProvider>
+                      <AppShell
+                        mode={mode}
+                        resolvedMode={resolvedMode}
+                        setMode={setMode}
+                        toggleMode={toggleMode}
+                        showPageSwitcher={showPageSwitcher}
+                        setShowPageSwitcher={setShowPageSwitcher}
+                        onLogout={() => void handleLogout()}
+                      />
+                    </PageSearchProvider>
                   </BadgesProvider>
                 </ShortcutProvider>
               </ViewStackProvider>
@@ -256,6 +258,7 @@ function AppShell({
   const { overlays, canGoBack, back, closeAll } = useViewStack()
   const { setHelpOpen, searchOpen, setSearchOpen, register, unregister } = useShortcuts()
   const { badges } = useBadges()
+  const { trigger: triggerPageSearch } = usePageSearch()
 
   // 工作台徽标：运行中任务用圆点，待查看任务显示数字
   const workspaceBadge = useMemo<PageBadge>(() => {
@@ -334,16 +337,9 @@ function AppShell({
     [closeAll, navigate],
   )
 
-  /**
-   * 统一搜索入口：顶栏右侧只有一个「全局搜索」按钮。
-   * 页内筛选（任务历史 / 知识库）保留在页面内容区，不再占用顶栏；
-   * dock 也不再重复放搜索按钮（§17 导航分层）。
-   */
-  const openSearch = useCallback(() => setSearchOpen(true), [setSearchOpen])
-
   // 统一快捷键：动作在应用壳注册，HELP 面板与按键提示共用同一份元数据
   useShortcut('help', () => setHelpOpen(true))
-  useShortcut('search', openSearch)
+  useShortcut('search', triggerPageSearch)
   useShortcut('toggleTheme', () => toggleMode())
   useShortcut('goBack', () => {
     // 搜索面板打开时 Esc 先关它，不误触内容区的「返回上一层」
@@ -485,15 +481,6 @@ function AppShell({
             </span>
           </div>
           <div className="app-header-right">
-            <Tooltip title="全局搜索（页面 / 知识库 / 快捷键）">
-              <Button
-                type="text"
-                size="small"
-                aria-label="全局搜索"
-                icon={<SearchOutlined />}
-                onClick={openSearch}
-              />
-            </Tooltip>
             {showPageSwitcher ? (
               <PageSwitcher
                 page={page}
