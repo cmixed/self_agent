@@ -10,37 +10,35 @@ interface PageContainerProps {
   title: string
   eyebrow?: string
   description?: ReactNode
-  /** 页头右侧操作区（渲染到顶栏右上角统一插槽） */
+  /** 当前页操作区：portal 到底部 dock 的「当前页操作」段（§17 导航分层） */
   extra?: ReactNode
   maxWidth?: number
   children: ReactNode
 }
 
 /**
- * 统一页面容器：内容区 + 顶栏操作区。
- * 板块标题 / 说明由顶栏统一展示；extra 按钮通过 portal 挂到顶栏右上角，
- * 避免各页面各自摆放、样式漂移。
+ * 统一页面容器：内容区 + 当前页操作。
+ * 板块标题 / 说明由顶栏统一展示；extra 按钮通过 portal 挂到底部 dock，
+ * 避免各页面各自摆放、样式漂移。搜索不进 dock，见 §17。
  */
-export default function PageContainer({
-  extra,
-  maxWidth = 1200,
-  children,
-}: PageContainerProps) {
+export default function PageContainer({ extra, maxWidth = 1200, children }: PageContainerProps) {
   const [slot, setSlot] = useState<HTMLElement | null>(null)
 
   useEffect(() => {
     setSlot(document.querySelector<HTMLElement>('[data-page-actions-slot]'))
   }, [])
 
-  const actions = extra ? <div className="app-header-page-actions__inner">{extra}</div> : null
+  const actions = extra ? <div className="page-actions__inner">{extra}</div> : null
 
   return (
     <div className="page-container" style={{ maxWidth }}>
-      {actions
-        ? slot
-          ? createPortal(actions, slot)
-          : <div className="page-header page-header--actions-only">{extra}</div>
-        : null}
+      {actions ? (
+        slot ? (
+          createPortal(actions, slot)
+        ) : (
+          <div className="page-header page-header--actions-only">{extra}</div>
+        )
+      ) : null}
       <div className="page-body">{children}</div>
     </div>
   )

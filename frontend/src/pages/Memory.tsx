@@ -288,8 +288,22 @@ export default function MemoryPage() {
         activeKey={section}
         onChange={(key) => setSection(key as 'preference' | 'memory')}
         items={[
-          { key: 'preference', label: <>偏好 <b>{preferences.length}</b></> },
-          { key: 'memory', label: <>记忆 <b>{memories.length}</b></> },
+          {
+            key: 'preference',
+            label: (
+              <>
+                偏好 <b>{preferences.length}</b>
+              </>
+            ),
+          },
+          {
+            key: 'memory',
+            label: (
+              <>
+                记忆 <b>{memories.length}</b>
+              </>
+            ),
+          },
         ]}
         extra={
           <Button

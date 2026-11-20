@@ -2,7 +2,7 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
-import { THEME_STORAGE_KEY } from './config'
+import { PAGE_SWITCHER_STORAGE_KEY, THEME_STORAGE_KEY } from './config'
 import { useUiPreferences } from './useUiPreferences'
 
 type MediaListener = (event: { matches: boolean }) => void
@@ -91,5 +91,23 @@ describe('useUiPreferences', () => {
 
     expect(result.current.mode).toBe('dark')
     expect(result.current.resolvedMode).toBe('dark')
+  })
+
+  it('顶栏板块胶囊默认显示，关闭后写入本地偏好', () => {
+    const { result } = renderHook(() => useUiPreferences())
+
+    expect(result.current.showPageSwitcher).toBe(true)
+    expect(localStorage.getItem(PAGE_SWITCHER_STORAGE_KEY)).toBe('1')
+
+    act(() => result.current.setShowPageSwitcher(false))
+    expect(result.current.showPageSwitcher).toBe(false)
+    expect(localStorage.getItem(PAGE_SWITCHER_STORAGE_KEY)).toBe('0')
+  })
+
+  it('读取已关闭的板块胶囊偏好', () => {
+    localStorage.setItem(PAGE_SWITCHER_STORAGE_KEY, '0')
+    const { result } = renderHook(() => useUiPreferences())
+
+    expect(result.current.showPageSwitcher).toBe(false)
   })
 })

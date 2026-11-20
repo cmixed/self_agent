@@ -157,7 +157,8 @@ const PAGE_META: PageMeta[] = [
 ]
 
 export default function App() {
-  const { mode, resolvedMode, setMode, toggleMode } = useUiPreferences()
+  const { mode, resolvedMode, setMode, toggleMode, showPageSwitcher, setShowPageSwitcher } =
+    useUiPreferences()
   // null = 正在校验登录态；false = 未登录（显示登录页）
   const [authed, setAuthed] = useState<boolean | null>(null)
 
@@ -213,6 +214,8 @@ export default function App() {
                       resolvedMode={resolvedMode}
                       setMode={setMode}
                       toggleMode={toggleMode}
+                      showPageSwitcher={showPageSwitcher}
+                      setShowPageSwitcher={setShowPageSwitcher}
                       onLogout={() => void handleLogout()}
                     />
                   </BadgesProvider>
@@ -231,12 +234,16 @@ function AppShell({
   resolvedMode,
   setMode,
   toggleMode,
+  showPageSwitcher,
+  setShowPageSwitcher,
   onLogout,
 }: {
   mode: ThemeMode
   resolvedMode: ResolvedTheme
   setMode: (mode: ThemeMode) => void
   toggleMode: () => void
+  showPageSwitcher: boolean
+  setShowPageSwitcher: (visible: boolean) => void
   onLogout: () => void
 }) {
   const { page, navigate } = useNav()
@@ -328,18 +335,11 @@ function AppShell({
   )
 
   /**
-   * 统一搜索入口：顶栏有「当前页搜索框」时聚焦它（输入即筛选当前列表），
-   * 否则打开全局搜索面板。dock 的搜索按钮与 `/` 共用这一份逻辑。
+   * 统一搜索入口：顶栏右侧只有一个「全局搜索」按钮。
+   * 页内筛选（任务历史 / 知识库）保留在页面内容区，不再占用顶栏；
+   * dock 也不再重复放搜索按钮（§17 导航分层）。
    */
-  const openSearch = useCallback(() => {
-    const input = document.querySelector<HTMLInputElement>('[data-page-search-slot] input')
-    if (input && input.offsetParent !== null) {
-      input.focus()
-      input.select()
-      return
-    }
-    setSearchOpen(true)
-  }, [setSearchOpen])
+  const openSearch = useCallback(() => setSearchOpen(true), [setSearchOpen])
 
   // 统一快捷键：动作在应用壳注册，HELP 面板与按键提示共用同一份元数据
   useShortcut('help', () => setHelpOpen(true))
@@ -484,30 +484,28 @@ function AppShell({
               {PAGE_META.find((item) => item.key === page)?.description}
             </span>
           </div>
-          <div className="app-header-search">
-            {/* 当前页搜索框（任务历史 / 知识库等）通过 PageSearch portal 注入 */}
-            <div className="app-header-search__slot" data-page-search-slot aria-label="当前页搜索" />
+          <div className="app-header-right">
             <Tooltip title="全局搜索（页面 / 知识库 / 快捷键）">
               <Button
                 type="text"
                 size="small"
                 aria-label="全局搜索"
                 icon={<SearchOutlined />}
-                onClick={() => setSearchOpen(true)}
+                onClick={openSearch}
               />
             </Tooltip>
-          </div>
-          <div className="app-header-right">
-            <PageSwitcher
-              page={page}
-              pages={visiblePages.map((item) => ({
-                key: item.key,
-                label: item.label,
-                icon: item.icon,
-              }))}
-              badges={badges}
-              onNavigate={handleNav}
-            />
+            {showPageSwitcher ? (
+              <PageSwitcher
+                page={page}
+                pages={visiblePages.map((item) => ({
+                  key: item.key,
+                  label: item.label,
+                  icon: item.icon,
+                }))}
+                badges={badges}
+                onNavigate={handleNav}
+              />
+            ) : null}
           </div>
         </div>
 
@@ -524,7 +522,14 @@ function AppShell({
                 {page === 'history' && <HistoryPage />}
                 {page === 'memory' && <MemoryPage />}
                 {page === 'team' && <TeamPage />}
-                {page === 'settings' && <SettingsPage mode={mode} setMode={setMode} />}
+                {page === 'settings' && (
+                  <SettingsPage
+                    mode={mode}
+                    setMode={setMode}
+                    showPageSwitcher={showPageSwitcher}
+                    setShowPageSwitcher={setShowPageSwitcher}
+                  />
+                )}
               </Suspense>
             </div>
             {/* 叠加视图（任务详情 / 文档阅读），可嵌套返回 */}
@@ -550,11 +555,9 @@ function AppShell({
           </ErrorBoundary>
         </Content>
       </Layout>
-      {/* 底部浮动操作坞：当前页操作 / 全局操作 / 任务胶囊 */}
+      {/* 底部浮动操作坞：当前页操作 / 全局操作 / 任务胶囊（搜索只在顶栏，§17） */}
       <AppDock
-        page={page}
         onHelp={() => setHelpOpen(true)}
-        onSearch={openSearch}
         onToggleTheme={toggleMode}
         resolvedMode={resolvedMode}
         onBack={back}

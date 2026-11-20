@@ -6,7 +6,6 @@ import EmptyState from '../components/EmptyState'
 import { usePageRefresh } from '../hooks/usePageRefresh'
 import ErrorNotice from '../components/ErrorNotice'
 import PageContainer from '../components/PageContainer'
-import PageSearch from '../components/PageSearch'
 import PageTabs from '../components/PageTabs'
 import StatusTag from '../components/StatusTag'
 import { useViewStack } from '../components/ViewStack'
@@ -103,8 +102,65 @@ export default function HistoryPage() {
         </Space>
       }
     >
-      {/* 搜索框挂到顶栏导航：dock 搜索按钮与 `/` 都会聚焦它 */}
-      <PageSearch>
+      {error && (
+        <ErrorNotice
+          message={error}
+          onClose={() => setError(null)}
+          onRetry={() => void refresh()}
+        />
+      )}
+
+      {/* 状态筛选是页面分区标签，统一放在内容区顶部（§17 导航分层） */}
+      <PageTabs
+        label="任务状态"
+        activeKey={statusFilter}
+        onChange={setStatusFilter}
+        items={[
+          {
+            key: 'all',
+            label: (
+              <>
+                全部 <b>{counts.all}</b>
+              </>
+            ),
+          },
+          {
+            key: 'running',
+            label: (
+              <>
+                运行中 <b>{counts.running}</b>
+              </>
+            ),
+          },
+          {
+            key: 'completed',
+            label: (
+              <>
+                已完成 <b>{counts.completed}</b>
+              </>
+            ),
+          },
+          {
+            key: 'cancelled',
+            label: (
+              <>
+                已取消 <b>{counts.cancelled}</b>
+              </>
+            ),
+          },
+          {
+            key: 'failed',
+            label: (
+              <>
+                失败 <b>{counts.failed}</b>
+              </>
+            ),
+          },
+        ]}
+      />
+
+      {/* 页内筛选只影响当前列表，留在内容区，不占用顶栏 */}
+      <div className="page-search">
         <Input
           id="history-search"
           name="keyword"
@@ -115,29 +171,7 @@ export default function HistoryPage() {
           value={keyword}
           onChange={(event) => setKeyword(event.target.value)}
         />
-      </PageSearch>
-
-      {error && (
-        <ErrorNotice
-          message={error}
-          onClose={() => setError(null)}
-          onRetry={() => void refresh()}
-        />
-      )}
-
-      {/* 状态筛选改成顶栏标签，与团队 / 设置页同一套样式 */}
-      <PageTabs
-        label="任务状态"
-        activeKey={statusFilter}
-        onChange={setStatusFilter}
-        items={[
-          { key: 'all', label: <>全部 <b>{counts.all}</b></> },
-          { key: 'running', label: <>运行中 <b>{counts.running}</b></> },
-          { key: 'completed', label: <>已完成 <b>{counts.completed}</b></> },
-          { key: 'cancelled', label: <>已取消 <b>{counts.cancelled}</b></> },
-          { key: 'failed', label: <>失败 <b>{counts.failed}</b></> },
-        ]}
-      />
+      </div>
 
       <Card>
         {visibleTasks.length === 0 && !loading ? (

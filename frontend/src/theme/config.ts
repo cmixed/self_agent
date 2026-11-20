@@ -8,6 +8,9 @@ export type ResolvedTheme = 'dark' | 'light'
 
 export const THEME_STORAGE_KEY = 'self-agent.theme'
 
+/** 顶栏右侧「板块切换胶囊」开关（默认显示）。 */
+export const PAGE_SWITCHER_STORAGE_KEY = 'self-agent.page-switcher'
+
 export const BRAND_NAME = '团队知识库助手智能体'
 export const APP_VERSION = 'v0.1.0'
 

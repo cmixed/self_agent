@@ -36,7 +36,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import EmptyState from '../components/EmptyState'
 import PageContainer from '../components/PageContainer'
-import PageTabbar from '../components/PageTabbar'
+import PageTabs from '../components/PageTabs'
 import ShareGraph from '../components/ShareGraph'
 import { usePageRefresh } from '../hooks/usePageRefresh'
 import { useReportBadge } from '../state/badges'
@@ -1163,7 +1163,7 @@ export default function TeamPage() {
     .filter((item) => item.status === 'active')
     .map((item) => ({ value: item.user_id, label: item.display_name }))
 
-  // 五个板块改成左栏的二级导航，右侧直接渲染当前板块，不再用横向 Tabs
+  // 板块切换统一用内容区顶部的 PageTabs（§17 导航分层），右侧直接渲染当前板块
   const tabItems = [
     {
       key: 'members',
@@ -1203,47 +1203,46 @@ export default function TeamPage() {
       title="团队管理"
       description="成员、分组与共享审批集中管理。共享按「库 × 一批人 × 一组能力」组合生效，管理员看关系不看内容。非管理员不会看到此页面入口，后端仍二次校验。"
     >
-      <PageTabbar page="team">
-        <div className="tabbar__tabs">
-          {tabItems.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              role="tab"
-              aria-selected={tab === item.key}
-              className={`tabbar__item${tab === item.key ? ' is-active' : ''}`}
-              onClick={() => setTab(item.key)}
-            >
+      <PageTabs
+        label="团队管理分区"
+        activeKey={tab}
+        onChange={setTab}
+        items={tabItems.map((item) => ({
+          key: item.key,
+          label: (
+            <>
               {item.icon}
               {item.label}
+            </>
+          ),
+        }))}
+        extra={
+          <>
+            <button
+              type="button"
+              className="tabbar__stat"
+              title={`管理员 ${adminCount} 人 · 普通成员 ${memberCount} 人`}
+              onClick={() => setTab('members')}
+            >
+              <TeamOutlined /> 成员 <b>{adminCount + memberCount}</b>
             </button>
-          ))}
-        </div>
-        <div className="tabbar__extra">
-          <button
-            type="button"
-            className="tabbar__stat"
-            title={`管理员 ${adminCount} 人 · 普通成员 ${memberCount} 人`}
-            onClick={() => setTab('members')}
-          >
-            <TeamOutlined /> 成员 <b>{adminCount + memberCount}</b>
-          </button>
-          <button
-            type="button"
-            className={`tabbar__stat${pendingShareCount > 0 ? ' is-warning' : ''}`}
-            onClick={() => setTab('shares')}
-          >
-            <SafetyOutlined /> 待审批 <b>{pendingShareCount}</b>
-          </button>
-          <button
-            type="button"
-            className={`tabbar__stat${pendingMemberCount > 0 ? ' is-warning' : ''}`}
-            onClick={() => setTab('groups')}
-          >
-            <UsergroupAddOutlined /> 待入组 <b>{pendingMemberCount}</b>
-          </button>
-        </div>
-      </PageTabbar>
+            <button
+              type="button"
+              className={`tabbar__stat${pendingShareCount > 0 ? ' is-warning' : ''}`}
+              onClick={() => setTab('shares')}
+            >
+              <SafetyOutlined /> 待审批 <b>{pendingShareCount}</b>
+            </button>
+            <button
+              type="button"
+              className={`tabbar__stat${pendingMemberCount > 0 ? ' is-warning' : ''}`}
+              onClick={() => setTab('groups')}
+            >
+              <UsergroupAddOutlined /> 待入组 <b>{pendingMemberCount}</b>
+            </button>
+          </>
+        }
+      />
 
       <div className="side-main">{tabItems.find((item) => item.key === tab)?.children}</div>
 

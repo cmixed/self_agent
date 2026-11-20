@@ -32,7 +32,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import ImportPreviewModal from '../components/ImportPreviewModal'
 import PageContainer from '../components/PageContainer'
-import PageTabbar from '../components/PageTabbar'
+import PageTabs from '../components/PageTabs'
 import { setCachedPresets } from '../hooks/usePresets'
 import {
   ApiError,
@@ -91,6 +91,9 @@ function SettingsRow({ title, description, control }: SettingsRowProps) {
 interface SettingsPageProps {
   mode: ThemeMode
   setMode: (mode: ThemeMode) => void
+  /** 顶栏右侧板块切换胶囊是否显示（设置页可关） */
+  showPageSwitcher: boolean
+  setShowPageSwitcher: (visible: boolean) => void
 }
 
 /**
@@ -100,7 +103,12 @@ interface SettingsPageProps {
  * 这里决定的是它们要不要在下次进入工作台时自动套用，以及提醒类参数。
  * 所有数据只写 localStorage，不写入 SQLite `user_preferences`（那里是长期记忆）。
  */
-export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
+export default function SettingsPage({
+  mode,
+  setMode,
+  showPageSwitcher,
+  setShowPageSwitcher,
+}: SettingsPageProps) {
   const { message, modal } = App.useApp()
   const { pillSettings, updatePillSettings, clearAcknowledged } = useTaskRun()
 
@@ -299,6 +307,17 @@ export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
               { label: '浅色', value: 'light' },
               { label: '深色', value: 'dark' },
             ]}
+          />
+        }
+      />
+      <SettingsRow
+        title="顶栏板块切换"
+        description="在顶栏右侧显示一排板块图标胶囊，用于快速切换页面；与左侧导航、G + 字母快捷键等价。关闭后只保留左侧导航，顶栏更简洁。"
+        control={
+          <Switch
+            checked={showPageSwitcher}
+            onChange={setShowPageSwitcher}
+            aria-label="显示顶栏板块切换胶囊"
           />
         }
       />
@@ -608,23 +627,20 @@ export default function SettingsPage({ mode, setMode }: SettingsPageProps) {
       description="这些偏好只保存在当前浏览器。工作台上的执行深度、允许技能与检索范围属于本次任务参数，不会自动影响其它任务。"
       maxWidth={PAGE_MAX_WIDTH}
     >
-      <PageTabbar page="settings">
-        <div className="tabbar__tabs">
-          {sections.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              role="tab"
-              aria-selected={section === item.key}
-              className={`tabbar__item${section === item.key ? ' is-active' : ''}`}
-              onClick={() => setSection(item.key)}
-            >
+      <PageTabs
+        label="设置分区"
+        activeKey={section}
+        onChange={setSection}
+        items={sections.map((item) => ({
+          key: item.key,
+          label: (
+            <>
               {item.icon}
               {item.label}
-            </button>
-          ))}
-        </div>
-      </PageTabbar>
+            </>
+          ),
+        }))}
+      />
 
       {section === 'appearance' ? appearanceCard : null}
       {section === 'workspace' ? workspaceCard : null}

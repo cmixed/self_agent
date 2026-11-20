@@ -520,9 +520,30 @@ export default function SkillsPage() {
         activeKey={filter}
         onChange={(key) => setFilter(key as SkillFilter)}
         items={[
-          { key: 'all', label: <>全部 <b>{skills.length}</b></> },
-          { key: 'enabled', label: <>已启用 <b>{enabledCount}</b></> },
-          { key: 'disabled', label: <>已停用 <b>{disabledCount}</b></> },
+          {
+            key: 'all',
+            label: (
+              <>
+                全部 <b>{skills.length}</b>
+              </>
+            ),
+          },
+          {
+            key: 'enabled',
+            label: (
+              <>
+                已启用 <b>{enabledCount}</b>
+              </>
+            ),
+          },
+          {
+            key: 'disabled',
+            label: (
+              <>
+                已停用 <b>{disabledCount}</b>
+              </>
+            ),
+          },
         ]}
         extra={
           <>

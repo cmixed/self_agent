@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { THEME_STORAGE_KEY } from './config'
+import { PAGE_SWITCHER_STORAGE_KEY, THEME_STORAGE_KEY } from './config'
 import type { ResolvedTheme, ThemeMode } from './config'
 
 function readStored(key: string, fallback: string): string {
@@ -31,6 +31,11 @@ function systemPrefersDark(): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches
 }
 
+/** 读取顶栏板块胶囊开关；未设置过时默认显示。 */
+function readPageSwitcher(): boolean {
+  return readStored(PAGE_SWITCHER_STORAGE_KEY, '1') !== '0'
+}
+
 /**
  * 主题偏好（持久化到 localStorage）。
  *
@@ -41,6 +46,7 @@ function systemPrefersDark(): boolean {
 export function useUiPreferences() {
   const [mode, setMode] = useState<ThemeMode>(readMode)
   const [systemDark, setSystemDark] = useState(systemPrefersDark)
+  const [showPageSwitcher, setShowPageSwitcher] = useState(readPageSwitcher)
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
@@ -58,6 +64,10 @@ export function useUiPreferences() {
     document.documentElement.dataset.theme = resolvedMode
   }, [mode, resolvedMode])
 
+  useEffect(() => {
+    writeStored(PAGE_SWITCHER_STORAGE_KEY, showPageSwitcher ? '1' : '0')
+  }, [showPageSwitcher])
+
   const toggleMode = useCallback(() => {
     setMode((prev) => {
       const current = prev === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : prev
@@ -65,5 +75,5 @@ export function useUiPreferences() {
     })
   }, [])
 
-  return { mode, resolvedMode, setMode, toggleMode }
+  return { mode, resolvedMode, setMode, toggleMode, showPageSwitcher, setShowPageSwitcher }
 }

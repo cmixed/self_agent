@@ -2,11 +2,7 @@ import { LockOutlined, MailOutlined, UserOutlined } from '@ant-design/icons'
 import { App, Button, Card, Form, Input, Typography } from 'antd'
 import { useState } from 'react'
 
-import {
-  confirmPasswordReset,
-  login,
-  requestPasswordReset,
-} from '../services/auth'
+import { confirmPasswordReset, login, requestPasswordReset } from '../services/auth'
 import { APP_VERSION, BRAND_NAME } from '../theme/config'
 
 interface LoginValues {

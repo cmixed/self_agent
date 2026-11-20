@@ -16,9 +16,9 @@ interface PageTabsProps {
 }
 
 /**
- * 页面顶栏标签栏（胶囊条）：横跨内容区，标签均分宽度，右端可挂状态胶囊。
- * 任务历史 / 预设任务 / 长期记忆 / 技能 / 知识库等需要「顶栏，分标签」的页面共用，
- * 与团队 / 设置的 dock 栏标签栏同一套样式（.tabbar）。
+ * 内容区顶部的页面分区标签栏（胶囊条）：横跨内容区，标签均分宽度，右端可挂状态胶囊。
+ * 任务历史 / 预设任务 / 长期记忆 / 技能 / 知识库 / 团队 / 设置统一使用，
+ * 不再把分区标签放进底部 dock（§17 导航分层）。
  */
 export default function PageTabs({ label, items, activeKey, onChange, extra }: PageTabsProps) {
   return (

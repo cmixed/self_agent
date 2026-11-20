@@ -374,7 +374,9 @@ describe('pillsSignature', () => {
     expect(pillsSignature([running])).not.toBe(
       pillsSignature([{ ...running, stage: 'validator_started' }]),
     )
-    expect(pillsSignature([running])).not.toBe(pillsSignature([{ ...running, status: 'completed' }]))
+    expect(pillsSignature([running])).not.toBe(
+      pillsSignature([{ ...running, status: 'completed' }]),
+    )
   })
 
   it('仅 query 等不参与展示的字段变化时签名不变（避免无谓重渲染）', () => {
